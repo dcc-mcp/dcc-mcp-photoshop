@@ -1,0 +1,27 @@
+{
+  "id": "com.dcc-mcp.photoshop-bridge",
+  "name": "dcc-mcp Bridge",
+  "version": "0.1.0",
+  "description": "DCC MCP bridge for Adobe Photoshop — exposes a WebSocket server for AI tool integration",
+  "host": {
+    "app": "PS",
+    "minVersion": "22.0.0"
+  },
+  "entrypoints": [
+    {
+      "type": "plugin",
+      "id": "main",
+      "label": {
+        "default": "dcc-mcp Bridge"
+      },
+      "main": "index.js"
+    }
+  ],
+  "requiredPermissions": {
+    "network": {
+      "domains": ["ws://localhost:*", "wss://localhost:*"],
+      "webSockets": "localhost"
+    },
+    "localFileSystem": "request"
+  }
+}
