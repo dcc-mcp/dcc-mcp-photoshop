@@ -40,8 +40,11 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import logging.handlers
+import os
 import threading
 from concurrent.futures import Future
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
@@ -50,6 +53,45 @@ logger = logging.getLogger(__name__)
 DEFAULT_SERVER_HOST = "localhost"
 DEFAULT_SERVER_PORT = 9001
 DEFAULT_TIMEOUT_SEC = 30.0
+
+# Default bridge log path — rotate at 5 MB, keep 5 backups
+_DEFAULT_LOG_DIR = Path.home() / ".dcc-mcp" / "logs"
+_BRIDGE_LOG_FILENAME = "photoshop-bridge.log"
+
+
+def _setup_file_logger(log_dir: Path = _DEFAULT_LOG_DIR) -> None:
+    """Configure a rotating file handler for the bridge logger.
+
+    Creates ``~/.dcc-mcp/logs/photoshop-bridge.log`` (rotates at 5 MB,
+    keeps 5 backups).  Safe to call multiple times — handler is only added
+    once.
+    """
+    for h in logger.handlers:
+        if isinstance(h, logging.handlers.RotatingFileHandler):
+            return  # already configured
+
+    log_dir.mkdir(parents=True, exist_ok=True)
+    log_path = log_dir / _BRIDGE_LOG_FILENAME
+
+    handler = logging.handlers.RotatingFileHandler(
+        log_path,
+        maxBytes=5 * 1024 * 1024,  # 5 MB
+        backupCount=5,
+        encoding="utf-8",
+    )
+    handler.setFormatter(
+        logging.Formatter(
+            "%(asctime)s %(levelname)-8s [%(name)s] %(message)s",
+            datefmt="%Y-%m-%dT%H:%M:%S",
+        )
+    )
+    handler.setLevel(logging.DEBUG)
+    logger.addHandler(handler)
+    # Ensure the logger level allows DEBUG messages through
+    if logger.level == logging.NOTSET or logger.level > logging.DEBUG:
+        logger.setLevel(logging.DEBUG)
+
+    logger.info("Bridge log file: %s", log_path)
 
 
 # ---------------------------------------------------------------------------
@@ -109,10 +151,14 @@ class PhotoshopBridge:
         host: str = DEFAULT_SERVER_HOST,
         port: int = DEFAULT_SERVER_PORT,
         timeout: float = DEFAULT_TIMEOUT_SEC,
+        log_dir: Optional[Path] = None,
     ) -> None:
         self._host = host
         self._port = port
         self._timeout = timeout
+
+        # Set up rotating file logger for persistent debug output
+        _setup_file_logger(log_dir or _DEFAULT_LOG_DIR)
 
         # Background event loop (owns the WS server)
         self._loop: Optional[asyncio.AbstractEventLoop] = None
@@ -122,6 +168,8 @@ class PhotoshopBridge:
         # Active UXP connection (set on first client connect)
         self._uxp_ws = None
         self._connected = False  # True once UXP plugin has connected
+        self._uxp_connect_count = 0   # cumulative connect events
+        self._uxp_disconnect_count = 0  # cumulative disconnect events
 
         # Pending RPC calls: id → Future
         self._pending: Dict[int, Future] = {}
@@ -223,7 +271,12 @@ class PhotoshopBridge:
 
     async def _handle_uxp(self, websocket, uxp_connected_event: threading.Event) -> None:
         """Handle a single UXP plugin connection."""
-        logger.info("UXP plugin connected from %s", websocket.remote_address)
+        self._uxp_connect_count += 1
+        logger.info(
+            "UXP plugin connected from %s (session #%d)",
+            websocket.remote_address,
+            self._uxp_connect_count,
+        )
         self._uxp_ws = websocket
         self._connected = True
         uxp_connected_event.set()
@@ -254,19 +307,27 @@ class PhotoshopBridge:
                     continue
 
                 if "error" in msg:
-                    err = msg["error"]
+                    err_info = msg["error"]
+                    logger.debug(
+                        "PhotoshopBridge: RPC error id=%r code=%s msg=%s",
+                        req_id,
+                        err_info.get("code"),
+                        err_info.get("message"),
+                    )
                     exc = BridgeRpcError(
-                        err.get("message", "Unknown RPC error"),
-                        code=err.get("code", -32603),
-                        data=err.get("data"),
+                        err_info.get("message", "Unknown RPC error"),
+                        code=err_info.get("code", -32603),
+                        data=err_info.get("data"),
                     )
                     self._set_future_exception(future, exc)
                 else:
+                    logger.debug("PhotoshopBridge: RPC success id=%r", req_id)
                     self._set_future_result(future, msg.get("result"))
 
         except Exception as exc:
             logger.warning("PhotoshopBridge: UXP connection closed: %s", exc)
         finally:
+            self._uxp_disconnect_count += 1
             self._uxp_ws = None
             self._connected = False
             # Fail all pending calls
@@ -357,6 +418,8 @@ class PhotoshopBridge:
             "params": params,
         }
 
+        logger.debug("→ call id=%d method=%s params=%r", req_id, method, params)
+
         future: Future = Future()
         self._pending[req_id] = future
 
@@ -370,9 +433,12 @@ class PhotoshopBridge:
         asyncio.run_coroutine_threadsafe(_send(), self._loop)
 
         try:
-            return future.result(timeout=self._timeout)
+            result = future.result(timeout=self._timeout)
+            logger.debug("← call id=%d method=%s OK", req_id, method)
+            return result
         except TimeoutError:
             self._pending.pop(req_id, None)
+            logger.warning("call id=%d method=%s TIMEOUT after %.1fs", req_id, method, self._timeout)
             raise BridgeTimeoutError(
                 f"call({method!r}) timed out after {self._timeout}s. "
                 "Check that Photoshop and the dcc-mcp UXP plugin are responding."

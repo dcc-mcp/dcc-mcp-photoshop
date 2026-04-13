@@ -114,6 +114,55 @@ async def _handle_rpc(request: Dict[str, Any]) -> Any:
     if method == "ps.executeAction":
         return {"executed": True, "action": params.get("action"), "action_set": params.get("action_set")}
 
+    # ── Image operations ────────────────────────────────────────────────
+    if method == "ps.createDocument":
+        return {
+            "id": 2,
+            "name": params.get("name", "Untitled"),
+            "width": params.get("width", 1920),
+            "height": params.get("height", 1080),
+            "resolution": params.get("resolution", 72.0),
+            "color_mode": params.get("color_mode", "rgb"),
+            "bit_depth": params.get("bit_depth", 8),
+            "path": None,
+            "has_unsaved_changes": False,
+        }
+    if method == "ps.resizeCanvas":
+        return {"width": params.get("width"), "height": params.get("height")}
+    if method == "ps.resizeImage":
+        return {"width": params.get("width"), "height": params.get("height")}
+    if method == "ps.flattenImage":
+        return {"flattened": True}
+    if method == "ps.mergeVisibleLayers":
+        return {"merged": True, "layer_name": "Merged"}
+
+    # ── Layer extended ──────────────────────────────────────────────────
+    if method == "ps.setLayerBlendMode":
+        return {"name": params.get("name"), "blend_mode": params.get("blend_mode")}
+    if method == "ps.fillLayer":
+        return {"filled": True, "name": params.get("name"), "color": params.get("color")}
+
+    # ── Text layers ─────────────────────────────────────────────────────
+    if method == "ps.createTextLayer":
+        return {
+            "id": 998,
+            "name": params.get("name", params.get("content", "")[:20]),
+            "content": params.get("content"),
+        }
+    if method == "ps.updateTextLayer":
+        return {"name": params.get("name"), "content": params.get("content")}
+    if method == "ps.getTextLayerInfo":
+        return {
+            "name": params.get("name"),
+            "content": "Hello, World!",
+            "font": "ArialMT",
+            "size": 48.0,
+            "color": "#000000",
+            "alignment": "left",
+            "bold": False,
+            "italic": False,
+        }
+
     raise ValueError(f"Method not found: {method}")
 
 
