@@ -1,12 +1,12 @@
 """dcc-mcp-photoshop — Adobe Photoshop adapter for the DCC MCP ecosystem.
 
 Architecture: WebSocket Bridge Mode
-------------------------------------
-Photoshop does not have an embedded Python interpreter. Instead, this package
+-------------------------------------
+Photoshop does not have an embedded Python interpreter.  Instead, this package
 uses a two-part architecture:
 
 1. **UXP Plugin** (JavaScript, runs inside Photoshop):
-   Opens a WebSocket server on localhost, listens for JSON-RPC messages,
+   Opens a WebSocket server on localhost, listens for JSON-RPC 2.0 messages,
    executes Photoshop UXP API calls, and returns results.
 
 2. **Python Bridge** (this package, runs as a standalone process):
@@ -30,7 +30,7 @@ Quickstart::
 Skill authoring helpers::
 
     from dcc_mcp_photoshop.api import (
-        ps_success, ps_error, ps_from_exception,
+        ps_success, ps_error, ps_warning, ps_from_exception,
         get_bridge, with_photoshop,
     )
 
@@ -42,8 +42,8 @@ Skill authoring helpers::
 
 Requirements:
     - Adobe Photoshop 2022+ (UXP support)
-    - dcc-mcp-core >= 0.12.14
-    - websockets >= 12.0
+    - dcc-mcp-core >= 0.12.18
+    - websockets >= 12.0  (used by PhotoshopBridge)
 """
 
 from __future__ import annotations
@@ -53,13 +53,16 @@ from dcc_mcp_photoshop.api import (
     PhotoshopNotAvailableError,
     get_bridge,
     is_photoshop_available,
+    photoshop_capabilities,
     ps_error,
     ps_from_exception,
     ps_success,
+    ps_warning,
     with_photoshop,
 )
 from dcc_mcp_photoshop.bridge import PhotoshopBridge
-from dcc_mcp_photoshop.server import PhotoshopMcpServer, start_server, stop_server
+from dcc_mcp_photoshop.capabilities import PHOTOSHOP_CAPABILITIES_DICT
+from dcc_mcp_photoshop.server import PhotoshopMcpServer, get_server, start_server, stop_server
 
 __all__ = [
     "__version__",
@@ -67,14 +70,19 @@ __all__ = [
     "PhotoshopMcpServer",
     "start_server",
     "stop_server",
+    "get_server",
     # Bridge
     "PhotoshopBridge",
     # Skill authoring helpers
     "ps_success",
     "ps_error",
+    "ps_warning",
     "ps_from_exception",
     "get_bridge",
     "is_photoshop_available",
     "with_photoshop",
     "PhotoshopNotAvailableError",
+    # Capabilities
+    "photoshop_capabilities",
+    "PHOTOSHOP_CAPABILITIES_DICT",
 ]

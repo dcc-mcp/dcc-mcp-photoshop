@@ -1,158 +1,402 @@
-"""PhotoshopBridge — WebSocket client that communicates with the Photoshop UXP plugin.
+"""PhotoshopBridge — Python WebSocket server that the UXP plugin connects to.
+
+Architecture (corrected — UXP cannot act as WS server)
+--------------------------------------------------------
+  MCP Client  ──HTTP──►  PhotoshopMcpServer  ──call()──►  PhotoshopBridge
+                                                                  │
+                                              Python WS server :9001
+                                                                  │
+                                              Photoshop UXP plugin (WS CLIENT)
+                                                                  │
+                                              Photoshop UXP API
+
+Flow:
+  1. Python starts a WebSocket server on localhost:9001.
+  2. The Photoshop UXP plugin connects to it as a WebSocket CLIENT.
+  3. Python sends JSON-RPC 2.0 requests; UXP executes and replies.
+  4. ``bridge.call("ps.getDocumentInfo")`` blocks until UXP responds.
+
+Why inverted?
+  UXP only supports WebSocket CLIENT, not server.
+  See: https://forums.creativeclouddeveloper.com/t/7423
 
 Protocol
 --------
-The UXP plugin opens a WebSocket server. This bridge sends JSON-RPC 2.0 messages
-and receives responses:
+  Python → UXP  (request):
+    {"jsonrpc":"2.0","id":1,"method":"ps.getDocumentInfo","params":{}}
 
-  Request:  {"jsonrpc": "2.0", "id": 1, "method": "ps.executeScript", "params": {"code": "..."}}
-  Response: {"jsonrpc": "2.0", "id": 1, "result": {...}} or {"error": {...}}
+  UXP → Python  (response):
+    {"jsonrpc":"2.0","id":1,"result":{"name":"Untitled-1.psd",...}}
 
-Supported methods (UXP plugin implements these):
-  - ps.executeScript(code: str) -> any
-  - ps.getDocumentInfo() -> dict
-  - ps.listDocuments() -> list
-  - ps.executeAction(action: str, descriptor: dict) -> dict
+  UXP → Python  (error):
+    {"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"..."}}
+
+  UXP → Python  (hello, on connect):
+    {"type":"hello","client":"photoshop-uxp","version":"0.1.0"}
 """
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import threading
+from concurrent.futures import Future
 from typing import Any, Dict, Optional
 
 logger = logging.getLogger(__name__)
 
-# Default UXP WebSocket port
-DEFAULT_WS_PORT = 3000
-DEFAULT_WS_HOST = "localhost"
+# Python WebSocket server port — UXP plugin connects to this
+DEFAULT_SERVER_HOST = "localhost"
+DEFAULT_SERVER_PORT = 9001
 DEFAULT_TIMEOUT_SEC = 30.0
 
 
+# ---------------------------------------------------------------------------
+# Exception types
+# ---------------------------------------------------------------------------
+
+
 class BridgeConnectionError(ConnectionError):
-    """Raised when the bridge cannot connect to the Photoshop UXP WebSocket."""
+    """Raised when the UXP plugin has not yet connected to the Python server."""
 
 
 class BridgeTimeoutError(TimeoutError):
-    """Raised when a bridge call times out."""
+    """Raised when a bridge call does not receive a response within the timeout."""
+
+
+class BridgeRpcError(RuntimeError):
+    """Raised when the UXP plugin returns a JSON-RPC error response.
+
+    Attributes:
+        code: JSON-RPC error code.
+        data: Optional extra data.
+    """
+
+    def __init__(self, message: str, code: int = -32603, data: Any = None) -> None:
+        super().__init__(message)
+        self.code = code
+        self.data = data
+
+
+# ---------------------------------------------------------------------------
+# PhotoshopBridge
+# ---------------------------------------------------------------------------
 
 
 class PhotoshopBridge:
-    """WebSocket bridge to the Photoshop UXP plugin.
+    """Python WebSocket server that Photoshop UXP connects to.
 
-    This class is intentionally synchronous — it manages its own event loop
-    in a background thread so the calling code (dcc-mcp-core action handlers)
-    stays synchronous.
+    Starts a WebSocket server in a background thread.  When the UXP plugin
+    connects, Python can send JSON-RPC 2.0 requests and receive responses
+    via the synchronous ``call()`` method.
 
-    Usage::
+    Args:
+        host: Hostname for the server (default ``"localhost"``).
+        port: Port for the server (default ``9001``).
+        timeout: Per-call timeout in seconds (default ``30.0``).
 
-        bridge = PhotoshopBridge(host="localhost", port=3000)
-        bridge.connect()
-        result = bridge.call("ps.getDocumentInfo")
+    Example::
+
+        bridge = PhotoshopBridge()
+        bridge.connect()                          # start server + wait for UXP
+        info = bridge.call("ps.getDocumentInfo")  # synchronous
         bridge.disconnect()
-
-    Or as a context manager::
-
-        with PhotoshopBridge() as bridge:
-            result = bridge.call("ps.executeScript", code="app.documents.length")
     """
 
     def __init__(
         self,
-        host: str = DEFAULT_WS_HOST,
-        port: int = DEFAULT_WS_PORT,
+        host: str = DEFAULT_SERVER_HOST,
+        port: int = DEFAULT_SERVER_PORT,
         timeout: float = DEFAULT_TIMEOUT_SEC,
     ) -> None:
         self._host = host
         self._port = port
         self._timeout = timeout
-        self._ws = None
-        self._connected = False
-        self._lock = threading.Lock()
+
+        # Background event loop (owns the WS server)
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
+        self._thread: Optional[threading.Thread] = None
+        self._server = None  # asyncio WS server
+
+        # Active UXP connection (set on first client connect)
+        self._uxp_ws = None
+        self._connected = False  # True once UXP plugin has connected
+
+        # Pending RPC calls: id → Future
+        self._pending: Dict[int, Future] = {}
         self._request_id = 0
+        self._id_lock = threading.Lock()
+
+    # ── Properties ────────────────────────────────────────────────────────
 
     @property
     def endpoint(self) -> str:
-        """WebSocket endpoint URL."""
+        """WebSocket server endpoint URL."""
         return f"ws://{self._host}:{self._port}"
 
-    def connect(self) -> None:
-        """Connect to the Photoshop UXP WebSocket server.
-
-        Raises:
-            BridgeConnectionError: If connection fails.
-        """
-        # TODO: Implement actual websockets connection
-        # import websockets, asyncio
-        # self._ws = asyncio.get_event_loop().run_until_complete(
-        #     websockets.connect(self.endpoint, ping_interval=None)
-        # )
-        logger.info("PhotoshopBridge: connecting to %s (TODO: implement)", self.endpoint)
-        self._connected = True
-
-    def disconnect(self) -> None:
-        """Disconnect from the UXP WebSocket."""
-        if self._ws is not None:
-            # TODO: close websocket
-            self._ws = None
-        self._connected = False
-        logger.info("PhotoshopBridge: disconnected")
-
     def is_connected(self) -> bool:
-        """Return True if the bridge is connected."""
-        return self._connected
+        """Return ``True`` if the UXP plugin is currently connected."""
+        return self._connected and self._uxp_ws is not None
 
-    def call(self, method: str, **params: Any) -> Any:
-        """Call a UXP plugin method and return the result.
+    # ── Server lifecycle ──────────────────────────────────────────────────
+
+    def connect(self, wait_for_uxp: bool = False) -> None:
+        """Start the WebSocket server.
+
+        The server starts immediately.  The UXP plugin will connect
+        when Photoshop loads the plugin.
 
         Args:
-            method: JSON-RPC method name (e.g. "ps.executeScript").
-            **params: Method parameters.
-
-        Returns:
-            The result from Photoshop.
+            wait_for_uxp: If ``True``, block until the UXP plugin connects
+                (or ``timeout`` seconds elapse).  Default is ``False`` —
+                start the server and return immediately.
 
         Raises:
-            BridgeConnectionError: If not connected.
-            BridgeTimeoutError: If the call times out.
-            RuntimeError: If the UXP plugin returns an error.
+            BridgeConnectionError: If ``wait_for_uxp=True`` and UXP does not
+                connect within the timeout.
         """
-        if not self._connected:
+        if self._loop is not None:
+            logger.debug("PhotoshopBridge server already running at %s", self.endpoint)
+            return
+
+        self._loop = asyncio.new_event_loop()
+        ready_event = threading.Event()
+        uxp_connected_event = threading.Event()
+        start_exc: list = []
+
+        def _run_loop() -> None:
+            asyncio.set_event_loop(self._loop)
+            try:
+                self._loop.run_until_complete(
+                    self._serve(ready_event, uxp_connected_event, start_exc)
+                )
+                self._loop.run_forever()
+            except Exception:
+                pass
+            finally:
+                self._loop.close()
+
+        self._thread = threading.Thread(
+            target=_run_loop, daemon=True, name="photoshop-bridge-server"
+        )
+        self._thread.start()
+
+        # Wait until server is listening
+        ready_event.wait(timeout=5)
+        if start_exc:
             raise BridgeConnectionError(
-                f"Not connected to Photoshop UXP bridge at {self.endpoint}. "
-                "Ensure Photoshop is running with the dcc-mcp UXP plugin installed."
-            )
+                f"Failed to start WebSocket server on {self.endpoint}: {start_exc[0]}"
+            ) from start_exc[0]
 
-        with self._lock:
-            self._request_id += 1
-            _request = {
-                "jsonrpc": "2.0",
-                "id": self._request_id,
-                "method": method,
-                "params": params,
-            }
-
-        # TODO: send via websocket and await response
-        # For now, raise NotImplementedError to signal placeholder
-        raise NotImplementedError(
-            f"PhotoshopBridge.call({method!r}) — WebSocket implementation pending. "
-            "See bridge/uxp-plugin/ for the UXP plugin source."
+        logger.info(
+            "PhotoshopBridge server listening at %s — waiting for UXP plugin to connect",
+            self.endpoint,
         )
 
-    def execute_script(self, code: str) -> Any:
-        """Execute a JavaScript code snippet in Photoshop.
+        if wait_for_uxp:
+            if not uxp_connected_event.wait(timeout=self._timeout):
+                raise BridgeConnectionError(
+                    f"UXP plugin did not connect within {self._timeout}s. "
+                    "Ensure Photoshop is running with the dcc-mcp UXP plugin enabled."
+                )
+
+    async def _serve(
+        self,
+        ready_event: threading.Event,
+        uxp_connected_event: threading.Event,
+        exc_out: list,
+    ) -> None:
+        """Coroutine: start the WS server, then signal the calling thread."""
+        try:
+            import websockets  # noqa: PLC0415
+
+            self._server = await websockets.serve(
+                lambda ws: self._handle_uxp(ws, uxp_connected_event),
+                self._host,
+                self._port,
+            )
+        except Exception as exc:
+            exc_out.append(exc)
+        finally:
+            ready_event.set()
+
+    async def _handle_uxp(self, websocket, uxp_connected_event: threading.Event) -> None:
+        """Handle a single UXP plugin connection."""
+        logger.info("UXP plugin connected from %s", websocket.remote_address)
+        self._uxp_ws = websocket
+        self._connected = True
+        uxp_connected_event.set()
+
+        try:
+            async for raw in websocket:
+                try:
+                    msg = json.loads(raw)
+                except json.JSONDecodeError:
+                    logger.warning("PhotoshopBridge: invalid JSON from UXP: %r", raw[:200])
+                    continue
+
+                # Handle non-RPC hello message
+                if msg.get("type") == "hello":
+                    logger.info(
+                        "UXP plugin hello: %s v%s",
+                        msg.get("client"),
+                        msg.get("version"),
+                    )
+                    continue
+
+                # Route JSON-RPC response back to waiting caller
+                req_id = msg.get("id")
+                future = self._pending.pop(req_id, None) if req_id is not None else None
+
+                if future is None:
+                    logger.debug("PhotoshopBridge: unsolicited message id=%r", req_id)
+                    continue
+
+                if "error" in msg:
+                    err = msg["error"]
+                    exc = BridgeRpcError(
+                        err.get("message", "Unknown RPC error"),
+                        code=err.get("code", -32603),
+                        data=err.get("data"),
+                    )
+                    self._set_future_exception(future, exc)
+                else:
+                    self._set_future_result(future, msg.get("result"))
+
+        except Exception as exc:
+            logger.warning("PhotoshopBridge: UXP connection closed: %s", exc)
+        finally:
+            self._uxp_ws = None
+            self._connected = False
+            # Fail all pending calls
+            for f in self._pending.values():
+                self._set_future_exception(
+                    f, BridgeConnectionError("UXP plugin disconnected")
+                )
+            self._pending.clear()
+            logger.info("UXP plugin disconnected")
+
+    @staticmethod
+    def _set_future_result(future: Future, result: Any) -> None:
+        if not future.done():
+            future.set_result(result)
+
+    @staticmethod
+    def _set_future_exception(future: Future, exc: Exception) -> None:
+        if not future.done():
+            future.set_exception(exc)
+
+    def disconnect(self) -> None:
+        """Stop the WebSocket server and close the UXP connection."""
+        self._connected = False
+
+        if self._loop is not None:
+            async def _close():
+                if self._server:
+                    self._server.close()
+                    await self._server.wait_closed()
+                if self._uxp_ws:
+                    await self._uxp_ws.close()
+
+            if not self._loop.is_closed():
+                try:
+                    asyncio.run_coroutine_threadsafe(_close(), self._loop).result(timeout=5)
+                except Exception:
+                    pass
+                self._loop.call_soon_threadsafe(self._loop.stop)
+
+        if self._thread:
+            self._thread.join(timeout=5)
+            self._thread = None
+
+        self._loop = None
+        self._server = None
+        self._uxp_ws = None
+        logger.info("PhotoshopBridge server stopped")
+
+    # ── RPC call ──────────────────────────────────────────────────────────
+
+    def call(self, method: str, **params: Any) -> Any:
+        """Send a JSON-RPC request to the UXP plugin and return the result.
+
+        Blocks until the response arrives or the timeout expires.
 
         Args:
-            code: JavaScript/UXP code to execute.
+            method: JSON-RPC method name (e.g. ``"ps.getDocumentInfo"``).
+            **params: Method keyword parameters.
 
         Returns:
-            The return value of the script.
+            The ``result`` field from the JSON-RPC success response.
+
+        Raises:
+            BridgeConnectionError: If the UXP plugin is not connected.
+            BridgeTimeoutError: If no response arrives within ``timeout`` seconds.
+            BridgeRpcError: If the UXP plugin returns a JSON-RPC error.
+
+        Example::
+
+            info = bridge.call("ps.getDocumentInfo")
+            layers = bridge.call("ps.listLayers", include_hidden=True)
         """
+        if not self.is_connected() or self._loop is None:
+            raise BridgeConnectionError(
+                "Photoshop UXP plugin is not connected. "
+                "Ensure Photoshop is running, the dcc-mcp UXP plugin is enabled, "
+                "and start_server() has been called."
+            )
+
+        with self._id_lock:
+            self._request_id += 1
+            req_id = self._request_id
+
+        request = {
+            "jsonrpc": "2.0",
+            "id": req_id,
+            "method": method,
+            "params": params,
+        }
+
+        future: Future = Future()
+        self._pending[req_id] = future
+
+        async def _send():
+            try:
+                await self._uxp_ws.send(json.dumps(request))
+            except Exception as exc:
+                self._pending.pop(req_id, None)
+                self._set_future_exception(future, BridgeConnectionError(str(exc)))
+
+        asyncio.run_coroutine_threadsafe(_send(), self._loop)
+
+        try:
+            return future.result(timeout=self._timeout)
+        except TimeoutError:
+            self._pending.pop(req_id, None)
+            raise BridgeTimeoutError(
+                f"call({method!r}) timed out after {self._timeout}s. "
+                "Check that Photoshop and the dcc-mcp UXP plugin are responding."
+            )
+
+    # ── Convenience helpers ────────────────────────────────────────────────
+
+    def execute_script(self, code: str) -> Any:
+        """Execute a JavaScript/UXP expression in Photoshop."""
         return self.call("ps.executeScript", code=code)
 
     def get_document_info(self) -> Dict[str, Any]:
-        """Get information about the active Photoshop document."""
+        """Return metadata for the active Photoshop document."""
         return self.call("ps.getDocumentInfo")
+
+    def list_documents(self) -> list:
+        """Return a list of all open Photoshop documents."""
+        return self.call("ps.listDocuments")
+
+    def list_layers(self, include_hidden: bool = True) -> list:
+        """Return the layer tree for the active document."""
+        return self.call("ps.listLayers", include_hidden=include_hidden)
+
+    # ── Context manager ────────────────────────────────────────────────────
 
     def __enter__(self) -> "PhotoshopBridge":
         self.connect()

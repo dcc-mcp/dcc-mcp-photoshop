@@ -1,70 +1,64 @@
 # dcc-mcp-photoshop
 
-> Adobe Photoshop adapter for the [DCC Model Context Protocol](https://github.com/loonghao/dcc-mcp-core) ecosystem.
-> Bridges AI agents to Photoshop via a UXP WebSocket plugin.
-
-[![PyPI version](https://img.shields.io/pypi/v/dcc-mcp-photoshop.svg)](https://pypi.org/project/dcc-mcp-photoshop/)
-[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-photoshop.svg)](https://pypi.org/project/dcc-mcp-photoshop/)
+[![PyPI](https://img.shields.io/pypi/v/dcc-mcp-photoshop)](https://pypi.org/project/dcc-mcp-photoshop/)
+[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status: Pre-Alpha](https://img.shields.io/badge/Status-Pre--Alpha-red.svg)]()
+[![Status: Pre-Alpha](https://img.shields.io/badge/status-pre--alpha-orange)](https://github.com/loonghao/dcc-mcp-photoshop)
 
----
+Adobe Photoshop adapter for the [DCC Model Context Protocol](https://github.com/loonghao/dcc-mcp-core) ecosystem.
+Bridges AI agents (Claude, Cursor, Copilot) to Adobe Photoshop via UXP WebSocket.
 
-## Overview
+> ⚠️ **Pre-Alpha**: UXP plugin implementation is pending. API design is stable.
 
-`dcc-mcp-photoshop` connects AI agents (Claude, GPT-4, Cursor…) to **Adobe Photoshop** through the [Model Context Protocol](https://modelcontextprotocol.io/).
-
-Unlike Maya or Blender, Photoshop does **not** have an embedded Python interpreter. This package uses a **WebSocket bridge architecture**:
+## Architecture
 
 ```
-AI Agent (Claude, Cursor, etc.)
-    |
-    | MCP Streamable HTTP
-    v
-PhotoshopMcpServer (Python, port 8765)
-    |
-    | JSON-RPC 2.0 over WebSocket
-    v
-Photoshop UXP Plugin (JavaScript, port 3000)
-    |
-    | Photoshop UXP API
-    v
-Adobe Photoshop
+AI Agent (Claude / Cursor)
+    ↓  MCP Streamable HTTP (port 8765)
+PhotoshopMcpServer  [this package, Python]
+    ↓  WebSocket JSON-RPC (port 3000)
+UXP Plugin  [bridge/uxp-plugin/, JavaScript]
+    ↓  Photoshop UXP API
+Adobe Photoshop 2022+
 ```
 
----
+**DCC Capabilities:**
+```python
+DccCapabilities(
+    has_embedded_python=False,
+    bridge_kind="websocket",
+    bridge_endpoint="ws://localhost:3000",
+    snapshot=True,
+    file_operations=True,
+    selection=True,
+)
+```
 
 ## Features
 
-- **MCP Streamable HTTP server** (2025-03-26 spec) via dcc-mcp-core
-- **WebSocket bridge** to Photoshop UXP plugin (JSON-RPC 2.0)
-- **Skill-based architecture** — add capabilities by dropping skill directories
-- **Graceful degradation** — server starts even when Photoshop is not running
-- **Type-safe results** — all skills return `ActionResultModel`-compatible dicts
-- **Decorator-based error handling** via `@with_photoshop`
+**Current (v0.1.0 — Placeholder):**
+- ✅ Package structure and API design
+- ✅ `PhotoshopBridge` WebSocket client scaffold
+- ✅ Skill authoring helpers (`ps_success`, `ps_error`, `with_photoshop`)
+- ✅ `PhotoshopMcpServer` wrapping `dcc-mcp-core`
+- ⏳ UXP plugin implementation (pending)
+- ⏳ WebSocket bridge implementation (pending)
 
-### Planned Skills
-
-| Skill | Description |
-|-------|-------------|
-| `photoshop-document` | Open, save, create, export documents |
-| `photoshop-layers` | Create, delete, reorder, merge layers |
-| `photoshop-selection` | Make selections, transform, fill |
-| `photoshop-filters` | Apply blur, sharpen, smart filters |
-| `photoshop-color` | Color adjustments, curves, levels |
-| `photoshop-text` | Add and edit text layers |
-| `photoshop-history` | Undo, redo, history states |
-
----
+**Planned:**
+- Document management (open, save, export)
+- Layer management (create, delete, reorder, blend modes)
+- Selection tools (marquee, lasso, magic wand)
+- Filter application
+- Color adjustments
+- Smart Object operations
+- Batch processing
 
 ## Requirements
 
-- **Adobe Photoshop 2022** or later (UXP API support required)
-- **Python 3.8+**
+- Adobe Photoshop 2022+ (UXP support)
+- Python 3.8+
 - `dcc-mcp-core >= 0.12.14`
 - `websockets >= 12.0`
-
----
 
 ## Installation
 
@@ -72,80 +66,59 @@ Adobe Photoshop
 pip install dcc-mcp-photoshop
 ```
 
-### Install the UXP Plugin
+Or from source:
 
-The Python bridge requires the companion UXP plugin running inside Photoshop:
+```bash
+git clone https://github.com/loonghao/dcc-mcp-photoshop
+cd dcc-mcp-photoshop
+pip install -e ".[dev]"
+```
 
-1. Open **Photoshop**
-2. Go to **Plugins > Development > Load Plugin...**
-3. Navigate to `bridge/uxp-plugin/` and select `manifest.json`
-4. Click **Enable** — the WebSocket server starts on `localhost:3000`
+## Photoshop UXP Plugin Setup
 
-> See [bridge/uxp-plugin/README.md](bridge/uxp-plugin/README.md) for full details.
-
----
+1. Install the UXP plugin from `bridge/uxp-plugin/` (pending implementation)
+2. Open Photoshop
+3. Go to **Plugins > Browse Plugins**
+4. Install from local manifest
+5. The plugin starts a WebSocket server on port 3000 automatically
 
 ## Quick Start
-
-### Step 1: Install and enable the UXP plugin in Photoshop
-
-### Step 2: Start the Python bridge
 
 ```python
 import dcc_mcp_photoshop
 
-# Start MCP server (connects to Photoshop's UXP WebSocket on port 3000)
-handle = dcc_mcp_photoshop.start_server(port=8765, ws_port=3000)
-print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
-
-# Photoshop is now available as an MCP tool provider
-# Connect any MCP-compatible client (Claude Desktop, Cursor, etc.)
-
-# Stop when done
+handle = dcc_mcp_photoshop.start_server(
+    port=8765,     # MCP HTTP port
+    ws_port=3000,  # Photoshop UXP WebSocket port
+)
+print(handle.mcp_url())
 handle.shutdown()
 ```
 
-### Step 3: Connect your AI agent
-
-Add to `claude_desktop_config.json`:
-
-```json
-{
-  "mcpServers": {
-    "photoshop": {
-      "url": "http://127.0.0.1:8765/mcp"
-    }
-  }
-}
-```
-
----
-
 ## Skill Authoring Guide
 
-Skills are Python scripts in `skills/<skill-name>/scripts/`. Each script:
-1. Uses `@with_photoshop` for automatic error handling, OR
-2. Calls `get_bridge()` to communicate with Photoshop via JSON-RPC
-
-### Example: List Layers
+Photoshop skills use `get_bridge()` to communicate via the UXP WebSocket plugin
+instead of importing a DCC Python module directly.
 
 ```python
-# skills/photoshop-layers/scripts/list_layers.py
-from dcc_mcp_photoshop.api import get_bridge, ps_success, with_photoshop
+from dcc_mcp_core.skill import skill_entry
+from dcc_mcp_photoshop.api import get_bridge, with_photoshop, ps_success
 
 
+@skill_entry
 @with_photoshop
-def list_layers(include_hidden: bool = True, **kwargs) -> dict:
+def list_layers(document_index: int = 0, **kwargs) -> dict:
+    """List all layers in a Photoshop document."""
     bridge = get_bridge()
-    layers = bridge.call("ps.listLayers", include_hidden=include_hidden)
+    layers = bridge.call("ps.listLayers", documentIndex=document_index)
     return ps_success(
         f"Found {len(layers)} layer(s)",
         count=len(layers),
-        layers=[l["name"] for l in layers],
+        layers=[layer["name"] for layer in layers],
     )
 
 
-def main(**kwargs) -> dict:
+def main(**kwargs):
     return list_layers(**kwargs)
 
 
@@ -154,124 +127,104 @@ if __name__ == "__main__":
     run_main(main)
 ```
 
-### Example: SKILL.md frontmatter
+### SKILL.md format
 
 ```yaml
 ---
-name: photoshop-layers
-description: "Photoshop layer management — create, delete, reorder, merge layers"
+name: my-photoshop-skill
+description: "Description of what this skill does"
 dcc: photoshop
-version: "0.1.0"
-tags: [photoshop, layers, compositing]
+version: "1.0.0"
+tags: [photoshop, layers, document]
 license: "MIT"
 depends: []
 ---
 ```
 
-### Key helpers
+### Setting skill paths
 
-| Helper | Description |
-|--------|-------------|
-| `ps_success(message, **ctx)` | Build success result dict |
-| `ps_error(message, error, ...)` | Build failure result dict |
-| `ps_from_exception(exc, ...)` | Build failure from exception |
-| `get_bridge()` | Get the active PhotoshopBridge instance |
-| `@with_photoshop` | Decorator for automatic error handling |
-| `is_photoshop_available()` | Check if bridge is connected |
-
-### Bridge API
-
-```python
-from dcc_mcp_photoshop.api import get_bridge
-
-bridge = get_bridge()
-
-# Execute any supported UXP method
-info = bridge.call("ps.getDocumentInfo")
-layers = bridge.call("ps.listLayers", include_hidden=True)
-bridge.call("ps.createLayer", name="New Layer", type="pixel")
+```bash
+export DCC_MCP_PHOTOSHOP_SKILL_PATHS=/path/to/my/skills
 ```
 
----
+## UXP Plugin Protocol
 
-## Architecture Details
+The UXP plugin (JavaScript) runs inside Photoshop and implements a WebSocket
+server with JSON-RPC 2.0 protocol:
 
-### DccCapabilities
-
-This adapter declares:
-
-```python
-from dcc_mcp_core import DccCapabilities
-
-caps = DccCapabilities(
-    has_embedded_python=False,   # Photoshop has no Python runtime
-    bridge_kind="websocket",     # Uses WebSocket bridge
-    bridge_endpoint="ws://localhost:3000",
-    file_operations=True,
-    snapshot=True,
-    scene_info=True,
-)
-```
-
-### Bridge Protocol
-
-The UXP plugin implements a JSON-RPC 2.0 server over WebSocket.
-All `bridge.call(method, **params)` calls are serialized as:
-
+**Request format:**
 ```json
-{"jsonrpc": "2.0", "id": 1, "method": "ps.listLayers", "params": {"include_hidden": true}}
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "method": "ps.listLayers",
+  "params": {"documentIndex": 0}
+}
 ```
 
----
+**Response format:**
+```json
+{
+  "jsonrpc": "2.0",
+  "id": 1,
+  "result": [{"name": "Background", "visible": true}]
+}
+```
+
+**Supported methods (planned):**
+
+| Method | Description |
+|--------|-------------|
+| `ps.executeScript` | Execute JavaScript/UXP code |
+| `ps.getDocumentInfo` | Get active document metadata |
+| `ps.listDocuments` | List all open documents |
+| `ps.listLayers` | List layers in active document |
+| `ps.createLayer` | Create a new layer |
+| `ps.applyFilter` | Apply a filter to a layer |
+| `ps.exportDocument` | Export document to file |
 
 ## Roadmap
 
-### v0.1.0 (Current — Placeholder)
-- [x] Project scaffold matching dcc-mcp-maya structure
-- [x] PhotoshopBridge placeholder (WebSocket client stub)
-- [x] PhotoshopMcpServer (bridge mode, wraps dcc-mcp-core)
-- [x] UXP plugin scaffold with JSON-RPC dispatcher stub
-- [x] DccCapabilities declared with `bridge_kind="websocket"`
+### v0.1.0 — Foundation (current)
+- [x] Package structure and API design
+- [x] PhotoshopBridge WebSocket client scaffold
+- [x] Skill authoring helpers
+- [ ] UXP plugin architecture design
 
-### v0.2.0 — WebSocket Implementation
-- [ ] UXP plugin: real WebSocket server
-- [ ] Python bridge: real websockets connection + async event loop
-- [ ] `ps.getDocumentInfo`, `ps.listDocuments`, `ps.listLayers`
-- [ ] `photoshop-document` skill: get_document_info, list_layers
+### v0.2.0 — UXP Plugin + Bridge
+- [ ] UXP plugin WebSocket server (JavaScript)
+- [ ] Python bridge WebSocket client
+- [ ] JSON-RPC 2.0 protocol implementation
+- [ ] Authentication and security
 
-### v0.3.0 — Core Skills
-- [ ] `photoshop-layers` skill: create, delete, reorder, merge
-- [ ] `photoshop-selection` skill: marquee, lasso, magic wand
-- [ ] `photoshop-color` skill: curves, levels, hue/saturation
+### v0.3.0 — Document Skills
+- [ ] get_document_info skill
+- [ ] list_documents skill
+- [ ] list_layers skill
+- [ ] create_layer skill
+- [ ] export_document skill
 
-### v0.4.0 — Advanced Features
-- [ ] `photoshop-filters` skill: blur, sharpen, smart filters
-- [ ] `photoshop-text` skill: add, edit, style text layers
-- [ ] `photoshop-history` skill: undo/redo, history states
-- [ ] Batch operations support
+### v0.4.0 — Advanced Skills
+- [ ] apply_filter skill
+- [ ] color_adjustment skill
+- [ ] selection_tool skill
+- [ ] smart_object skill
 
----
+### v1.0.0 — Production Ready
+- [ ] Smart Object support
+- [ ] Batch processing
+- [ ] Photoshop 2025+ UXP API compatibility
+- [ ] Performance optimizations
 
 ## Contributing
 
-Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md).
+This project is especially looking for contributors with:
+- Adobe UXP / ExtendScript experience
+- Photoshop automation knowledge
+- WebSocket and JSON-RPC protocol experience
 
-Key areas:
-- UXP plugin implementation (`bridge/uxp-plugin/`)
-- WebSocket bridge implementation (`src/dcc_mcp_photoshop/bridge.py`)
-- New skill scripts (`src/dcc_mcp_photoshop/skills/`)
-
----
+See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT License. See [LICENSE](LICENSE).
-
----
-
-## Related Projects
-
-- [dcc-mcp-core](https://github.com/loonghao/dcc-mcp-core) — Core framework
-- [dcc-mcp-maya](https://github.com/loonghao/dcc-mcp-maya) — Maya adapter
-- [dcc-mcp-unreal](https://github.com/loonghao/dcc-mcp-unreal) — Unreal Engine adapter
-- [dcc-mcp-zbrush](https://github.com/loonghao/dcc-mcp-zbrush) — ZBrush adapter
+MIT — see [LICENSE](LICENSE).

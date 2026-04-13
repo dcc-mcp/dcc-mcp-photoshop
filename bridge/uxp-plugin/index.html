@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <style>
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+      font-size: 12px;
+      padding: 8px;
+      margin: 0;
+      background: #2c2c2c;
+      color: #ccc;
+    }
+    #status {
+      padding: 5px 10px;
+      border-radius: 4px;
+      margin-bottom: 8px;
+      font-weight: bold;
+      letter-spacing: 0.5px;
+    }
+    .connected    { background: #1a4731; color: #4caf50; }
+    .disconnected { background: #4a1515; color: #f44336; }
+    .connecting   { background: #3a3a00; color: #ffeb3b; }
+    .buttons { display: flex; gap: 4px; margin-bottom: 8px; }
+    button {
+      flex: 1;
+      padding: 5px 8px;
+      cursor: pointer;
+      font-size: 11px;
+      border: none;
+      border-radius: 3px;
+      background: #444;
+      color: #ccc;
+    }
+    button:hover { background: #555; }
+    #log {
+      font-size: 10px;
+      color: #888;
+      max-height: 80px;
+      overflow-y: auto;
+      border-top: 1px solid #3a3a3a;
+      padding-top: 6px;
+    }
+    .log-line { margin-bottom: 2px; }
+  </style>
+</head>
+<body>
+  <div id="status" class="disconnected">⬤ Disconnected</div>
+  <div class="buttons">
+    <button id="btn-connect">Connect</button>
+    <button id="btn-disconnect">Disconnect</button>
+  </div>
+  <div id="log"></div>
+  <script src="index.js"></script>
+</body>
+</html>
