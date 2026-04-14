@@ -1,41 +1,36 @@
-"""PhotoshopMcpServer — MCP bridge server for Adobe Photoshop.
+"""PhotoshopMcpServer — MCP gateway client for Adobe Photoshop.
 
-Architecture (bridge mode — Photoshop has no embedded Python)::
+Architecture (gateway mode — Photoshop has no embedded Python)::
 
     MCP Client (Claude Desktop / Cursor / …)
          │ HTTP  (MCP Streamable HTTP, 2025-03-26 spec)
-    PhotoshopMcpServer  (this class, default port 8765)
-         │ uses dcc-mcp-core create_skill_manager
-         │ skill scripts call get_bridge() → PhotoshopBridge
-    PhotoshopBridge  (WebSocket client, Python WS server port 9001 (UXP connects here))
+    dcc-mcp-server.exe  (standalone server, gateway mode, default port 8765)
+         │ routes skill discovery & lazy loading
+    PhotoshopBridgePlugin  (connects to bridge on ws://localhost:9001)
          │ JSON-RPC 2.0 over WebSocket
     Photoshop UXP Plugin  (JavaScript WebSocket server)
          │ UXP API calls
     Adobe Photoshop
 
-Skills-First API (dcc-mcp-core v0.12.12+)
-------------------------------------------
-The preferred entry point is :func:`create_skill_manager` from ``dcc-mcp-core``,
-which wires up ``ActionRegistry``, ``ActionDispatcher``, ``SkillCatalog`` and
-auto-discovers skills from env vars in one call.
-
-:class:`PhotoshopMcpServer` wraps this factory and adds Photoshop-specific
-path discovery so built-in skills shipped with this package are always
-included, and also manages the WebSocket bridge lifecycle.
+Progressive Skill Loading (dcc-mcp-core v0.12.23+)
+---------------------------------------------------
+Skills are discovered at startup but only loaded (registered as MCP tools) when
+explicitly requested via ``load_skill`` meta-tool.  This keeps the initial
+``tools/list`` response small and allows agents to control context window usage.
 
 Flow::
 
-    server = PhotoshopMcpServer(port=8765)
-    server.register_builtin_actions()   # discover & load all skills
-    handle = server.start()
-    print(handle.mcp_url())             # http://127.0.0.1:8765/mcp
-    handle.shutdown()
+    # Start standalone dcc-mcp-server.exe configured for Photoshop
+    dcc-mcp-server.exe --dcc photoshop --skill-paths ./src/dcc_mcp_photoshop/skills
+    # MCP client sees: meta-tools + skill stubs, but no Photoshop tools yet
 
-Or via the module-level singleton helper::
+    # Agent calls load_skill("photoshop-document")
+    # tools/list now includes: photoshop_document__get_document_info, etc.
+
+Or via the module-level singleton helper (bridge-only mode)::
 
     import dcc_mcp_photoshop
-    handle = dcc_mcp_photoshop.start_server(port=8765)
-    print(handle.mcp_url())
+    handle = dcc_mcp_photoshop.start_bridge_only(ws_port=9001)
 
 Search path resolution (highest → lowest priority):
 
@@ -100,31 +95,85 @@ def _collect_skill_search_paths(extra_paths: Optional[List[str]] = None) -> List
 # ---------------------------------------------------------------------------
 
 
-class PhotoshopMcpServer:
-    """MCP Streamable HTTP server for Adobe Photoshop (bridge mode).
+class PhotoshopBridgePlugin:
+    """Minimal bridge plugin for Photoshop — only manages UXP WebSocket lifecycle.
 
-    Uses the Skills-First API introduced in dcc-mcp-core v0.12.12:
-    :func:`dcc_mcp_core.create_skill_manager` wires up the full stack
-    (registry, dispatcher, catalog) in one call.
-
-    In addition to the standard MCP server lifecycle, this class manages
-    the ``PhotoshopBridge`` WebSocket connection so skill scripts can call
-    ``get_bridge()`` at any point after ``start()`` is called.
+    With dcc-mcp-core v0.12.23+ gateway mode, the MCP server is managed by the
+    standalone ``dcc-mcp-server.exe`` process. This class is responsible only
+    for maintaining the WebSocket bridge so that skill scripts can call
+    ``get_bridge()`` and communicate with Photoshop UXP plugin.
 
     Example::
 
-        server = PhotoshopMcpServer(port=8765)
-        server.register_builtin_actions()
-        handle = server.start()
-        print(handle.mcp_url())   # http://127.0.0.1:8765/mcp
-        handle.shutdown()
+        plugin = PhotoshopBridgePlugin(ws_port=9001)
+        plugin.connect()
+        # ... skill scripts run and call get_bridge().call(...) ...
+        plugin.disconnect()
 
     Args:
-        port: TCP port to listen on.  Use ``0`` for a random available port.
-        server_name: Name reported in MCP ``initialize`` response.
-        server_version: Version reported in MCP ``initialize`` response.
         ws_host: Hostname of the Photoshop UXP WebSocket server.
         ws_port: Port of the Photoshop UXP WebSocket server.
+    """
+
+    def __init__(
+        self,
+        ws_host: str = "localhost",
+        ws_port: int = 9001,
+    ) -> None:
+        self._ws_host = ws_host
+        self._ws_port = ws_port
+        self._bridge = None
+
+    def connect(self) -> None:
+        """Connect the WebSocket bridge (best-effort; warns on failure)."""
+        from dcc_mcp_photoshop import api  # noqa: PLC0415
+        from dcc_mcp_photoshop.bridge import PhotoshopBridge  # noqa: PLC0415
+
+        bridge = PhotoshopBridge(host=self._ws_host, port=self._ws_port)
+        try:
+            bridge.connect()
+            self._bridge = bridge
+            api._bridge = bridge
+            logger.info(
+                "PhotoshopBridge connected to ws://%s:%d",
+                self._ws_host,
+                self._ws_port,
+            )
+        except Exception as exc:
+            logger.warning(
+                "PhotoshopBridge could not connect to ws://%s:%d: %s — "
+                "skill calls will fail until the Photoshop UXP plugin is running",
+                self._ws_host,
+                self._ws_port,
+                exc,
+            )
+
+    def disconnect(self) -> None:
+        """Disconnect the bridge and clear the module-level singleton."""
+        from dcc_mcp_photoshop import api  # noqa: PLC0415
+
+        if self._bridge is not None:
+            try:
+                self._bridge.disconnect()
+            except Exception as exc:
+                logger.debug("PhotoshopBridge disconnect error: %s", exc)
+            api._bridge = None
+            self._bridge = None
+            logger.info("PhotoshopBridge disconnected")
+
+    @property
+    def is_connected(self) -> bool:
+        """Whether the bridge is currently connected."""
+        return self._bridge is not None
+
+
+class PhotoshopMcpServer:
+    """DEPRECATED: Use dcc-mcp-server.exe in gateway mode instead.
+
+    This class is kept for backwards compatibility but is no longer the
+    recommended way to run Photoshop MCP server. See module docstring for
+    the modern approach using ``dcc-mcp-server.exe`` with progressive skill
+    loading.
     """
 
     def __init__(
@@ -148,44 +197,17 @@ class PhotoshopMcpServer:
         # create_skill_manager pre-wires ActionRegistry + ActionDispatcher + SkillCatalog
         self._server = create_skill_manager("photoshop", self._config)
         self._handle = None
+        self._bridge_plugin = PhotoshopBridgePlugin(ws_host=ws_host, ws_port=ws_port)
 
     # ── bridge lifecycle ───────────────────────────────────────────────────
 
     def _connect_bridge(self) -> None:
         """Connect the WebSocket bridge (best-effort; warns on failure)."""
-        from dcc_mcp_photoshop import api  # noqa: PLC0415
-        from dcc_mcp_photoshop.bridge import PhotoshopBridge  # noqa: PLC0415
-
-        bridge = PhotoshopBridge(host=self._ws_host, port=self._ws_port)
-        try:
-            bridge.connect()
-            api._bridge = bridge
-            logger.info(
-                "PhotoshopBridge connected to ws://%s:%d",
-                self._ws_host,
-                self._ws_port,
-            )
-        except Exception as exc:
-            logger.warning(
-                "PhotoshopBridge could not connect to ws://%s:%d: %s — "
-                "skill calls will fail until the Photoshop UXP plugin is running",
-                self._ws_host,
-                self._ws_port,
-                exc,
-            )
+        self._bridge_plugin.connect()
 
     def _disconnect_bridge(self) -> None:
         """Disconnect the bridge and clear the module-level singleton."""
-        from dcc_mcp_photoshop import api  # noqa: PLC0415
-
-        bridge = api._bridge
-        if bridge is not None:
-            try:
-                bridge.disconnect()
-            except Exception as exc:
-                logger.debug("PhotoshopBridge disconnect error: %s", exc)
-            api._bridge = None
-            logger.info("PhotoshopBridge disconnected")
+        self._bridge_plugin.disconnect()
 
     # ── action / skill registration ────────────────────────────────────────
 
@@ -200,20 +222,19 @@ class PhotoshopMcpServer:
         """
         return getattr(self._server, "_registry", None)
 
-    def register_builtin_actions(
+    def discover_builtin_skills(
         self, extra_skill_paths: Optional[List[str]] = None
     ) -> "PhotoshopMcpServer":
-        """Discover and load all built-in Photoshop skills into the server.
+        """Discover all built-in Photoshop skills (lazy loading mode).
+
+        This only scans for skills; it does NOT load them. Skills remain
+        unloaded until explicitly requested via the ``load_skill`` meta-tool.
+        This keeps the initial MCP ``tools/list`` response small.
 
         Uses the dcc-mcp-core SkillCatalog API (v0.12.12+):
 
         1. ``server.discover(extra_paths, dcc_name="photoshop")`` — scans all
            paths for ``SKILL.md`` files and caches skill metadata.
-        2. ``server.load_skill(name)`` — registers each script as an MCP action
-           with the canonical naming convention::
-
-               {skill_name.replace("-", "_")}__{script_stem}
-               # e.g. photoshop_document__get_document_info
 
         Skills are discovered from (highest → lowest priority):
 
@@ -227,10 +248,34 @@ class PhotoshopMcpServer:
             extra_skill_paths: Additional directories to scan for SKILL.md files.
 
         Returns:
-            ``self`` for fluent chaining::
-
-                server = PhotoshopMcpServer().register_builtin_actions()
+            ``self`` for fluent chaining
         """
+        search_paths = _collect_skill_search_paths(extra_skill_paths)
+
+        count = self._server.discover(extra_paths=search_paths, dcc_name="photoshop")
+        logger.info(
+            "SkillCatalog discovered %d skill(s) — use load_skill to load them on-demand",
+            count,
+        )
+        return self
+
+    def register_builtin_actions(
+        self, extra_skill_paths: Optional[List[str]] = None
+    ) -> "PhotoshopMcpServer":
+        """DEPRECATED: Discover and eagerly load all built-in skills.
+
+        This method eagerly loads all skills at startup, which is no longer
+        the recommended approach. Use ``discover_builtin_skills()`` instead
+        for progressive skill loading, or switch to ``dcc-mcp-server.exe``
+        in gateway mode.
+
+        .. deprecated:: 0.1.0
+            Use :meth:`discover_builtin_skills` for lazy loading instead.
+        """
+        logger.warning(
+            "register_builtin_actions is deprecated; use discover_builtin_skills() "
+            "for lazy loading, or switch to dcc-mcp-server.exe in gateway mode"
+        )
         search_paths = _collect_skill_search_paths(extra_skill_paths)
 
         count = self._server.discover(extra_paths=search_paths, dcc_name="photoshop")
@@ -374,7 +419,49 @@ class PhotoshopMcpServer:
 # ---------------------------------------------------------------------------
 
 _server_instance: Optional[PhotoshopMcpServer] = None
+_bridge_plugin: Optional[PhotoshopBridgePlugin] = None
 _lock = threading.Lock()
+
+
+def start_bridge_only(ws_host: str = "localhost", ws_port: int = 9001) -> PhotoshopBridgePlugin:
+    """Start a minimal bridge-only plugin (for use with external dcc-mcp-server).
+
+    This is the recommended approach when using dcc-mcp-server.exe in gateway mode.
+    The standalone server handles skill discovery and loading; this plugin only
+    maintains the WebSocket connection to Photoshop UXP so skill scripts can
+    communicate with Photoshop.
+
+    Args:
+        ws_host: Hostname of the Photoshop UXP WebSocket server.
+        ws_port: Port of the Photoshop UXP WebSocket server.
+
+    Returns:
+        ``PhotoshopBridgePlugin`` instance with ``.connect()``, ``.disconnect()``.
+
+    Example::
+
+        import dcc_mcp_photoshop
+        bridge = dcc_mcp_photoshop.start_bridge_only(ws_port=9001)
+        bridge.connect()
+        # Now dcc-mcp-server.exe can use get_bridge() to call Photoshop
+        print("Bridge connected:", bridge.is_connected)
+    """
+    global _bridge_plugin
+    with _lock:
+        if _bridge_plugin is None:
+            _bridge_plugin = PhotoshopBridgePlugin(ws_host=ws_host, ws_port=ws_port)
+        if not _bridge_plugin.is_connected:
+            _bridge_plugin.connect()
+        return _bridge_plugin
+
+
+def stop_bridge_only() -> None:
+    """Stop the bridge-only plugin and disconnect from Photoshop."""
+    global _bridge_plugin
+    with _lock:
+        if _bridge_plugin is not None:
+            _bridge_plugin.disconnect()
+            _bridge_plugin = None
 
 
 def start_server(
@@ -385,12 +472,11 @@ def start_server(
     register_builtins: bool = True,
     extra_skill_paths: Optional[List[str]] = None,
 ) -> Any:
-    """Start (or return the already-running) Photoshop MCP server.
+    """DEPRECATED: Start Photoshop MCP server in-process (legacy mode).
 
-    Creates a module-level singleton :class:`PhotoshopMcpServer`, optionally
-    discovers and loads all built-in Photoshop skills, and starts the HTTP
-    server.  Also connects the WebSocket bridge to the Photoshop UXP plugin
-    (best-effort).
+    This is kept for backwards compatibility but is no longer recommended.
+    Use ``dcc-mcp-server.exe`` in gateway mode instead for better scalability
+    and to support progressive skill loading.
 
     Args:
         port: TCP port.  Use ``0`` for a random available port.
@@ -408,10 +494,11 @@ def start_server(
         import dcc_mcp_photoshop
         handle = dcc_mcp_photoshop.start_server(port=8765)
         print(handle.mcp_url())  # http://127.0.0.1:8765/mcp
-
-        # With custom skill paths:
-        handle = dcc_mcp_photoshop.start_server(extra_skill_paths=["/studio/ps-skills"])
     """
+    logger.warning(
+        "start_server() is deprecated. Use dcc-mcp-server.exe in gateway mode instead. "
+        "See module docstring for details."
+    )
     global _server_instance
     with _lock:
         if _server_instance is None or not _server_instance.is_running:
@@ -422,7 +509,7 @@ def start_server(
                 ws_port=ws_port,
             )
             if register_builtins:
-                _server_instance.register_builtin_actions(
+                _server_instance.discover_builtin_skills(
                     extra_skill_paths=extra_skill_paths
                 )
         return _server_instance.start()

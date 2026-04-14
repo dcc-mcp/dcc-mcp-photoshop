@@ -10,6 +10,9 @@
 #   just lint-skills  — lint SKILL.md files
 #   just dev          — install package in editable/dev mode
 
+# Use cmd.exe on Windows so just works without Git Bash in PATH
+set windows-shell := ["cmd.exe", "/c"]
+
 # Default: list all commands
 default:
     @just --list
@@ -109,13 +112,16 @@ build-all: build pack-plugin build-binary
 
 # ── Run server ────────────────────────────────────────────────────────────────
 
+# Python executable — override with: just python="python3.12" serve
+python := "uv run python"
+
 # Start the MCP + WebSocket bridge server (dev mode, uses installed package)
 serve:
-    python -m dcc_mcp_photoshop
+    {{python}} -m dcc_mcp_photoshop
 
 # Start with custom ports
 serve-ports mcp_port="8765" ws_port="9001":
-    python -m dcc_mcp_photoshop --mcp-port {{mcp_port}} --ws-port {{ws_port}}
+    {{python}} -m dcc_mcp_photoshop --mcp-port {{mcp_port}} --ws-port {{ws_port}}
 
 # Clean all build artifacts
 clean:

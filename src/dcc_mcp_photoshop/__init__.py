@@ -1,30 +1,32 @@
 """dcc-mcp-photoshop — Adobe Photoshop adapter for the DCC MCP ecosystem.
 
-Architecture: WebSocket Bridge Mode
--------------------------------------
-Photoshop does not have an embedded Python interpreter.  Instead, this package
-uses a two-part architecture:
+Architecture: Gateway Mode (Recommended, v0.1.0+)
+--------------------------------------------------
+With dcc-mcp-core v0.12.23+, use the standalone server in gateway mode:
 
-1. **UXP Plugin** (JavaScript, runs inside Photoshop):
-   Opens a WebSocket server on localhost, listens for JSON-RPC 2.0 messages,
-   executes Photoshop UXP API calls, and returns results.
+1. Start dcc-mcp-server.exe with Photoshop skills::
 
-2. **Python Bridge** (this package, runs as a standalone process):
-   Connects to the UXP WebSocket server, translates MCP tool calls into
-   JSON-RPC messages, and returns results to dcc-mcp-core.
+    dcc-mcp-server.exe --dcc photoshop --skill-paths ./src/dcc_mcp_photoshop/skills
 
-Flow::
+2. Start the bridge plugin to maintain UXP connection::
 
-    dcc-mcp-core (MCP HTTP)  <->  PhotoshopMcpServer  <->  UXP WebSocket  <->  Photoshop
-
-Quickstart::
-
-    # 1. Install the UXP plugin in Photoshop (see bridge/uxp-plugin/)
-    # 2. Start Photoshop — the plugin auto-starts the WebSocket server on port 3000
-    # 3. Run the Python bridge:
     import dcc_mcp_photoshop
-    handle = dcc_mcp_photoshop.start_server(port=8765, ws_port=3000)
-    # MCP host connects to http://127.0.0.1:8765/mcp
+    bridge = dcc_mcp_photoshop.start_bridge_only(ws_port=9001)
+    # Skills are loaded progressively on demand
+    # MCP client connects to http://127.0.0.1:8765/mcp
+
+Benefits:
+  - Progressive skill loading (smaller initial tool list)
+  - Better scalability (separate server process)
+  - No eager loading of all tools
+
+Legacy Architecture: Embedded Server (Deprecated)
+--------------------------------------------------
+For backwards compatibility, you can still use the embedded mode::
+
+    import dcc_mcp_photoshop
+    handle = dcc_mcp_photoshop.start_server(port=8765, ws_port=9001)
+    # All skills are eagerly loaded at startup (not recommended)
     handle.shutdown()
 
 Skill authoring helpers::
@@ -42,7 +44,7 @@ Skill authoring helpers::
 
 Requirements:
     - Adobe Photoshop 2022+ (UXP support)
-    - dcc-mcp-core >= 0.12.18
+    - dcc-mcp-core >= 0.12.23
     - websockets >= 12.0  (used by PhotoshopBridge)
 """
 
@@ -62,16 +64,28 @@ from dcc_mcp_photoshop.api import (
 )
 from dcc_mcp_photoshop.bridge import PhotoshopBridge
 from dcc_mcp_photoshop.capabilities import PHOTOSHOP_CAPABILITIES_DICT
-from dcc_mcp_photoshop.server import PhotoshopMcpServer, get_server, start_server, stop_server
+from dcc_mcp_photoshop.server import (
+    PhotoshopBridgePlugin,
+    PhotoshopMcpServer,
+    get_server,
+    start_bridge_only,
+    start_server,
+    stop_bridge_only,
+    stop_server,
+)
 
 __all__ = [
     "__version__",
-    # Server
+    # Server (legacy embedded mode — deprecated)
     "PhotoshopMcpServer",
     "start_server",
     "stop_server",
     "get_server",
-    # Bridge
+    # Bridge (gateway mode — recommended)
+    "PhotoshopBridgePlugin",
+    "start_bridge_only",
+    "stop_bridge_only",
+    # Bridge protocol
     "PhotoshopBridge",
     # Skill authoring helpers
     "ps_success",
