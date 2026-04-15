@@ -73,7 +73,9 @@ jobs:
           name: ${{ matrix.artifact }}
           path: ${{ matrix.binary }}
 
-
+  # ── Build wheel + sdist ──────────────────────────────────────────────────────
+  build:
+    name: Build wheel and sdist
     needs: [release-please]
     if: needs.release-please.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
