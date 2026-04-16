@@ -173,12 +173,14 @@ def _lint_skill(skill_dir: Path, project_root: Path) -> List[LintIssue]:
             source = tool.get("source_file", "")
             if not source:
                 continue
-            script_path = skill_dir / "scripts" / source
+            # source_file is already relative to the skill directory
+            # (e.g. "scripts/get_document_info.py"), so resolve directly.
+            script_path = skill_dir / source
             if not script_path.exists():
                 issues.append(
                     LintIssue(
                         skill_name, rel(skill_md), "ERROR", "R010",
-                        f"Tool source file not found: scripts/{source}"
+                        f"Tool source file not found: {source}"
                     )
                 )
             elif script_path.suffix not in SUPPORTED_SCRIPT_EXTENSIONS:
