@@ -32,7 +32,6 @@ import argparse
 import logging
 import os
 import signal
-import sys
 import time
 
 logger = logging.getLogger(__name__)
@@ -73,48 +72,65 @@ Environment variables:
 """,
     )
     parser.add_argument(
-        "--embedded", action="store_true",
+        "--embedded",
+        action="store_true",
         help="Embedded mode: MCP server + bridge in one Python process (dev only)",
     )
     parser.add_argument(
-        "--mcp-port", type=int, default=8765,
+        "--mcp-port",
+        type=int,
+        default=8765,
         help="MCP HTTP server port (embedded mode; default: 8765)",
     )
     parser.add_argument(
-        "--ws-port", type=int, default=9001,
+        "--ws-port",
+        type=int,
+        default=9001,
         help="WebSocket bridge port for UXP plugin (default: 9001)",
     )
     parser.add_argument(
-        "--ws-host", default="localhost",
+        "--ws-host",
+        default="localhost",
         help="WebSocket bind host (default: localhost)",
     )
     parser.add_argument(
-        "--rpc-port", type=int, default=9100,
+        "--rpc-port",
+        type=int,
+        default=9100,
         help="HTTP RPC server port for cross-process bridge access (default: 9100)",
     )
     parser.add_argument(
-        "--gateway-port", type=int, default=None,
+        "--gateway-port",
+        type=int,
+        default=None,
         help="Gateway competition port (embedded mode; default: env DCC_MCP_GATEWAY_PORT or 9765, 0=disable)",
     )
     parser.add_argument(
-        "--server-name", default="photoshop-mcp",
+        "--server-name",
+        default="photoshop-mcp",
         help="Server name reported in MCP (default: photoshop-mcp)",
     )
     parser.add_argument(
-        "--skill-paths", nargs="*", default=[],
+        "--skill-paths",
+        nargs="*",
+        default=[],
         metavar="PATH",
         help="Extra skill directories",
     )
     parser.add_argument(
-        "--no-builtins", action="store_true",
+        "--no-builtins",
+        action="store_true",
         help="Do not discover built-in skills",
     )
     parser.add_argument(
-        "--verbose", "-v", action="store_true",
+        "--verbose",
+        "-v",
+        action="store_true",
         help="Enable debug logging",
     )
     parser.add_argument(
-        "--version", action="version",
+        "--version",
+        action="version",
         version=f"%(prog)s {_get_version()}",
     )
     return parser
@@ -122,7 +138,8 @@ Environment variables:
 
 def _get_version() -> str:
     try:
-        from dcc_mcp_photoshop.__version__ import __version__
+        from dcc_mcp_photoshop.__version__ import __version__  # noqa: PLC0415
+
         return __version__
     except Exception:
         return "0.0.0"
@@ -159,10 +176,7 @@ def main(argv: list[str] | None = None) -> None:
         try:
             from dcc_mcp_core import TransportManager  # noqa: PLC0415
 
-            registry_dir = (
-                os.environ.get("DCC_MCP_REGISTRY_DIR", "")
-                or os.path.expanduser("~/.dcc-mcp/registry")
-            )
+            registry_dir = os.environ.get("DCC_MCP_REGISTRY_DIR", "") or os.path.expanduser("~/.dcc-mcp/registry")
             if os.path.isdir(registry_dir):
                 mgr = TransportManager(registry_dir=registry_dir)
                 instances = mgr.list_instances("photoshop")
@@ -176,6 +190,7 @@ def main(argv: list[str] | None = None) -> None:
         # 2) Update bridge config file (skill scripts read this for RPC endpoint)
         try:
             import json  # noqa: PLC0415
+
             config_path = os.path.expanduser("~/.dcc-mcp/bridge-photoshop.json")
             config = {}
             if os.path.isfile(config_path):

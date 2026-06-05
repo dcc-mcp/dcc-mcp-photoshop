@@ -84,7 +84,7 @@ async def _handle_rpc(request: Dict[str, Any]) -> Any:
         return [MOCK_DOCUMENT]
     if method == "ps.listLayers":
         include_hidden = params.get("include_hidden", True)
-        return MOCK_LAYERS if include_hidden else [l for l in MOCK_LAYERS if l["visible"]]
+        return MOCK_LAYERS if include_hidden else [lyr for lyr in MOCK_LAYERS if lyr["visible"]]
     if method == "ps.executeScript":
         code = params.get("code", "")
         if code == "app.documents.length":
@@ -196,7 +196,7 @@ def connected_bridge():
     # to use port 0 (OS assigns) and read back the real port.
     _actual_port: list = []
 
-    original_serve = bridge._serve
+    _original_serve = bridge._serve
 
     async def _patched_serve(ready_event, uxp_event, exc_out):
         import websockets as ws  # noqa: PLC0415
@@ -222,6 +222,7 @@ def connected_bridge():
 
     # Give the server a moment to be ready
     import time
+
     for _ in range(20):
         if _actual_port:
             break
@@ -236,14 +237,12 @@ def connected_bridge():
     # Start the mock UXP client in a background thread
     uxp_loop = asyncio.new_event_loop()
     uxp_started = threading.Event()
-    uxp_stop_event = asyncio.Event()
+    _uxp_stop_event = asyncio.Event()
 
     async def _run_mock_uxp():
         async with websockets.connect(f"ws://localhost:{port}") as ws:
             # Send hello
-            await ws.send(json.dumps({
-                "type": "hello", "client": "photoshop-uxp-mock", "version": "0.1.0"
-            }))
+            await ws.send(json.dumps({"type": "hello", "client": "photoshop-uxp-mock", "version": "0.1.0"}))
             uxp_started.set()
 
             try:
@@ -262,15 +261,25 @@ def connected_bridge():
                         result = await _handle_rpc(req)
                         await ws.send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}))
                     except ValueError as exc:
-                        await ws.send(json.dumps({
-                            "jsonrpc": "2.0", "id": req_id,
-                            "error": {"code": -32601, "message": str(exc)},
-                        }))
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": req_id,
+                                    "error": {"code": -32601, "message": str(exc)},
+                                }
+                            )
+                        )
                     except Exception as exc:  # noqa: BLE001
-                        await ws.send(json.dumps({
-                            "jsonrpc": "2.0", "id": req_id,
-                            "error": {"code": -32603, "message": str(exc)},
-                        }))
+                        await ws.send(
+                            json.dumps(
+                                {
+                                    "jsonrpc": "2.0",
+                                    "id": req_id,
+                                    "error": {"code": -32603, "message": str(exc)},
+                                }
+                            )
+                        )
             except Exception:
                 pass
 

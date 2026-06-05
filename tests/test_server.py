@@ -1,4 +1,5 @@
 """Basic tests for PhotoshopMcpServer (without real Photoshop)."""
+
 from __future__ import annotations
 
 import pytest
@@ -17,8 +18,6 @@ def test_api_imports():
         is_photoshop_available,
         ps_error,
         ps_success,
-        start_server,
-        stop_server,
     )
 
     assert callable(PhotoshopMcpServer)
