@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "dcc-mcp-photoshop"
-version = "0.1.0"
+version = "0.1.1"
 description = "Adobe Photoshop adapter for the DCC Model Context Protocol (MCP) ecosystem — bridges MCP tools to Photoshop via UXP WebSocket"
 authors = [{ name = "Long Hao", email = "hal.long@outlook.com" }]
 readme = "README.md"
