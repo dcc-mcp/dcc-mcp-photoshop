@@ -43,6 +43,7 @@ import logging
 import logging.handlers
 import threading
 from concurrent.futures import Future
+from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -430,7 +431,7 @@ class PhotoshopBridge:
             result = future.result(timeout=self._timeout)
             logger.debug("← call id=%d method=%s OK", req_id, method)
             return result
-        except TimeoutError:
+        except FutureTimeoutError:
             self._pending.pop(req_id, None)
             logger.warning("call id=%d method=%s TIMEOUT after %.1fs", req_id, method, self._timeout)
             raise BridgeTimeoutError(  # noqa: B904
