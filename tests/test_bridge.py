@@ -245,6 +245,7 @@ class TestErrorHandling:
     def test_timeout_raises_bridge_timeout_error(self, connected_bridge):
         """bridge.call() with a stuck pending future raises BridgeTimeoutError."""
         from concurrent.futures import Future
+        from concurrent.futures import TimeoutError as FutureTimeoutError
 
         from dcc_mcp_photoshop.bridge import BridgeTimeoutError
 
@@ -257,7 +258,7 @@ class TestErrorHandling:
             with pytest.raises(BridgeTimeoutError):
                 try:
                     stuck_future.result(timeout=0.05)
-                except TimeoutError:
+                except FutureTimeoutError:
                     connected_bridge._pending.pop(req_id, None)
                     raise BridgeTimeoutError("Timed out: ps.test")  # noqa: B904
         finally:
