@@ -41,7 +41,6 @@ import asyncio
 import json
 import logging
 import logging.handlers
-import os
 import threading
 from concurrent.futures import Future
 from pathlib import Path
@@ -168,7 +167,7 @@ class PhotoshopBridge:
         # Active UXP connection (set on first client connect)
         self._uxp_ws = None
         self._connected = False  # True once UXP plugin has connected
-        self._uxp_connect_count = 0   # cumulative connect events
+        self._uxp_connect_count = 0  # cumulative connect events
         self._uxp_disconnect_count = 0  # cumulative disconnect events
 
         # Pending RPC calls: id → Future
@@ -216,18 +215,14 @@ class PhotoshopBridge:
         def _run_loop() -> None:
             asyncio.set_event_loop(self._loop)
             try:
-                self._loop.run_until_complete(
-                    self._serve(ready_event, uxp_connected_event, start_exc)
-                )
+                self._loop.run_until_complete(self._serve(ready_event, uxp_connected_event, start_exc))
                 self._loop.run_forever()
             except Exception:
                 pass
             finally:
                 self._loop.close()
 
-        self._thread = threading.Thread(
-            target=_run_loop, daemon=True, name="photoshop-bridge-server"
-        )
+        self._thread = threading.Thread(target=_run_loop, daemon=True, name="photoshop-bridge-server")
         self._thread.start()
 
         # Wait until server is listening
@@ -332,9 +327,7 @@ class PhotoshopBridge:
             self._connected = False
             # Fail all pending calls
             for f in self._pending.values():
-                self._set_future_exception(
-                    f, BridgeConnectionError("UXP plugin disconnected")
-                )
+                self._set_future_exception(f, BridgeConnectionError("UXP plugin disconnected"))
             self._pending.clear()
             logger.info("UXP plugin disconnected")
 
@@ -353,6 +346,7 @@ class PhotoshopBridge:
         self._connected = False
 
         if self._loop is not None:
+
             async def _close():
                 if self._server:
                     self._server.close()
@@ -439,7 +433,7 @@ class PhotoshopBridge:
         except TimeoutError:
             self._pending.pop(req_id, None)
             logger.warning("call id=%d method=%s TIMEOUT after %.1fs", req_id, method, self._timeout)
-            raise BridgeTimeoutError(
+            raise BridgeTimeoutError(  # noqa: B904
                 f"call({method!r}) timed out after {self._timeout}s. "
                 "Check that Photoshop and the dcc-mcp UXP plugin are responding."
             )
@@ -464,7 +458,7 @@ class PhotoshopBridge:
 
     # ── Context manager ────────────────────────────────────────────────────
 
-    def __enter__(self) -> "PhotoshopBridge":
+    def __enter__(self) -> PhotoshopBridge:
         self.connect()
         return self
 

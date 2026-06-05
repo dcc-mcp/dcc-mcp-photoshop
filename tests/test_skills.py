@@ -20,9 +20,9 @@ import pytest
 # Path to skill scripts
 _SKILLS_ROOT = Path(__file__).parent.parent / "src" / "dcc_mcp_photoshop" / "skills"
 _DOCUMENT_SCRIPTS = _SKILLS_ROOT / "photoshop-document" / "scripts"
-_LAYERS_SCRIPTS   = _SKILLS_ROOT / "photoshop-layers" / "scripts"
-_IMAGE_SCRIPTS    = _SKILLS_ROOT / "photoshop-image" / "scripts"
-_TEXT_SCRIPTS     = _SKILLS_ROOT / "photoshop-text" / "scripts"
+_LAYERS_SCRIPTS = _SKILLS_ROOT / "photoshop-layers" / "scripts"
+_IMAGE_SCRIPTS = _SKILLS_ROOT / "photoshop-image" / "scripts"
+_TEXT_SCRIPTS = _SKILLS_ROOT / "photoshop-text" / "scripts"
 
 
 def _load_script(scripts_dir: Path, name: str) -> ModuleType:
@@ -87,8 +87,7 @@ class TestGetDocumentInfoSkill:
         # @skill_entry catches exceptions and returns a failure dict
         result = mod.get_document_info()
         assert result["success"] is False
-        assert "PhotoshopNotAvailableError" in result.get("error", "") or \
-               "bridge" in result.get("message", "").lower()
+        assert "PhotoshopNotAvailableError" in result.get("error", "") or "bridge" in result.get("message", "").lower()
 
 
 # ---------------------------------------------------------------------------
@@ -313,4 +312,3 @@ class TestTextSkills:
         assert result["context"]["content"] == "Hello, World!"
         assert result["context"]["font"] == "ArialMT"
         assert result["context"]["color"] == "#000000"
-

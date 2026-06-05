@@ -295,7 +295,7 @@ def with_photoshop(func: _F) -> _F:
             logger.exception("%s failed", func.__name__)
             return ps_from_exception(
                 exc,
-                message="Failed to execute {}".format(func.__name__),
+                message=f"Failed to execute {func.__name__}",
             )
 
     return wrapper  # type: ignore[return-value]
