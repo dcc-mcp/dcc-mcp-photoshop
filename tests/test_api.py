@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Result helpers
 # ---------------------------------------------------------------------------
@@ -83,6 +82,7 @@ class TestBridgeSingleton:
     def setup_method(self):
         """Reset the module-level bridge singleton before each test."""
         import dcc_mcp_photoshop.api as api_mod
+
         api_mod._bridge = None
 
     def test_is_photoshop_available_false_when_none(self):
@@ -137,6 +137,7 @@ class TestBridgeSingleton:
 class TestWithPhotoshopDecorator:
     def setup_method(self):
         import dcc_mcp_photoshop.api as api_mod
+
         api_mod._bridge = None
 
     def test_catches_not_available_error(self):

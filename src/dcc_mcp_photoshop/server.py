@@ -78,8 +78,10 @@ class PhotoshopBridgePlugin:
         - Starts an HTTP RPC server on ``rpc_port`` for cross-process bridge access.
         """
         from dcc_mcp_photoshop import api  # noqa: PLC0415
-        from dcc_mcp_photoshop.api import BRIDGE_URL_ENV_VAR  # noqa: PLC0415
-        from dcc_mcp_photoshop.api import _write_bridge_url_to_config  # noqa: PLC0415
+        from dcc_mcp_photoshop.api import (  # noqa: PLC0415
+            BRIDGE_URL_ENV_VAR,
+            _write_bridge_url_to_config,
+        )
         from dcc_mcp_photoshop.bridge import BridgeRpcServer, PhotoshopBridge  # noqa: PLC0415
 
         bridge = PhotoshopBridge(host=self._ws_host, port=self._ws_port)
@@ -113,8 +115,10 @@ class PhotoshopBridgePlugin:
     def disconnect(self) -> None:
         """Disconnect the bridge, stop RPC server, and clear singletons."""
         from dcc_mcp_photoshop import api  # noqa: PLC0415
-        from dcc_mcp_photoshop.api import BRIDGE_URL_ENV_VAR  # noqa: PLC0415
-        from dcc_mcp_photoshop.api import _remove_bridge_config  # noqa: PLC0415
+        from dcc_mcp_photoshop.api import (  # noqa: PLC0415
+            BRIDGE_URL_ENV_VAR,
+            _remove_bridge_config,
+        )
 
         if self._rpc_server is not None:
             self._rpc_server.stop()
@@ -183,9 +187,7 @@ class PhotoshopMcpServer:
         self._ws_port = ws_port
         self._rpc_port = rpc_port
         self._gateway_port = gateway_port
-        self._bridge_plugin = PhotoshopBridgePlugin(
-            ws_host=ws_host, ws_port=ws_port, rpc_port=rpc_port
-        )
+        self._bridge_plugin = PhotoshopBridgePlugin(ws_host=ws_host, ws_port=ws_port, rpc_port=rpc_port)
 
     # ── bridge lifecycle ───────────────────────────────────────────────────
 
@@ -204,9 +206,7 @@ class PhotoshopMcpServer:
         """The underlying ``ActionRegistry`` (internal; prefer ``list_skills``)."""
         return self._base.registry
 
-    def discover_builtin_skills(
-        self, extra_skill_paths: list[str] | None = None
-    ) -> "PhotoshopMcpServer":
+    def discover_builtin_skills(self, extra_skill_paths: list[str] | None = None) -> PhotoshopMcpServer:
         """Discover all built-in Photoshop skills (lazy loading mode).
 
         This only scans for skills; it does NOT load them. Skills remain
@@ -226,9 +226,7 @@ class PhotoshopMcpServer:
         )
         return self
 
-    def register_builtin_actions(
-        self, extra_skill_paths: list[str] | None = None
-    ) -> "PhotoshopMcpServer":
+    def register_builtin_actions(self, extra_skill_paths: list[str] | None = None) -> PhotoshopMcpServer:
         """DEPRECATED: Discover and eagerly load all built-in skills.
 
         .. deprecated:: 0.1.0
@@ -293,9 +291,7 @@ _bridge_plugin: Optional[PhotoshopBridgePlugin] = None
 _lock = threading.Lock()
 
 
-def start_bridge_only(
-    ws_host: str = "localhost", ws_port: int = 9001, rpc_port: int = 9100
-) -> PhotoshopBridgePlugin:
+def start_bridge_only(ws_host: str = "localhost", ws_port: int = 9001, rpc_port: int = 9100) -> PhotoshopBridgePlugin:
     """Start a minimal bridge-only plugin (for use with external dcc-mcp-server).
 
     Args:
@@ -309,9 +305,7 @@ def start_bridge_only(
     global _bridge_plugin
     with _lock:
         if _bridge_plugin is None:
-            _bridge_plugin = PhotoshopBridgePlugin(
-                ws_host=ws_host, ws_port=ws_port, rpc_port=rpc_port
-            )
+            _bridge_plugin = PhotoshopBridgePlugin(ws_host=ws_host, ws_port=ws_port, rpc_port=rpc_port)
         if not _bridge_plugin.is_connected:
             _bridge_plugin.connect()
         return _bridge_plugin
@@ -366,9 +360,7 @@ def start_server(
                 gateway_port=gateway_port,
             )
             if register_builtins:
-                _server_instance.discover_builtin_skills(
-                    extra_skill_paths=extra_skill_paths
-                )
+                _server_instance.discover_builtin_skills(extra_skill_paths=extra_skill_paths)
         return _server_instance.start()
 
 

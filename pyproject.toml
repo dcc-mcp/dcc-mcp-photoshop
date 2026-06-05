@@ -25,7 +25,7 @@ classifiers = [
 ]
 
 dependencies = [
-    "dcc-mcp-core>=0.12.29,<1.0.0",
+    "dcc-mcp-core>=0.18.2,<1.0.0",
     "websockets>=12.0",
 ]
 
@@ -71,12 +71,14 @@ select = ["E", "F", "I", "W", "B", "UP", "C4", "PLC"]
 ignore = [
     "E501",   # line too long (handled by formatter)
     "UP007",  # Use X | Y for type annotations — requires Python 3.10+
+    "UP045",  # Use X | None for type annotations — requires Python 3.10+
     "UP006",  # Use type instead of Type — requires Python 3.9+
     "B008",   # Do not perform function calls in default arguments
 ]
 
 [tool.ruff.lint.per-file-ignores]
-"tests/*" = ["S101"]  # assert is fine in tests
+"tests/*" = ["S101", "PLC0415"]  # assert is fine in tests; top-level import not required
+"tools/*" = ["PLC0415"]
 
 [tool.ruff.format]
 quote-style = "double"

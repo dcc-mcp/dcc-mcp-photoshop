@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import pytest
 
-
 # ---------------------------------------------------------------------------
 # Connection lifecycle
 # ---------------------------------------------------------------------------
@@ -135,7 +134,7 @@ class TestLayerOperations:
     def test_list_layers_all(self, connected_bridge):
         layers = connected_bridge.list_layers(include_hidden=True)
         assert len(layers) == 3
-        names = [l["name"] for l in layers]
+        names = [layer["name"] for layer in layers]
         assert "Background" in names
         assert "Layer 1" in names
         assert "Hidden Layer" in names
@@ -143,7 +142,7 @@ class TestLayerOperations:
     def test_list_layers_visible_only(self, connected_bridge):
         layers = connected_bridge.list_layers(include_hidden=False)
         assert len(layers) == 2
-        assert all(l["visible"] for l in layers)
+        assert all(layer["visible"] for layer in layers)
 
     def test_list_layers_helper(self, connected_bridge):
         layers = connected_bridge.list_layers()
@@ -152,7 +151,7 @@ class TestLayerOperations:
 
     def test_layer_has_expected_fields(self, connected_bridge):
         layers = connected_bridge.list_layers()
-        bg = next(l for l in layers if l["name"] == "Background")
+        bg = next(layer for layer in layers if layer["name"] == "Background")
         assert bg["type"] == "pixel"
         assert bg["visible"] is True
         assert bg["opacity"] == 100
@@ -176,22 +175,16 @@ class TestLayerOperations:
         assert result["name"] == "Layer 1"
 
     def test_set_layer_visibility_hide(self, connected_bridge):
-        result = connected_bridge.call(
-            "ps.setLayerVisibility", name="Layer 1", visible=False
-        )
+        result = connected_bridge.call("ps.setLayerVisibility", name="Layer 1", visible=False)
         assert result["visible"] is False
         assert result["name"] == "Layer 1"
 
     def test_set_layer_visibility_show(self, connected_bridge):
-        result = connected_bridge.call(
-            "ps.setLayerVisibility", name="Hidden Layer", visible=True
-        )
+        result = connected_bridge.call("ps.setLayerVisibility", name="Hidden Layer", visible=True)
         assert result["visible"] is True
 
     def test_rename_layer(self, connected_bridge):
-        result = connected_bridge.call(
-            "ps.renameLayer", name="Layer 1", new_name="Renamed Layer"
-        )
+        result = connected_bridge.call("ps.renameLayer", name="Layer 1", new_name="Renamed Layer")
         assert result["name"] == "Renamed Layer"
         assert result["old_name"] == "Layer 1"
 
@@ -205,9 +198,7 @@ class TestLayerOperations:
         assert "copy" in result["name"].lower() or result["name"] == "Layer 1 copy"
 
     def test_duplicate_layer_with_new_name(self, connected_bridge):
-        result = connected_bridge.call(
-            "ps.duplicateLayer", name="Layer 1", new_name="Layer 1 Backup"
-        )
+        result = connected_bridge.call("ps.duplicateLayer", name="Layer 1", new_name="Layer 1 Backup")
         assert result["name"] == "Layer 1 Backup"
 
 
@@ -268,7 +259,7 @@ class TestErrorHandling:
                     stuck_future.result(timeout=0.05)
                 except TimeoutError:
                     connected_bridge._pending.pop(req_id, None)
-                    raise BridgeTimeoutError("Timed out: ps.test")
+                    raise BridgeTimeoutError("Timed out: ps.test")  # noqa: B904
         finally:
             connected_bridge._pending.pop(req_id, None)
 
