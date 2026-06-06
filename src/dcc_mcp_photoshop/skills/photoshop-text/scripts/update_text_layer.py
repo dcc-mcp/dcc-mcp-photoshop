@@ -72,10 +72,10 @@ def _update_text(
                 break
 
     if text_item is None:
-        text_item = app.activeText
-
-    if text_item is None:
-        return {"layer_name": name, "updated_fields": updated_fields, "content": None}
+        raise ValueError(
+            f"Text layer '{name}' not found or is not a text layer. "
+            "Ensure the layer exists and was created as a text layer."
+        )
 
     if content is not None:
         text_item.set_contents(content, command_name="Set text content")
