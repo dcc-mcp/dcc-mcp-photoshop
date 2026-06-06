@@ -69,6 +69,7 @@ def _create_text(
             {
                 "_obj": "make",
                 "_target": [{"_ref": "textLayer"}],
+                "name": name,
                 "using": {
                     "_obj": "textLayer",
                     "textKey": content,

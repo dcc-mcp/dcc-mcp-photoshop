@@ -324,6 +324,14 @@ class FakeClient:
                     "opacity": 100,
                     "typename": "Layer",
                 },
+                {
+                    "id": 200,
+                    "name": "MyText",
+                    "kind": "text",
+                    "visible": True,
+                    "opacity": 100,
+                    "typename": "TextLayer",
+                },
             ]
 
         if namespace == "document" and method == "getActiveLayers":
@@ -344,6 +352,14 @@ class FakeClient:
                     "visible": False,
                     "opacity": 100,
                     "typename": "Layer",
+                },
+                {
+                    "id": 200,
+                    "name": "MyText",
+                    "kind": "text",
+                    "visible": True,
+                    "opacity": 100,
+                    "typename": "TextLayer",
                 },
             ]
 
@@ -412,10 +428,35 @@ class FakeClient:
             return {"id": 102, "name": "Layer 1", "kind": "pixel", "visible": True, "opacity": 75}
 
         if namespace == "text" and method == "getActive":
-            return {"layerId": 200, "contents": "Hello, World!", "font": "ArialMT", "size": 48.0}
+            return {
+                "layerId": 200,
+                "contents": "Hello, World!",
+                "characterStyle": {
+                    "font": "ArialMT",
+                    "size": 48,
+                    "color": "#000000",
+                    "bold": False,
+                    "italic": False,
+                },
+                "paragraphStyle": {"alignment": "left", "justification": "left"},
+            }
 
         if namespace == "text" and method == "getByLayerId":
-            return {"layerId": args[0] if args else 200, "contents": "Hello, World!", "font": "ArialMT", "size": 48.0}
+            layer_id = args[0] if args else 0
+            if layer_id == 200:
+                return {
+                    "layerId": 200,
+                    "contents": "Hello, World!",
+                    "characterStyle": {
+                        "font": "ArialMT",
+                        "size": 48,
+                        "color": "#000000",
+                        "bold": False,
+                        "italic": False,
+                    },
+                    "paragraphStyle": {"alignment": "left", "justification": "left"},
+                }
+            return None
 
         if namespace == "text" and method == "setContents":
             return {"layerId": args[0] if args else 200, "contents": args[1] if len(args) > 1 else "updated"}

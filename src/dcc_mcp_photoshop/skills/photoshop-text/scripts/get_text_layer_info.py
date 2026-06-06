@@ -27,7 +27,7 @@ def get_text_layer_info(name: str, **kwargs) -> dict:
 
 
 def _get_text_info(app: Photoshop, name: str) -> dict:
-    text_info = app.activeText
+    text_info = None
 
     if app.activeDocument:
         for layer in app.activeDocument.layers:
@@ -36,7 +36,10 @@ def _get_text_info(app: Photoshop, name: str) -> dict:
                 break
 
     if text_info is None:
-        return {"layer_name": name, "content": None, "font": None, "size": None}
+        raise ValueError(
+            f"Text layer '{name}' not found or is not a text layer. "
+            "Ensure the layer exists and was created as a text layer."
+        )
 
     char_style = text_info.characterStyle if text_info.characterStyle else None
 
@@ -46,13 +49,16 @@ def _get_text_info(app: Photoshop, name: str) -> dict:
         "font": _safe_attr(char_style, "font") if char_style else None,
         "size": _safe_attr(char_style, "size") if char_style else None,
         "color": _safe_attr(char_style, "color") if char_style else None,
-        "alignment": _safe_attr(text_info, "alignment"),
-        "bold": None,
-        "italic": None,
+        "alignment": _safe_attr(text_info.paragraphStyle, "alignment") if text_info.paragraphStyle else None,
+        "bold": _safe_attr(char_style, "bold") if char_style else None,
+        "italic": _safe_attr(char_style, "italic") if char_style else None,
     }
 
 
 def _safe_attr(obj, name: str):
+    """Safely get an attribute, returning None on AttributeError or if obj is None."""
+    if obj is None:
+        return None
     try:
         return getattr(obj, name, None)
     except AttributeError:

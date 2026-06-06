@@ -77,7 +77,7 @@ class TestListLayersSkill:
     def test_returns_layer_count(self):
         mod = _load_script(_DOCUMENT_SCRIPTS, "list_layers.py")
         result = mod.list_layers()
-        assert result["context"]["count"] == 3
+        assert result["context"]["count"] == 4
 
     def test_returns_layer_names(self):
         mod = _load_script(_DOCUMENT_SCRIPTS, "list_layers.py")
@@ -86,12 +86,13 @@ class TestListLayersSkill:
         assert "Background" in names
         assert "Layer 1" in names
         assert "Hidden Layer" in names
+        assert "MyText" in names
 
     def test_exclude_hidden_layers(self):
         mod = _load_script(_DOCUMENT_SCRIPTS, "list_layers.py")
         result = mod.list_layers(include_hidden=False)
         assert result["success"] is True
-        assert result["context"]["count"] == 2
+        assert result["context"]["count"] == 3
         assert "Hidden Layer" not in result["context"]["layers"]
 
     def test_include_hidden_param_reflected(self):
@@ -254,6 +255,13 @@ class TestTextSkills:
         assert result["context"]["font"] == "ArialMT"
         assert result["context"]["size"] == 72
 
+    def test_create_text_layer_custom_name(self):
+        """The custom layer name must appear in the result, not 'New Layer'."""
+        mod = _load_script(_TEXT_SCRIPTS, "create_text_layer.py")
+        result = mod.create_text_layer(content="Hello", name="MyText")
+        assert result["success"] is True
+        assert result["context"]["layer_name"] == "MyText"
+
     def test_create_text_layer_defaults(self):
         mod = _load_script(_TEXT_SCRIPTS, "create_text_layer.py")
         result = mod.create_text_layer(content="Test")
@@ -265,8 +273,36 @@ class TestTextSkills:
         assert result["success"] is True
         assert result["context"]["layer_name"] == "MyText"
 
+    def test_update_text_layer_not_found(self):
+        """Updating a non-existent layer must fail, not silently fall back."""
+        mod = _load_script(_TEXT_SCRIPTS, "update_text_layer.py")
+        result = mod.update_text_layer(name="DoesNotExist", content="New")
+        assert result["success"] is False
+        assert "not found" in result.get("message", "") or "not found" in result.get("error", "")
+
     def test_get_text_layer_info(self):
         mod = _load_script(_TEXT_SCRIPTS, "get_text_layer_info.py")
         result = mod.get_text_layer_info(name="MyText")
         assert result["success"] is True
         assert result["context"]["layer_name"] == "MyText"
+        assert result["context"]["content"] == "Hello, World!"
+
+    def test_get_text_layer_info_style_fields(self):
+        """Text style fields (font, size, color, bold, italic) must be populated."""
+        mod = _load_script(_TEXT_SCRIPTS, "get_text_layer_info.py")
+        result = mod.get_text_layer_info(name="MyText")
+        assert result["success"] is True
+        ctx = result["context"]
+        assert ctx["font"] == "ArialMT"
+        assert ctx["size"] == 48
+        assert ctx["color"] == "#000000"
+        assert ctx["bold"] is False
+        assert ctx["italic"] is False
+        assert ctx["alignment"] == "left"
+
+    def test_get_text_layer_info_not_found(self):
+        """Querying a non-existent layer must fail, not silently return activeText."""
+        mod = _load_script(_TEXT_SCRIPTS, "get_text_layer_info.py")
+        result = mod.get_text_layer_info(name="DoesNotExist")
+        assert result["success"] is False
+        assert "not found" in result.get("message", "") or "not found" in result.get("error", "")
