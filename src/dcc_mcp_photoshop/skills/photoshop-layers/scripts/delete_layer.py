@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
 
@@ -15,17 +17,22 @@ def delete_layer(name: str, **kwargs) -> dict:
     Returns:
         dict: ActionResultModel confirming deletion.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.deleteLayer", name=name)
-
-    return ps_success(
+    return action_result(
         f"Deleted layer '{name}'",
+        lambda: _delete_layer(app, name),
         prompt="Use list_layers to confirm the layer has been removed.",
-        deleted=result.get("deleted", True),
-        layer_name=name,
     )
+
+
+def _delete_layer(app: Photoshop, name: str) -> dict:
+    app.batch_play(
+        [{"_obj": "delete", "_target": [{"_ref": "layer", "_name": name}]}],
+        modal=True,
+        command_name="Delete layer",
+    )
+    return {"deleted": True, "layer_name": name}
 
 
 def main(**kwargs) -> dict:

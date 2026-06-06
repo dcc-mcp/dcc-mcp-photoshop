@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
 
@@ -14,14 +16,8 @@ def export_document(
 ) -> dict:
     """Export the active Photoshop document to a file.
 
-    The file is written to the UXP plugin's temporary data folder when an
-    arbitrary path cannot be accessed.  The actual output path is returned
-    so the agent can report it to the user.
-
     Args:
         path: Desired output filename or path (e.g. ``"output.png"``).
-            If the full path is not accessible via UXP, the file lands in
-            the plugin PluginData temp directory.
         format: Output format: ``"png"`` (default), ``"jpg"``, ``"tiff"``,
             or ``"psd"``.
         quality: JPEG quality 0-100 (only for ``format="jpg"``).
@@ -29,19 +25,34 @@ def export_document(
     Returns:
         dict: ActionResultModel with the actual output path and format.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.exportDocument", path=path, format=format, quality=quality)
-
-    out_path = result.get("path", path)
-    return ps_success(
-        f"Exported document as {format.upper()} → {out_path}",
+    return action_result(
+        f"Exported document as {format.upper()} → {path}",
+        lambda: _export(app, path, format, quality),
         prompt="The file has been saved. Share the path with the user.",
-        exported=result.get("exported", True),
-        path=out_path,
-        format=result.get("format", format),
     )
+
+
+def _export(app: Photoshop, path: str, format: str, quality: int) -> dict:
+    options = {}
+    if format == "jpg":
+        options["quality"] = quality
+        options["format"] = "jpg"
+    elif format == "tiff":
+        options["format"] = "tiff"
+
+    if app.activeDocument:
+        result = app.activeDocument.export(path, format=format, options=options)
+        out_path = result.get("path", path) if isinstance(result, dict) else path
+        return {"exported": True, "path": out_path, "format": format}
+
+    app.batch_play(
+        [{"_obj": "export", "using": {"_obj": f"{format.upper()}Format", "path": path}}],
+        modal=True,
+        command_name="Export document",
+    )
+    return {"exported": True, "path": path, "format": format}
 
 
 def main(**kwargs) -> dict:

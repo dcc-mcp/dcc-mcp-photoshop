@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
 
@@ -16,16 +18,27 @@ def set_layer_opacity(name: str, opacity: float, **kwargs) -> dict:
     Returns:
         dict: ActionResultModel with the applied opacity.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.setLayerOpacity", name=name, opacity=opacity)
-
-    return ps_success(
-        f"Set opacity of '{name}' to {result.get('opacity', opacity)}%",
-        layer_name=name,
-        opacity=result.get("opacity", opacity),
+    return action_result(
+        f"Set opacity of '{name}' to {opacity}%",
+        lambda: _set_opacity(app, name, opacity),
     )
+
+
+def _set_opacity(app: Photoshop, name: str, opacity: float) -> dict:
+    app.batch_play(
+        [
+            {
+                "_obj": "set",
+                "_target": [{"_ref": "layer", "_name": name}],
+                "to": {"_obj": "layer", "opacity": {"_unit": "percentUnit", "_value": opacity}},
+            }
+        ],
+        modal=True,
+        command_name="Set layer opacity",
+    )
+    return {"layer_name": name, "opacity": opacity}
 
 
 def main(**kwargs) -> dict:
