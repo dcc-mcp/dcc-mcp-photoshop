@@ -338,7 +338,7 @@ class FakeClient:
 # ---------------------------------------------------------------------------
 
 
-def _make_ps(client: Optional[FakeClient] = None) -> "Photoshop":
+def _make_ps(client: Optional[FakeClient] = None) -> Photoshop:  # noqa: F821
     from adobe.photoshop import Photoshop
 
     return Photoshop(client=client or FakeClient())
@@ -900,9 +900,8 @@ class TestAdobepyBridgeCompatibility:
 
     def test_connected_bridge_fixture_works(self, connected_bridge) -> None:
         """The conftest connected_bridge fixture still provides a working bridge."""
-        from dcc_mcp_photoshop.api import is_photoshop_available
-
         import dcc_mcp_photoshop.api as api_mod
+        from dcc_mcp_photoshop.api import is_photoshop_available
 
         api_mod._bridge = connected_bridge
         assert is_photoshop_available() is True

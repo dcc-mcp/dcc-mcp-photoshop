@@ -64,7 +64,6 @@ from adobe.dcc_mcp import (  # noqa: E402, F401
 # Import Photoshop facade for direct use by skill scripts.
 from adobe.photoshop import Photoshop  # noqa: E402, F401
 
-
 # ---------------------------------------------------------------------------
 # Exception types
 # ---------------------------------------------------------------------------
