@@ -273,6 +273,31 @@ class TestTextSkills:
         assert result["success"] is True
         assert result["context"]["layer_name"] == "MyText"
 
+    def test_update_text_layer_alignment(self):
+        """Alignment must be set via paragraph style, not character style."""
+        from tests.conftest import FakeClient
+
+        mod = _load_script(_TEXT_SCRIPTS, "update_text_layer.py")
+        result = mod.update_text_layer(name="MyText", alignment="center")
+        assert result["success"] is True
+        # Verify paragraph style was the channel used
+        assert FakeClient._last_set_paragraph_style is not None
+        assert FakeClient._last_set_paragraph_style.get("alignment") == "center"
+
+    def test_update_text_layer_alignment_roundtrip(self):
+        """After setting alignment, subsequent read must reflect the change."""
+        mod_update = _load_script(_TEXT_SCRIPTS, "update_text_layer.py")
+        mod_get = _load_script(_TEXT_SCRIPTS, "get_text_layer_info.py")
+
+        # Update alignment
+        result = mod_update.update_text_layer(name="MyText", alignment="center")
+        assert result["success"] is True
+
+        # Read back — alignment should be the updated value
+        result = mod_get.get_text_layer_info(name="MyText")
+        assert result["success"] is True
+        assert result["context"]["alignment"] == "center"
+
     def test_update_text_layer_not_found(self):
         """Updating a non-existent layer must fail, not silently fall back."""
         mod = _load_script(_TEXT_SCRIPTS, "update_text_layer.py")
