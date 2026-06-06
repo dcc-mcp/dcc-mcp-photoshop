@@ -138,6 +138,7 @@ async def _handle_rpc(request: Dict[str, Any]) -> Any:
 def connected_bridge():
     """Return a PhotoshopBridge server with a mock UXP client connected."""
     import websockets  # noqa: PLC0415
+
     from dcc_mcp_photoshop.bridge import PhotoshopBridge
 
     bridge = PhotoshopBridge(host="localhost", port=0, timeout=10.0)
@@ -375,9 +376,9 @@ def fake_broker_client(monkeypatch):
     Use in tests that exercise migrated skill scripts with the adobepy facade.
     """
     import adobe.core as core_mod
+    import adobe.core.client as client_mod
     import adobe.core.session as session_mod
     import adobe.photoshop.session as ps_session_mod
-    import adobe.core.client as client_mod
 
     monkeypatch.setattr(client_mod, "BrokerClient", FakeClient)
     monkeypatch.setattr(session_mod, "BrokerClient", FakeClient)
