@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.3](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.2...v0.1.3) (2026-06-06)
+
+
+### Bug Fixes
+
+* **ci:** isolate workflow_dispatch from push concurrency in release workflow ([#12](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/12)) ([7896fa8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/7896fa8631117f929b27d543963d6162af210706))
+
 ## [0.1.2](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.1...v0.1.2) (2026-06-06)
 
 
