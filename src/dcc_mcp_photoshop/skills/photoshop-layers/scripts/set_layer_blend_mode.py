@@ -3,35 +3,15 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 VALID_BLEND_MODES = [
-    "normal",
-    "dissolve",
-    "darken",
-    "multiply",
-    "color_burn",
-    "linear_burn",
-    "darker_color",
-    "lighten",
-    "screen",
-    "color_dodge",
-    "linear_dodge",
-    "lighter_color",
-    "overlay",
-    "soft_light",
-    "hard_light",
-    "vivid_light",
-    "linear_light",
-    "pin_light",
-    "hard_mix",
-    "difference",
-    "exclusion",
-    "subtract",
-    "divide",
-    "hue",
-    "saturation",
-    "color",
-    "luminosity",
+    "normal", "dissolve", "darken", "multiply", "color_burn",
+    "linear_burn", "darker_color", "lighten", "screen", "color_dodge",
+    "linear_dodge", "lighter_color", "overlay", "soft_light", "hard_light",
+    "vivid_light", "linear_light", "pin_light", "hard_mix", "difference",
+    "exclusion", "subtract", "divide", "hue", "saturation", "color", "luminosity",
 ]
 
 
@@ -43,25 +23,31 @@ def set_layer_blend_mode(name: str, blend_mode: str, **kwargs) -> dict:
         name: Exact layer name.
         blend_mode: Blend mode string, e.g. ``"multiply"``, ``"screen"``,
             ``"overlay"``, ``"soft_light"``, ``"normal"``.
-            Full list: normal, dissolve, darken, multiply, color_burn,
-            linear_burn, darker_color, lighten, screen, color_dodge,
-            linear_dodge, lighter_color, overlay, soft_light, hard_light,
-            vivid_light, linear_light, pin_light, hard_mix, difference,
-            exclusion, subtract, divide, hue, saturation, color, luminosity.
 
     Returns:
         dict: ActionResultModel confirming the blend mode change.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.setLayerBlendMode", name=name, blend_mode=blend_mode)
-
-    return ps_success(
+    return action_result(
         f"Set blend mode of '{name}' to '{blend_mode}'",
-        layer_name=name,
-        blend_mode=result.get("blend_mode", blend_mode),
+        lambda: _set_blend_mode(app, name, blend_mode),
     )
+
+
+def _set_blend_mode(app: Photoshop, name: str, blend_mode: str) -> dict:
+    app.batch_play(
+        [
+            {
+                "_obj": "set",
+                "_target": [{"_ref": "layer", "_name": name}],
+                "to": {"_obj": "layer", "mode": {"_enum": "blendMode", "_value": blend_mode}},
+            }
+        ],
+        modal=True,
+        command_name="Set layer blend mode",
+    )
+    return {"layer_name": name, "blend_mode": blend_mode}
 
 
 def main(**kwargs) -> dict:

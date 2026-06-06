@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -15,16 +17,21 @@ def merge_visible_layers(**kwargs) -> dict:
     Returns:
         dict: ActionResultModel confirming the merge.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.mergeVisibleLayers")
-
-    return ps_success(
+    return action_result(
         "Visible layers merged",
-        merged=result.get("merged", True),
-        layer_name=result.get("layer_name"),
+        lambda: _merge_visible(app),
     )
+
+
+def _merge_visible(app: Photoshop) -> dict:
+    app.batch_play(
+        [{"_obj": "mergeVisibleLayers"}],
+        modal=True,
+        command_name="Merge visible layers",
+    )
+    return {"merged": True, "layer_name": "Merged"}
 
 
 def main(**kwargs) -> dict:

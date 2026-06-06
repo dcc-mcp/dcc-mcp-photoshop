@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dcc_mcp_core.skill import skill_entry, skill_success
+from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -15,20 +17,29 @@ def list_layers(include_hidden: bool = True, **kwargs) -> dict:
     Returns:
         dict: ActionResultModel with layer names, types, and visibility.
     """
-    from dcc_mcp_photoshop.api import get_bridge  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    layers = bridge.call("ps.listLayers", include_hidden=include_hidden)
-
-    layer_names = [layer.get("name", "Unnamed") for layer in layers]
-
-    return skill_success(
-        f"Found {len(layers)} layer(s) in the active document",
+    return action_result(
+        "Listed layers in active document",
+        lambda: _list_layers(app, include_hidden),
         prompt="Use create_layer to add a new layer or get_document_info for document metadata.",
-        count=len(layers),
-        layers=layer_names,
-        include_hidden=include_hidden,
     )
+
+
+def _list_layers(app: Photoshop, include_hidden: bool) -> dict:
+    layers = []
+    if app.activeDocument:
+        layers = app.activeDocument.layers
+
+    if not include_hidden:
+        layers = [lyr for lyr in layers if lyr.visible]
+
+    layer_names = [lyr.name or "Unnamed" for lyr in layers]
+    return {
+        "count": len(layers),
+        "layers": layer_names,
+        "include_hidden": include_hidden,
+    }
 
 
 def main(**kwargs) -> dict:

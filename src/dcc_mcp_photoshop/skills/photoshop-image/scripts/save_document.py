@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -14,15 +16,26 @@ def save_document(**kwargs) -> dict:
     Returns:
         dict: ActionResultModel confirming the save.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.saveDocument")
-
-    return ps_success(
+    return action_result(
         "Document saved",
-        saved=result.get("saved", True),
+        lambda: _save(app),
     )
+
+
+def _save(app: Photoshop) -> dict:
+    doc = app.activeDocument
+    if doc is not None and doc.path:
+        doc.save_as(doc.path, modal=True, command_name="Save document")
+        return {"saved": True}
+
+    app.batch_play(
+        [{"_obj": "save", "_target": [{"_ref": "document", "_enum": "ordinal", "_value": "targetEnum"}]}],
+        modal=True,
+        command_name="Save document",
+    )
+    return {"saved": True}
 
 
 def main(**kwargs) -> dict:

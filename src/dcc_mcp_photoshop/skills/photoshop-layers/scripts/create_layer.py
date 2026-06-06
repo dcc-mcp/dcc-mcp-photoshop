@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -20,18 +22,41 @@ def create_layer(
     Returns:
         dict: ActionResultModel with the new layer id, name, and type.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.createLayer", name=name, type=layer_type)
-
-    return ps_success(
-        f"Created {layer_type} layer '{result.get('name', name)}'",
+    return action_result(
+        f"Created {layer_type} layer '{name}'",
+        lambda: _create_layer(app, name, layer_type),
         prompt="Use set_layer_opacity or fill_layer to style the new layer.",
-        layer_id=result.get("id"),
-        layer_name=result.get("name"),
-        layer_type=result.get("type"),
     )
+
+
+def _create_layer(app: Photoshop, name: str, layer_type: str) -> dict:
+    if layer_type == "group":
+        result = app.batch_play(
+            [{"_obj": "make", "_target": [{"_ref": "layerSection"}], "name": name}],
+            modal=True,
+            command_name="Create group",
+        )
+    else:
+        result = app.batch_play(
+            [{"_obj": "make", "_target": [{"_ref": "layer"}], "name": name}],
+            modal=True,
+            command_name="Create layer",
+        )
+
+    if isinstance(result, list) and result:
+        layer_info = result[0]
+    elif isinstance(result, dict):
+        layer_info = result
+    else:
+        layer_info = {}
+
+    return {
+        "layer_id": layer_info.get("id"),
+        "layer_name": layer_info.get("name", name),
+        "layer_type": layer_type,
+    }
 
 
 def main(**kwargs) -> dict:
