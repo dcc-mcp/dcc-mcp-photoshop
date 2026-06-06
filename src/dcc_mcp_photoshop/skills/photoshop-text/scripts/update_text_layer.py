@@ -80,22 +80,23 @@ def _update_text(
     if content is not None:
         text_item.set_contents(content, command_name="Set text content")
 
-    style_props = {}
+    char_style_props = {}
     if font is not None:
-        style_props["font"] = font
+        char_style_props["font"] = font
     if size is not None:
-        style_props["size"] = size
+        char_style_props["size"] = size
     if color is not None:
-        style_props["color"] = color
-    if alignment is not None:
-        style_props["alignment"] = alignment
+        char_style_props["color"] = color
     if bold is not None:
-        style_props["bold"] = bold
+        char_style_props["bold"] = bold
     if italic is not None:
-        style_props["italic"] = italic
+        char_style_props["italic"] = italic
 
-    if style_props:
-        text_item.set_character_style(style_props, command_name="Set character style")
+    if char_style_props:
+        text_item.set_character_style(char_style_props, command_name="Set character style")
+
+    if alignment is not None:
+        text_item.set_paragraph_style({"alignment": alignment}, command_name="Set paragraph style")
 
     text_item.refresh()
     return {

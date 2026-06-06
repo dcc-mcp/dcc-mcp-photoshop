@@ -278,6 +278,18 @@ class FakeClient:
     """
 
     target = "default"
+    _text_state: dict[str, Any] = {
+        "contents": "Hello, World!",
+        "characterStyle": {
+            "font": "ArialMT",
+            "size": 48,
+            "color": "#000000",
+            "bold": False,
+            "italic": False,
+        },
+        "paragraphStyle": {"alignment": "left", "justification": "left"},
+    }
+    _last_set_paragraph_style: dict[str, Any] | None = None
 
     def __init__(
         self,
@@ -430,15 +442,7 @@ class FakeClient:
         if namespace == "text" and method == "getActive":
             return {
                 "layerId": 200,
-                "contents": "Hello, World!",
-                "characterStyle": {
-                    "font": "ArialMT",
-                    "size": 48,
-                    "color": "#000000",
-                    "bold": False,
-                    "italic": False,
-                },
-                "paragraphStyle": {"alignment": "left", "justification": "left"},
+                **self._text_state,
             }
 
         if namespace == "text" and method == "getByLayerId":
@@ -446,23 +450,24 @@ class FakeClient:
             if layer_id == 200:
                 return {
                     "layerId": 200,
-                    "contents": "Hello, World!",
-                    "characterStyle": {
-                        "font": "ArialMT",
-                        "size": 48,
-                        "color": "#000000",
-                        "bold": False,
-                        "italic": False,
-                    },
-                    "paragraphStyle": {"alignment": "left", "justification": "left"},
+                    **self._text_state,
                 }
             return None
 
         if namespace == "text" and method == "setContents":
-            return {"layerId": args[0] if args else 200, "contents": args[1] if len(args) > 1 else "updated"}
+            self._text_state["contents"] = args[1] if len(args) > 1 else "updated"
+            return {"layerId": args[0] if args else 200, "contents": self._text_state["contents"]}
 
         if namespace == "text" and method == "setCharacterStyle":
-            return {"layerId": args[0] if args else 200, "contents": "Hello, World!"}
+            props = args[1] if len(args) > 1 else {}
+            self._text_state["characterStyle"].update(props)
+            return {"layerId": args[0] if args else 200, "contents": self._text_state["contents"]}
+
+        if namespace == "text" and method == "setParagraphStyle":
+            props = args[1] if len(args) > 1 else {}
+            FakeClient._text_state["paragraphStyle"].update(props)
+            FakeClient._last_set_paragraph_style = dict(props)
+            return {"layerId": args[0] if args else 200, "contents": FakeClient._text_state["contents"]}
 
         if namespace == "document" and method == "export":
             path = args[0].get("path") if args else "output.png"
@@ -504,4 +509,19 @@ def fake_broker_client(monkeypatch):
     monkeypatch.setattr(session_mod, "BrokerClient", FakeClient)
     monkeypatch.setattr(ps_session_mod, "BrokerClient", FakeClient)
     monkeypatch.setattr(core_mod, "BrokerClient", FakeClient)
+
+    # Reset shared state before each test
+    FakeClient._text_state = {
+        "contents": "Hello, World!",
+        "characterStyle": {
+            "font": "ArialMT",
+            "size": 48,
+            "color": "#000000",
+            "bold": False,
+            "italic": False,
+        },
+        "paragraphStyle": {"alignment": "left", "justification": "left"},
+    }
+    FakeClient._last_set_paragraph_style = None
+
     yield FakeClient
