@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
-from dcc_mcp_core.skill import skill_entry, skill_success
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
+from dcc_mcp_core.skill import skill_entry
 
 
 @skill_entry
@@ -12,21 +14,28 @@ def get_document_info(**kwargs) -> dict:
     Returns:
         dict: ActionResultModel with document name, dimensions, color mode, etc.
     """
-    from dcc_mcp_photoshop.api import get_bridge  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    info = bridge.call("ps.getDocumentInfo")
-
-    return skill_success(
-        f"Retrieved document info: {info.get('name', 'Untitled')}",
+    return action_result(
+        "Retrieved document info",
+        lambda: _fetch_document_info(app),
         prompt="Use list_layers to inspect layers or export_document to save the document.",
-        document_name=info.get("name"),
-        width=info.get("width"),
-        height=info.get("height"),
-        resolution=info.get("resolution"),
-        color_mode=info.get("colorMode"),
-        bit_depth=info.get("bitsPerChannel"),
     )
+
+
+def _fetch_document_info(app: Photoshop) -> dict:
+    doc = app.activeDocument
+    if doc is None:
+        return {"document_name": None, "error": "No active document"}
+
+    return {
+        "document_name": doc.name,
+        "width": doc.width,
+        "height": doc.height,
+        "resolution": doc.resolution,
+        "color_mode": doc.mode,
+        "bit_depth": None,
+    }
 
 
 def main(**kwargs) -> dict:

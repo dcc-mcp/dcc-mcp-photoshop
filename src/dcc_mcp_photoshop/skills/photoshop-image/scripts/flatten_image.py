@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
 
@@ -15,16 +17,22 @@ def flatten_image(**kwargs) -> dict:
     Returns:
         dict: ActionResultModel confirming the flatten.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.flattenImage")
-
-    return ps_success(
+    return action_result(
         "Image flattened to a single background layer",
+        lambda: _flatten(app),
         prompt="Use export_document or save_document to preserve the result.",
-        flattened=result.get("flattened", True),
     )
+
+
+def _flatten(app: Photoshop) -> dict:
+    app.batch_play(
+        [{"_obj": "flattenImage"}],
+        modal=True,
+        command_name="Flatten image",
+    )
+    return {"flattened": True}
 
 
 def main(**kwargs) -> dict:

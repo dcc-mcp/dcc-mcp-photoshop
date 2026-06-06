@@ -1,37 +1,26 @@
 """dcc_mcp_photoshop.api — High-level Photoshop skill authoring helpers.
 
-Unlike Maya/Blender/Unreal, Photoshop skill scripts do NOT import a DCC
-Python module directly.  Instead they use the PhotoshopBridge to communicate
-via the UXP WebSocket server.
+Migrated to ``adobepy`` facade and ``adobe.dcc_mcp`` result helpers
+(v0.2.0+).  Skill scripts should use ``Photoshop()`` sessions and
+``action_result()`` directly.  Legacy ``ps_*`` wrappers are kept for
+backward compatibility.
 
-Key helpers
------------
-``ps_success(message, **context)``
-    Build a success result dict backed by ``dcc_mcp_core.skill.skill_success``.
+New-style skill (recommended)::
 
-``ps_error(message, error, **context)``
-    Build a failure ActionResultModel dict.
+    from adobe.dcc_mcp import action_result
+    from adobe.photoshop import Photoshop
 
-``ps_warning(message, warning, **context)``
-    Build a success dict that carries a non-fatal warning note.
+    def list_layers(**kwargs) -> dict:
+        app = Photoshop()
+        return action_result(
+            "Listed active Photoshop layers",
+            lambda: {"layers": [layer.name for layer in app.activeLayers]},
+            prompt="Use the layer names in the next Photoshop operation.",
+        )
 
-``ps_from_exception(exc, message, **context)``
-    Build a failure dict from a caught exception, including the full traceback.
+Legacy compat (deprecated — still works)::
 
-``get_bridge()``
-    Return the module-level ``PhotoshopBridge`` instance; raises
-    ``PhotoshopNotAvailableError`` when the bridge is not connected.
-
-``is_photoshop_available()``
-    Return ``True`` if the bridge is connected.
-
-``with_photoshop(func)``
-    Decorator that wraps the entire function body in the standard
-    try/PhotoshopNotAvailableError/Exception pattern.
-
-Typical usage in a skill script::
-
-    from dcc_mcp_photoshop.api import ps_success, ps_error, get_bridge, with_photoshop
+    from dcc_mcp_photoshop.api import ps_success, get_bridge, with_photoshop
 
     @with_photoshop
     def list_layers(**kwargs) -> dict:
@@ -51,8 +40,29 @@ logger = logging.getLogger(__name__)
 _F = TypeVar("_F", bound=Callable[..., Any])
 
 # Module-level bridge singleton (set by PhotoshopMcpServer on startup)
+# Kept for backward-compatible get_bridge() path.
 _bridge = None
 
+
+# ---------------------------------------------------------------------------
+# New adobepy-backed helpers (v0.2.0+)
+# ---------------------------------------------------------------------------
+
+# Import from adobe.dcc_mcp — these are the canonical result helpers.
+# They delegate to dcc_mcp_core.skill when available; otherwise return
+# plain dicts for tests/docs.
+from adobe.dcc_mcp import (  # noqa: E402, F401
+    action_result,
+    adobe_error,
+    adobe_error_context,
+    adobe_exception,
+    adobe_success,
+    recovery_suggestions,
+    with_adobe,
+)
+
+# Import Photoshop facade for direct use by skill scripts.
+from adobe.photoshop import Photoshop  # noqa: E402, F401
 
 # ---------------------------------------------------------------------------
 # Exception types
@@ -64,17 +74,16 @@ class PhotoshopNotAvailableError(ConnectionError):
 
 
 # ---------------------------------------------------------------------------
-# Bridge access helpers
+# Bridge access helpers (deprecated — use Photoshop() facade)
 # ---------------------------------------------------------------------------
 
 
 def is_photoshop_available() -> bool:
     """Return ``True`` if the Photoshop bridge is connected.
 
-    Example::
-
-        if is_photoshop_available():
-            bridge = get_bridge()
+    .. deprecated:: 0.2.0
+        Use ``Photoshop()`` session directly; connection state is managed
+        by the adobepy broker.
     """
     return _bridge is not None and _bridge.is_connected()
 
@@ -82,13 +91,12 @@ def is_photoshop_available() -> bool:
 def get_bridge():
     """Return the module-level ``PhotoshopBridge`` instance.
 
+    .. deprecated:: 0.2.0
+        New skills should construct ``Photoshop()`` sessions directly.
+        The bridge path is kept for backward compatibility only.
+
     Raises:
         PhotoshopNotAvailableError: When the bridge is not connected.
-
-    Example::
-
-        bridge = get_bridge()
-        result = bridge.call("ps.getDocumentInfo")
     """
     if _bridge is None or not _bridge.is_connected():
         raise PhotoshopNotAvailableError(
@@ -100,31 +108,18 @@ def get_bridge():
 
 
 # ---------------------------------------------------------------------------
-# Core result helpers
+# Legacy result helpers (backward-compatible wrappers)
 # ---------------------------------------------------------------------------
 
 
 def ps_success(message: str, prompt: Optional[str] = None, **context: Any) -> Dict[str, Any]:
-    """Return a success ActionResultModel as a plain dict.
+    """Return a success result dict (backward-compatible wrapper).
 
-    Thin wrapper around ``dcc_mcp_core.skill.skill_success`` so skill scripts
-    do not need to import from two packages.
-
-    Args:
-        message: Human-readable success message.
-        prompt: Optional follow-up hint shown to the AI agent.
-        **context: Arbitrary key/value pairs stored in ``result["context"]``.
-
-    Returns:
-        Serialised ``ActionResultModel`` dict (``success=True``).
-
-    Example::
-
-        return ps_success("Got document info", name=doc_name, width=width)
+    .. deprecated:: 0.2.0
+        Prefer ``adobe.dcc_mcp.action_result()`` or
+        ``adobe.dcc_mcp.adobe_success()`` directly.
     """
-    from dcc_mcp_core.skill import skill_success  # noqa: PLC0415
-
-    return skill_success(message, prompt=prompt, **context)
+    return adobe_success(message, prompt=prompt, **context)
 
 
 def ps_error(
@@ -134,29 +129,13 @@ def ps_error(
     possible_solutions: Optional[List[str]] = None,
     **context: Any,
 ) -> Dict[str, Any]:
-    """Return a failure ActionResultModel as a plain dict.
+    """Return a failure result dict (backward-compatible wrapper).
 
-    Args:
-        message: Short human-readable description of what went wrong.
-        error: Detailed error string (e.g. exception message or error code).
-        prompt: Optional follow-up hint shown to the AI agent.
-        possible_solutions: List of actionable fix suggestions.
-        **context: Arbitrary key/value pairs stored in ``result["context"]``.
-
-    Returns:
-        Serialised ``ActionResultModel`` dict (``success=False``).
-
-    Example::
-
-        return ps_error(
-            "Document not found",
-            "No active document in Photoshop",
-            possible_solutions=["Open a document in Photoshop first"],
-        )
+    .. deprecated:: 0.2.0
+        Prefer ``adobe.dcc_mcp.adobe_error()`` or
+        ``adobe.dcc_mcp.adobe_exception()`` directly.
     """
-    from dcc_mcp_core.skill import skill_error  # noqa: PLC0415
-
-    return skill_error(
+    return adobe_error(
         message,
         error,
         prompt=prompt,
@@ -171,34 +150,13 @@ def ps_warning(
     prompt: Optional[str] = None,
     **context: Any,
 ) -> Dict[str, Any]:
-    """Return a success ActionResultModel dict with a non-fatal warning note.
+    """Return a success dict with a non-fatal warning note (backward-compatible).
 
-    The result is a *success* (``success=True``) but includes a ``warning``
-    key to inform the AI agent of a non-fatal issue.
-
-    Corresponds to ``dcc_mcp_core.skill.skill_warning``.
-
-    Args:
-        message: Human-readable success message.
-        warning: Short description of the non-fatal warning.
-        prompt: Optional follow-up hint shown to the AI agent.
-        **context: Arbitrary key/value pairs stored in ``result["context"]``.
-
-    Returns:
-        Serialised ``ActionResultModel`` dict (``success=True``, with
-        ``context["warning"]`` set).
-
-    Example::
-
-        return ps_warning(
-            "Layer renamed with fallback",
-            warning="Special characters stripped from layer name",
-            layer_name="Background",
-        )
+    .. deprecated:: 0.2.0
+        Include a ``warning`` key in your ``action_result()`` context directly.
     """
-    from dcc_mcp_core.skill import skill_warning  # noqa: PLC0415
-
-    return skill_warning(message, warning=warning, prompt=prompt, **context)
+    context.setdefault("warning", warning)
+    return adobe_success(message, prompt=prompt, **context)
 
 
 def ps_from_exception(
@@ -209,42 +167,23 @@ def ps_from_exception(
     include_traceback: bool = True,
     **context: Any,
 ) -> Dict[str, Any]:
-    """Return a failure ActionResultModel from a live exception.
+    """Return a failure result from an exception (backward-compatible wrapper).
 
-    Unlike ``ps_error("...", str(exc))``, this captures the full traceback
-    and passes it to the agent for richer diagnostics.
-
-    Args:
-        exc: The caught exception.
-        message: Short description of the failed operation.
-        prompt: Optional follow-up hint shown to the AI agent.
-        possible_solutions: List of actionable fix suggestions.
-        include_traceback: Whether to include the full traceback (default ``True``).
-        **context: Arbitrary key/value pairs stored in ``result["context"]``.
-
-    Returns:
-        Serialised ``ActionResultModel`` dict (``success=False``).
-
-    Example::
-
-        except Exception as exc:
-            logger.exception("list_layers failed")
-            return ps_from_exception(exc, "Failed to list layers")
+    .. deprecated:: 0.2.0
+        Prefer ``adobe.dcc_mcp.adobe_exception()`` directly.
     """
-    from dcc_mcp_core.skill import skill_exception  # noqa: PLC0415
-
-    return skill_exception(
+    return adobe_exception(
         exc,
         message=message,
         prompt=prompt,
-        include_traceback=include_traceback,
         possible_solutions=possible_solutions,
+        include_traceback=include_traceback,
         **context,
     )
 
 
 # ---------------------------------------------------------------------------
-# Decorator
+# Decorator (backward-compatible wrapper)
 # ---------------------------------------------------------------------------
 
 _PS_NOT_AVAILABLE_MSG = "Photoshop not available"
@@ -257,28 +196,11 @@ _PS_NOT_AVAILABLE_SOLUTIONS = [
 
 
 def with_photoshop(func: _F) -> _F:
-    """Decorator that wraps a skill function with the standard Photoshop error pattern.
+    """Decorator for Photoshop error handling (backward-compatible wrapper).
 
-    The decorated function is called normally.  Any exception is caught and
-    converted to an ``ActionResultModel`` error dict:
-
-    * ``PhotoshopNotAvailableError`` → ``ps_error("Photoshop not available", ...)``
-    * Any other ``Exception``        → ``ps_from_exception(exc, ...)``
-
-    Example::
-
-        from dcc_mcp_photoshop.api import with_photoshop, ps_success
-
-        @with_photoshop
-        def list_layers(**kwargs) -> dict:
-            bridge = get_bridge()
-            layers = bridge.call("ps.listLayers")
-            return ps_success(f"Found {len(layers)} layers", layers=layers)
-
-    .. note::
-        The decorator does **not** log exceptions itself.  Add a
-        ``logger.exception(...)`` call before ``return ps_from_exception``
-        if you need structured logging.
+    .. deprecated:: 0.2.0
+        Prefer ``adobe.dcc_mcp.with_adobe()`` which maps adobepy errors
+        (BrokerConnectionError, HostNotRunningError, etc.) directly.
     """
 
     @functools.wraps(func)
@@ -306,15 +228,25 @@ def with_photoshop(func: _F) -> _F:
 # ---------------------------------------------------------------------------
 
 __all__ = [
-    # Result helpers
+    # New adobepy result helpers (recommended)
+    "action_result",
+    "adobe_success",
+    "adobe_error",
+    "adobe_exception",
+    "adobe_error_context",
+    "recovery_suggestions",
+    "with_adobe",
+    # New adobepy session
+    "Photoshop",
+    # Legacy result helpers (deprecated)
     "ps_success",
     "ps_error",
     "ps_warning",
     "ps_from_exception",
-    # Bridge helpers
+    # Legacy bridge helpers (deprecated)
     "get_bridge",
     "is_photoshop_available",
-    # Decorator
+    # Legacy decorator (deprecated)
     "with_photoshop",
     # Exception types
     "PhotoshopNotAvailableError",
