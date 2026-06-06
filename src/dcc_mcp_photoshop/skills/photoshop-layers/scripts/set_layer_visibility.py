@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -16,17 +18,22 @@ def set_layer_visibility(name: str, visible: bool, **kwargs) -> dict:
     Returns:
         dict: ActionResultModel with the current visibility state.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.setLayerVisibility", name=name, visible=visible)
-
-    state = "visible" if result.get("visible", visible) else "hidden"
-    return ps_success(
-        f"Layer '{name}' is now {state}",
-        layer_name=name,
-        visible=result.get("visible", visible),
+    return action_result(
+        f"Layer '{name}' is now {'visible' if visible else 'hidden'}",
+        lambda: _set_visibility(app, name, visible),
     )
+
+
+def _set_visibility(app: Photoshop, name: str, visible: bool) -> dict:
+    action = "show" if visible else "hide"
+    app.batch_play(
+        [{"_obj": action, "_target": [{"_ref": "layer", "_name": name}]}],
+        modal=True,
+        command_name=f"{'Show' if visible else 'Hide'} layer",
+    )
+    return {"layer_name": name, "visible": visible}
 
 
 def main(**kwargs) -> dict:

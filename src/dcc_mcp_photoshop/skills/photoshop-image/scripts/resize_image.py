@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -27,23 +29,41 @@ def resize_image(
     Returns:
         dict: ActionResultModel with new dimensions.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call(
-        "ps.resizeImage",
-        width=width,
-        height=height,
-        resample=resample,
-        constrain_proportions=constrain_proportions,
+    return action_result(
+        f"Image resized to {width}×{height}px",
+        lambda: _resize_image(app, width, height, resample, constrain_proportions),
     )
 
-    return ps_success(
-        f"Image resized to {result.get('width', width)}×{result.get('height', height)}px",
-        width=result.get("width", width),
-        height=result.get("height", height),
-        resample=resample,
+
+def _resize_image(app: Photoshop, width: int, height: int, resample: str, constrain_proportions: bool) -> dict:
+    resample_map = {
+        "bicubic": "bicubic",
+        "bilinear": "bilinear",
+        "nearest": "nearestNeighbor",
+        "preserve_details": "bicubicAutomatic",
+        "bicubic_smoother": "bicubicSmoother",
+        "bicubic_sharper": "bicubicSharper",
+    }
+
+    app.batch_play(
+        [
+            {
+                "_obj": "imageSize",
+                "width": {"_unit": "pixelsUnit", "_value": width},
+                "height": {"_unit": "pixelsUnit", "_value": height},
+                "constrainProportions": constrain_proportions,
+                "interpolationType": {
+                    "_enum": "interpolationType",
+                    "_value": resample_map.get(resample, "bicubic"),
+                },
+            }
+        ],
+        modal=True,
+        command_name="Resize image",
     )
+    return {"width": width, "height": height, "resample": resample}
 
 
 def main(**kwargs) -> dict:

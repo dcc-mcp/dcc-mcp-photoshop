@@ -1,58 +1,48 @@
 """dcc-mcp-photoshop — Adobe Photoshop adapter for the DCC MCP ecosystem.
 
-Architecture: Gateway Mode (Recommended, v0.1.0+)
---------------------------------------------------
-With dcc-mcp-core v0.12.23+, use the standalone server in gateway mode:
+Migration to adobepy (v0.2.0+)
+-------------------------------
+Skill scripts should use ``adobepy`` facades directly::
 
-1. Start dcc-mcp-server.exe with Photoshop skills::
+    from adobe.dcc_mcp import action_result
+    from adobe.photoshop import Photoshop
 
-    dcc-mcp-server.exe --dcc photoshop --skill-paths ./src/dcc_mcp_photoshop/skills
+    def list_layers(**kwargs) -> dict:
+        app = Photoshop()
+        return action_result(
+            "Listed active Photoshop layers",
+            lambda: {"layers": [layer.name for layer in app.activeLayers]},
+            prompt="Use the layer names in the next Photoshop operation.",
+        )
 
-2. Start the bridge plugin to maintain UXP connection::
-
-    import dcc_mcp_photoshop
-    bridge = dcc_mcp_photoshop.start_bridge_only(ws_port=9001)
-    # Skills are loaded progressively on demand
-    # MCP client connects to http://127.0.0.1:8765/mcp
-
-Benefits:
-  - Progressive skill loading (smaller initial tool list)
-  - Better scalability (separate server process)
-  - No eager loading of all tools
-
-Legacy Architecture: Embedded Server (Deprecated)
---------------------------------------------------
-For backwards compatibility, you can still use the embedded mode::
-
-    import dcc_mcp_photoshop
-    handle = dcc_mcp_photoshop.start_server(port=8765, ws_port=9001)
-    # All skills are eagerly loaded at startup (not recommended)
-    handle.shutdown()
-
-Skill authoring helpers::
+Legacy helpers are still available via ``dcc_mcp_photoshop.api``::
 
     from dcc_mcp_photoshop.api import (
         ps_success, ps_error, ps_warning, ps_from_exception,
         get_bridge, with_photoshop,
     )
 
-    @with_photoshop
-    def list_layers(**kwargs) -> dict:
-        bridge = get_bridge()
-        layers = bridge.call("ps.listLayers")
-        return ps_success(f"Found {len(layers)} layers", layers=layers)
-
+Architecture: Gateway Mode (Recommended)
+-----------------------------------------
+With dcc-mcp-core v0.12.23+, use the standalone server in gateway mode.
 Requirements:
     - Adobe Photoshop 2022+ (UXP support)
+    - adobepy >= 0.1.0
     - dcc-mcp-core >= 0.12.23
-    - websockets >= 12.0  (used by PhotoshopBridge)
+    - websockets >= 12.0
 """
 
 from __future__ import annotations
 
 from dcc_mcp_photoshop.__version__ import __version__
 from dcc_mcp_photoshop.api import (
+    Photoshop,
     PhotoshopNotAvailableError,
+    action_result,
+    adobe_error,
+    adobe_error_context,
+    adobe_exception,
+    adobe_success,
     get_bridge,
     is_photoshop_available,
     photoshop_capabilities,
@@ -60,6 +50,8 @@ from dcc_mcp_photoshop.api import (
     ps_from_exception,
     ps_success,
     ps_warning,
+    recovery_suggestions,
+    with_adobe,
     with_photoshop,
 )
 from dcc_mcp_photoshop.bridge import PhotoshopBridge
@@ -76,18 +68,22 @@ from dcc_mcp_photoshop.server import (
 
 __all__ = [
     "__version__",
-    # Server (legacy embedded mode — deprecated)
     "PhotoshopMcpServer",
     "start_server",
     "stop_server",
     "get_server",
-    # Bridge (gateway mode — recommended)
     "PhotoshopBridgePlugin",
     "start_bridge_only",
     "stop_bridge_only",
-    # Bridge protocol
     "PhotoshopBridge",
-    # Skill authoring helpers
+    "action_result",
+    "adobe_success",
+    "adobe_error",
+    "adobe_exception",
+    "adobe_error_context",
+    "recovery_suggestions",
+    "with_adobe",
+    "Photoshop",
     "ps_success",
     "ps_error",
     "ps_warning",
@@ -96,7 +92,6 @@ __all__ = [
     "is_photoshop_available",
     "with_photoshop",
     "PhotoshopNotAvailableError",
-    # Capabilities
     "photoshop_capabilities",
     "PHOTOSHOP_CAPABILITIES_DICT",
 ]

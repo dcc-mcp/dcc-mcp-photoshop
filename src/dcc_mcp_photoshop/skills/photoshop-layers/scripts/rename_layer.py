@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -16,16 +18,21 @@ def rename_layer(name: str, new_name: str, **kwargs) -> dict:
     Returns:
         dict: ActionResultModel with old and new names.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.renameLayer", name=name, new_name=new_name)
-
-    return ps_success(
-        f"Renamed layer '{name}' → '{result.get('name', new_name)}'",
-        old_name=result.get("old_name", name),
-        new_name=result.get("name", new_name),
+    return action_result(
+        f"Renamed layer '{name}' → '{new_name}'",
+        lambda: _rename_layer(app, name, new_name),
     )
+
+
+def _rename_layer(app: Photoshop, name: str, new_name: str) -> dict:
+    app.batch_play(
+        [{"_obj": "set", "_target": [{"_ref": "layer", "_name": name}], "to": {"_obj": "layer", "name": new_name}}],
+        modal=True,
+        command_name="Rename layer",
+    )
+    return {"old_name": name, "new_name": new_name}
 
 
 def main(**kwargs) -> dict:

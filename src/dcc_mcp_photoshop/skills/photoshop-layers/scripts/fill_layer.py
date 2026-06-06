@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -23,18 +25,33 @@ def fill_layer(
     Returns:
         dict: ActionResultModel confirming the fill.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call("ps.fillLayer", name=name, color=color, opacity=opacity)
-
-    return ps_success(
+    return action_result(
         f"Filled layer '{name}' with {color}",
-        layer_name=name,
-        color=color,
-        opacity=opacity,
-        filled=result.get("filled", True),
+        lambda: _fill_layer(app, name, color, opacity),
     )
+
+
+def _fill_layer(app: Photoshop, name: str, color: str, opacity: float) -> dict:
+    app.batch_play(
+        [
+            {
+                "_obj": "fill",
+                "_target": [{"_ref": "layer", "_name": name}],
+                "using": {"_obj": "color", "color": color},
+                "opacity": {"_unit": "percentUnit", "_value": opacity},
+            }
+        ],
+        modal=True,
+        command_name="Fill layer",
+    )
+    return {
+        "layer_name": name,
+        "color": color,
+        "opacity": opacity,
+        "filled": True,
+    }
 
 
 def main(**kwargs) -> dict:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -31,30 +33,66 @@ def create_document(
     Returns:
         dict: ActionResultModel with the new document id and metadata.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    result = bridge.call(
-        "ps.createDocument",
-        name=name,
-        width=width,
-        height=height,
-        resolution=resolution,
-        color_mode=color_mode,
-        bit_depth=bit_depth,
-        fill=fill,
-    )
-
-    return ps_success(
-        f"Created document '{result.get('name', name)}' ({width}×{height}px)",
+    return action_result(
+        f"Created document '{name}' ({width}×{height}px)",
+        lambda: _create_document(app, name, width, height, resolution, color_mode, bit_depth, fill),
         prompt="Use create_layer or add text layers to start compositing.",
-        document_id=result.get("id"),
-        document_name=result.get("name", name),
-        width=width,
-        height=height,
-        resolution=resolution,
-        color_mode=color_mode,
     )
+
+
+def _create_document(app: Photoshop, name: str, width: int, height: int, resolution: float, color_mode: str, bit_depth: int, fill: str) -> dict:
+    result = app.batch_play(
+        [
+            {
+                "_obj": "make",
+                "_target": [{"_ref": "document"}],
+                "using": {
+                    "_obj": "document",
+                    "name": name,
+                    "width": {"_unit": "pixelsUnit", "_value": width},
+                    "height": {"_unit": "pixelsUnit", "_value": height},
+                    "resolution": {"_unit": "densityUnit", "_value": resolution},
+                    "mode": _map_color_mode(color_mode),
+                    "depth": bit_depth,
+                    "fill": _map_fill(fill),
+                },
+            }
+        ],
+        modal=True,
+        command_name="Create document",
+    )
+
+    doc = app.activeDocument
+    return {
+        "document_id": doc.id if doc else result.get("id") if isinstance(result, dict) else None,
+        "document_name": doc.name if doc else name,
+        "width": width,
+        "height": height,
+        "resolution": resolution,
+        "color_mode": color_mode,
+    }
+
+
+def _map_color_mode(mode: str) -> str:
+    mapping = {
+        "rgb": "RGBColorMode",
+        "cmyk": "CMYKColorMode",
+        "grayscale": "grayscaleMode",
+        "lab": "labColorMode",
+    }
+    return mapping.get(mode, "RGBColorMode")
+
+
+def _map_fill(fill: str) -> str:
+    mapping = {
+        "white": "white",
+        "black": "black",
+        "transparent": "transparent",
+        "background": "backgroundColor",
+    }
+    return mapping.get(fill, "white")
 
 
 def main(**kwargs) -> dict:

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 from dcc_mcp_core.skill import skill_entry
+from adobe.dcc_mcp import action_result
+from adobe.photoshop import Photoshop
 
 
 @skill_entry
@@ -17,22 +19,35 @@ def duplicate_layer(name: str, new_name: str = "", **kwargs) -> dict:
     Returns:
         dict: ActionResultModel with the duplicate layer id and name.
     """
-    from dcc_mcp_photoshop.api import get_bridge, ps_success  # noqa: PLC0415
+    app = Photoshop()
 
-    bridge = get_bridge()
-    params = {"name": name}
-    if new_name:
-        params["new_name"] = new_name
-
-    result = bridge.call("ps.duplicateLayer", **params)
-
-    return ps_success(
-        f"Duplicated layer '{name}' → '{result.get('name')}'",
+    return action_result(
+        f"Duplicated layer '{name}'",
+        lambda: _duplicate_layer(app, name, new_name),
         prompt="Use rename_layer or set_layer_opacity to adjust the duplicate.",
-        source_layer=name,
-        layer_id=result.get("id"),
-        layer_name=result.get("name"),
     )
+
+
+def _duplicate_layer(app: Photoshop, name: str, new_name: str) -> dict:
+    descriptor = {"_obj": "duplicate", "_target": [{"_ref": "layer", "_name": name}]}
+    if new_name:
+        descriptor["name"] = new_name
+
+    result = app.batch_play([descriptor], modal=True, command_name="Duplicate layer")
+
+    if isinstance(result, list) and result:
+        layer_info = result[0]
+    elif isinstance(result, dict):
+        layer_info = result
+    else:
+        layer_info = {}
+
+    dup_name = new_name or f"{name} copy"
+    return {
+        "source_layer": name,
+        "layer_id": layer_info.get("id"),
+        "layer_name": layer_info.get("name", dup_name),
+    }
 
 
 def main(**kwargs) -> dict:
