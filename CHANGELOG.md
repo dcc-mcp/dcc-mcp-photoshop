@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.2](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.1...v0.1.2) (2026-06-06)
+
+
+### Features
+
+* migrate skills to adobepy facade ([#10](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/10)) ([6470ca8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6470ca8b975019c0b59c2a4a2eaf4d3cd61cebac))
+
 ## [0.1.1](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.0...v0.1.1) (2026-06-05)
 
 
