@@ -43,8 +43,14 @@ def update_text_layer(
 
     updated_fields = []
     for key, val in [
-        ("name", name), ("content", content), ("font", font), ("size", size),
-        ("color", color), ("alignment", alignment), ("bold", bold), ("italic", italic),
+        ("name", name),
+        ("content", content),
+        ("font", font),
+        ("size", size),
+        ("color", color),
+        ("alignment", alignment),
+        ("bold", bold),
+        ("italic", italic),
     ]:
         if val is not None:
             updated_fields.append(key)
@@ -55,7 +61,9 @@ def update_text_layer(
     )
 
 
-def _update_text(app: Photoshop, name: str, content, font, size, color, alignment, bold, italic, updated_fields) -> dict:
+def _update_text(
+    app: Photoshop, name: str, content, font, size, color, alignment, bold, italic, updated_fields
+) -> dict:
     text_item = None
     if app.activeDocument:
         for layer in app.activeDocument.layers:

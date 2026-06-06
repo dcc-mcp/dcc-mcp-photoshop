@@ -42,7 +42,9 @@ def create_document(
     )
 
 
-def _create_document(app: Photoshop, name: str, width: int, height: int, resolution: float, color_mode: str, bit_depth: int, fill: str) -> dict:
+def _create_document(
+    app: Photoshop, name: str, width: int, height: int, resolution: float, color_mode: str, bit_depth: int, fill: str
+) -> dict:
     result = app.batch_play(
         [
             {

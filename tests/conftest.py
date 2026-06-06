@@ -38,18 +38,31 @@ MOCK_DOCUMENT = {
 
 MOCK_LAYERS = [
     {
-        "id": 101, "name": "Background", "type": "pixel", "visible": True,
-        "opacity": 100, "locked": True,
+        "id": 101,
+        "name": "Background",
+        "type": "pixel",
+        "visible": True,
+        "opacity": 100,
+        "locked": True,
         "bounds": {"top": 0, "left": 0, "bottom": 1080, "right": 1920, "width": 1920, "height": 1080},
     },
     {
-        "id": 102, "name": "Layer 1", "type": "pixel", "visible": True,
-        "opacity": 75, "locked": False,
+        "id": 102,
+        "name": "Layer 1",
+        "type": "pixel",
+        "visible": True,
+        "opacity": 75,
+        "locked": False,
         "bounds": {"top": 100, "left": 100, "bottom": 500, "right": 500, "width": 400, "height": 400},
     },
     {
-        "id": 103, "name": "Hidden Layer", "type": "pixel", "visible": False,
-        "opacity": 100, "locked": False, "bounds": None,
+        "id": 103,
+        "name": "Hidden Layer",
+        "type": "pixel",
+        "visible": False,
+        "opacity": 100,
+        "locked": False,
+        "bounds": None,
     },
 ]
 
@@ -96,12 +109,15 @@ async def _handle_rpc(request: Dict[str, Any]) -> Any:
         return {"executed": True, "action": params.get("action"), "action_set": params.get("action_set")}
     if method == "ps.createDocument":
         return {
-            "id": 2, "name": params.get("name", "Untitled"),
-            "width": params.get("width", 1920), "height": params.get("height", 1080),
+            "id": 2,
+            "name": params.get("name", "Untitled"),
+            "width": params.get("width", 1920),
+            "height": params.get("height", 1080),
             "resolution": params.get("resolution", 72.0),
             "color_mode": params.get("color_mode", "rgb"),
             "bit_depth": params.get("bit_depth", 8),
-            "path": None, "has_unsaved_changes": False,
+            "path": None,
+            "has_unsaved_changes": False,
         }
     if method == "ps.resizeCanvas":
         return {"width": params.get("width"), "height": params.get("height")}
@@ -121,9 +137,14 @@ async def _handle_rpc(request: Dict[str, Any]) -> Any:
         return {"name": params.get("name"), "content": params.get("content")}
     if method == "ps.getTextLayerInfo":
         return {
-            "name": params.get("name"), "content": "Hello, World!", "font": "ArialMT",
-            "size": 48.0, "color": "#000000", "alignment": "left",
-            "bold": False, "italic": False,
+            "name": params.get("name"),
+            "content": "Hello, World!",
+            "font": "ArialMT",
+            "size": 48.0,
+            "color": "#000000",
+            "alignment": "left",
+            "bold": False,
+            "italic": False,
         }
 
     raise ValueError(f"Method not found: {method}")
@@ -148,10 +169,12 @@ def connected_bridge():
 
     async def _patched_serve(ready_event, uxp_event, exc_out):
         import websockets as ws  # noqa: PLC0415
+
         try:
             bridge._server = await ws.serve(
                 lambda websocket: bridge._handle_uxp(websocket, uxp_event),
-                "localhost", 0,
+                "localhost",
+                0,
             )
             port = bridge._server.sockets[0].getsockname()[1]
             _actual_port.append(port)
@@ -165,6 +188,7 @@ def connected_bridge():
     bridge.connect(wait_for_uxp=False)
 
     import time
+
     for _ in range(20):
         if _actual_port:
             break
@@ -196,9 +220,13 @@ def connected_bridge():
                         result = await _handle_rpc(req)
                         await ws.send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}))
                     except ValueError as exc:
-                        await ws.send(json.dumps({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": str(exc)}}))
+                        await ws.send(
+                            json.dumps({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": str(exc)}})
+                        )
                     except Exception as exc:  # noqa: BLE001
-                        await ws.send(json.dumps({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": str(exc)}}))
+                        await ws.send(
+                            json.dumps({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": str(exc)}})
+                        )
             except Exception:
                 pass
 
@@ -267,20 +295,56 @@ class FakeClient:
         args = list(args or [])
 
         if namespace == "document" and method == "getActive":
-            return {"id": 1, "name": "Untitled-1.psd", "width": 1920, "height": 1080, "resolution": 72.0, "mode": "RGBColor", "typename": "Document"}
+            return {
+                "id": 1,
+                "name": "Untitled-1.psd",
+                "width": 1920,
+                "height": 1080,
+                "resolution": 72.0,
+                "mode": "RGBColor",
+                "typename": "Document",
+            }
 
         if namespace == "document" and method == "getLayers":
             return [
-                {"id": 101, "name": "Background", "kind": "pixel", "visible": True, "opacity": 100, "typename": "Layer"},
+                {
+                    "id": 101,
+                    "name": "Background",
+                    "kind": "pixel",
+                    "visible": True,
+                    "opacity": 100,
+                    "typename": "Layer",
+                },
                 {"id": 102, "name": "Layer 1", "kind": "pixel", "visible": True, "opacity": 75, "typename": "Layer"},
-                {"id": 103, "name": "Hidden Layer", "kind": "pixel", "visible": False, "opacity": 100, "typename": "Layer"},
+                {
+                    "id": 103,
+                    "name": "Hidden Layer",
+                    "kind": "pixel",
+                    "visible": False,
+                    "opacity": 100,
+                    "typename": "Layer",
+                },
             ]
 
         if namespace == "document" and method == "getActiveLayers":
             return [
-                {"id": 101, "name": "Background", "kind": "pixel", "visible": True, "opacity": 100, "typename": "Layer"},
+                {
+                    "id": 101,
+                    "name": "Background",
+                    "kind": "pixel",
+                    "visible": True,
+                    "opacity": 100,
+                    "typename": "Layer",
+                },
                 {"id": 102, "name": "Layer 1", "kind": "pixel", "visible": True, "opacity": 75, "typename": "Layer"},
-                {"id": 103, "name": "Hidden Layer", "kind": "pixel", "visible": False, "opacity": 100, "typename": "Layer"},
+                {
+                    "id": 103,
+                    "name": "Hidden Layer",
+                    "kind": "pixel",
+                    "visible": False,
+                    "opacity": 100,
+                    "typename": "Layer",
+                },
             ]
 
         if namespace == "app" and method == "getDocuments":
@@ -314,12 +378,27 @@ class FakeClient:
                             g = color_obj.get("green", 0)
                             b = color_obj.get("blue", 0)
                             color = f"#{r:02x}{g:02x}{b:02x}"
-                        return [{"id": 998, "name": desc_name or content[:20], "content": content, "fontName": font, "fontSize": font_size, "color": color}]
+                        return [
+                            {
+                                "id": 998,
+                                "name": desc_name or content[:20],
+                                "content": content,
+                                "fontName": font,
+                                "fontSize": font_size,
+                                "color": color,
+                            }
+                        ]
                     elif target_ref == "layerSection":
                         return [{"id": 999, "name": desc_name, "type": "group"}]
                     elif target_ref == "document":
                         using = desc.get("using", {})
-                        return [{"id": 2, "name": using.get("name", "Untitled"), "width": using.get("width", {}).get("_value", 1920)}]
+                        return [
+                            {
+                                "id": 2,
+                                "name": using.get("name", "Untitled"),
+                                "width": using.get("width", {}).get("_value", 1920),
+                            }
+                        ]
                     else:
                         return [{"id": 999, "name": desc_name, "type": "pixel"}]
                 elif obj == "duplicate":

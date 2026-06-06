@@ -12,7 +12,10 @@ from __future__ import annotations
 
 import json
 import pathlib
-from typing import Any, Dict, List, Optional
+from typing import TYPE_CHECKING, Any, Dict, List, Optional
+
+if TYPE_CHECKING:
+    from adobe.photoshop import Photoshop
 
 import pytest
 
@@ -75,33 +78,59 @@ class FakeClient:
                     "bridgeVersion": "0.1.0",
                     "hostVersion": "25.0",
                     "namespaces": [
-                        "app", "document", "layer", "text", "export",
-                        "selection", "channel", "filter", "action", "raw",
+                        "app",
+                        "document",
+                        "layer",
+                        "text",
+                        "export",
+                        "selection",
+                        "channel",
+                        "filter",
+                        "action",
+                        "raw",
                     ],
                     "features": ["snapshot", "modal", "selection", "batchPlay"],
                     "methods": {
                         "app": ("getVersion", "getDocuments"),
-                        "document": ("getActive", "getById", "getLayers", "getActiveLayers",
-                                      "export", "saveAs"),
+                        "document": ("getActive", "getById", "getLayers", "getActiveLayers", "export", "saveAs"),
                         "layer": ("getActive", "getChildren"),
-                        "text": ("getActive", "getByLayerId", "setContents",
-                                 "setCharacterStyle", "setParagraphStyle",
-                                 "resetCharacterStyle", "setTextClickPoint",
-                                 "setOrientation", "convertToParagraphText",
-                                 "convertToPointText", "convertToShape", "createWorkPath"),
+                        "text": (
+                            "getActive",
+                            "getByLayerId",
+                            "setContents",
+                            "setCharacterStyle",
+                            "setParagraphStyle",
+                            "resetCharacterStyle",
+                            "setTextClickPoint",
+                            "setOrientation",
+                            "convertToParagraphText",
+                            "convertToPointText",
+                            "convertToShape",
+                            "createWorkPath",
+                        ),
                         "export": ("getPresets", "exportWithPreset"),
-                        "selection": ("get", "selectAll", "deselect", "inverse",
-                                      "selectRectangle", "selectEllipse",
-                                      "selectPolygon", "selectRow", "selectColumn",
-                                      "expand", "contract", "feather", "smooth",
-                                      "grow", "translateBoundary", "save"),
-                        "channel": ("getChannels", "getActiveChannels",
-                                    "getComponentChannels", "getByName", "remove"),
-                        "filter": ("apply", "applyGaussianBlur", "applyHighPass",
-                                   "applySharpen", "applySmartBlur"),
+                        "selection": (
+                            "get",
+                            "selectAll",
+                            "deselect",
+                            "inverse",
+                            "selectRectangle",
+                            "selectEllipse",
+                            "selectPolygon",
+                            "selectRow",
+                            "selectColumn",
+                            "expand",
+                            "contract",
+                            "feather",
+                            "smooth",
+                            "grow",
+                            "translateBoundary",
+                            "save",
+                        ),
+                        "channel": ("getChannels", "getActiveChannels", "getComponentChannels", "getByName", "remove"),
+                        "filter": ("apply", "applyGaussianBlur", "applyHighPass", "applySharpen", "applySmartBlur"),
                         "action": ("batchPlay",),
-                        "raw": ("evalJs", "evalExtendScript", "getPath", "callPath",
-                                "sendSdkMessage"),
+                        "raw": ("evalJs", "evalExtendScript", "getPath", "callPath", "sendSdkMessage"),
                     },
                 },
             }
@@ -130,24 +159,30 @@ class FakeClient:
     def _handle_document(method: str, args: List[Any]) -> Any:
         if method == "getActive":
             return {
-                "id": 1, "name": "Untitled-1.psd", "width": 1920, "height": 1080,
-                "resolution": 72.0, "mode": "RGBColor", "bitDepth": 8,
-                "path": None, "saved": True,
+                "id": 1,
+                "name": "Untitled-1.psd",
+                "width": 1920,
+                "height": 1080,
+                "resolution": 72.0,
+                "mode": "RGBColor",
+                "bitDepth": 8,
+                "path": None,
+                "saved": True,
             }
         if method == "getById":
             return {
-                "id": args[0], "name": "Untitled-1.psd", "width": 1920, "height": 1080,
+                "id": args[0],
+                "name": "Untitled-1.psd",
+                "width": 1920,
+                "height": 1080,
                 "resolution": 72.0,
             }
         if method == "getActiveLayers":
             # args[0] = document id (int)
             return [
-                {"id": 11, "name": "Background", "kind": "pixel", "visible": True,
-                 "opacity": 100},
-                {"id": 12, "name": "Hero", "kind": "pixel", "visible": True,
-                 "opacity": 75},
-                {"id": 13, "name": "Hidden Layer", "kind": "pixel", "visible": False,
-                 "opacity": 100},
+                {"id": 11, "name": "Background", "kind": "pixel", "visible": True, "opacity": 100},
+                {"id": 12, "name": "Hero", "kind": "pixel", "visible": True, "opacity": 75},
+                {"id": 13, "name": "Hidden Layer", "kind": "pixel", "visible": False, "opacity": 100},
             ]
         if method == "getLayers":
             return [
@@ -170,12 +205,10 @@ class FakeClient:
     @staticmethod
     def _handle_layer(method: str, _args: List[Any]) -> Any:
         if method == "getActive":
-            return {"id": 12, "name": "Hero", "kind": "text", "visible": True,
-                    "opacity": 75}
+            return {"id": 12, "name": "Hero", "kind": "text", "visible": True, "opacity": 75}
         if method == "getChildren":
             return [
-                {"id": 20, "name": "SubLayer1", "kind": "pixel", "visible": True,
-                 "opacity": 100},
+                {"id": 20, "name": "SubLayer1", "kind": "pixel", "visible": True, "opacity": 100},
             ]
         return {"ok": True}
 
@@ -192,8 +225,12 @@ class FakeClient:
                 "layerId": args[0] if args else 12,
                 "contents": "Hello, World!",
                 "characterStyle": {
-                    "font": "ArialMT", "size": 48, "color": "#000000",
-                    "bold": False, "italic": False, "tracking": 0,
+                    "font": "ArialMT",
+                    "size": 48,
+                    "color": "#000000",
+                    "bold": False,
+                    "italic": False,
+                    "tracking": 0,
                 },
                 "paragraphStyle": {"alignment": "left", "justification": "left"},
             }
@@ -209,8 +246,13 @@ class FakeClient:
             return {"layerId": args[0], "textClickPoint": args[1] if len(args) > 1 else {}}
         if method == "setOrientation":
             return {"layerId": args[0], "orientation": args[1] if len(args) > 1 else "horizontal"}
-        if method in ("resetCharacterStyle", "convertToParagraphText",
-                      "convertToPointText", "convertToShape", "createWorkPath"):
+        if method in (
+            "resetCharacterStyle",
+            "convertToParagraphText",
+            "convertToPointText",
+            "convertToShape",
+            "createWorkPath",
+        ):
             return {"layerId": args[0]}
         return {"ok": True}
 
@@ -254,8 +296,7 @@ class FakeClient:
             ]
         if method == "exportWithPreset":
             payload = args[0] if args else {}
-            return {"exported": True, "path": payload.get("path"),
-                    "preset": payload.get("preset")}
+            return {"exported": True, "path": payload.get("path"), "preset": payload.get("preset")}
         return {"ok": True}
 
     # ------------------------------------------------------------------
@@ -266,16 +307,30 @@ class FakeClient:
     def _handle_selection(method: str, args: List[Any]) -> Any:
         if method == "get":
             # args[0] = document_id
-            return {"docId": args[0] if args else 1,
-                    "bounds": {"top": 0, "left": 0, "bottom": 1080, "right": 1920},
-                    "solid": True, "typename": "Selection"}
+            return {
+                "docId": args[0] if args else 1,
+                "bounds": {"top": 0, "left": 0, "bottom": 1080, "right": 1920},
+                "solid": True,
+                "typename": "Selection",
+            }
         if method == "selectRectangle":
-            return {"bounds": args[1] if len(args) > 1 else {},
-                    "docId": args[0] if args else 1}
-        if method in ("selectAll", "deselect", "inverse", "selectRow",
-                      "selectColumn", "selectEllipse", "selectPolygon",
-                      "expand", "contract", "feather", "smooth", "grow",
-                      "translateBoundary", "save"):
+            return {"bounds": args[1] if len(args) > 1 else {}, "docId": args[0] if args else 1}
+        if method in (
+            "selectAll",
+            "deselect",
+            "inverse",
+            "selectRow",
+            "selectColumn",
+            "selectEllipse",
+            "selectPolygon",
+            "expand",
+            "contract",
+            "feather",
+            "smooth",
+            "grow",
+            "translateBoundary",
+            "save",
+        ):
             return {"docId": args[0] if args else 1, "bounds": {}}
         return {"ok": True}
 
@@ -293,9 +348,11 @@ class FakeClient:
         if method == "applySharpen":
             return {"id": args[0] if args else 12}
         if method == "applySmartBlur":
-            return {"id": args[0] if args else 12,
-                    "radius": args[1] if len(args) > 1 else 1,
-                    "threshold": args[2] if len(args) > 2 else 0}
+            return {
+                "id": args[0] if args else 12,
+                "radius": args[1] if len(args) > 1 else 1,
+                "threshold": args[2] if len(args) > 2 else 0,
+            }
         return {"ok": True}
 
     # ------------------------------------------------------------------
@@ -338,7 +395,7 @@ class FakeClient:
 # ---------------------------------------------------------------------------
 
 
-def _make_ps(client: Optional[FakeClient] = None) -> Photoshop:  # noqa: F821
+def _make_ps(client: Optional[FakeClient] = None) -> Photoshop:
     from adobe.photoshop import Photoshop
 
     return Photoshop(client=client or FakeClient())
@@ -558,9 +615,7 @@ class TestAdobepySelectionIntegration:
         app = _make_ps(client)
         doc = app.activeDocument
         assert doc is not None
-        doc.selection.select_rectangle(
-            {"top": 10, "left": 10, "bottom": 256, "right": 256}
-        )
+        doc.selection.select_rectangle({"top": 10, "left": 10, "bottom": 256, "right": 256})
         documented = client.calls[-1]
         assert documented["namespace"] == "selection"
         assert documented["method"] == "selectRectangle"
@@ -947,17 +1002,11 @@ class TestAdobepyMethodMapCoverage:
     def _load_method_map(cls) -> List[Dict[str, Any]]:
         if cls._METHOD_MAP is None:
             # Primary path: contracts/ in the monorepo root
-            contract_path = (
-                pathlib.Path(__file__).parents[3]
-                / "contracts"
-                / "dcc_mcp_photoshop_methods.json"
-            )
+            contract_path = pathlib.Path(__file__).parents[3] / "contracts" / "dcc_mcp_photoshop_methods.json"
             # Fallback: relative to the dcc-mcp-photoshop checkout nested inside
             if not contract_path.exists():
                 contract_path = (
-                    pathlib.Path(__file__).parent.parent.parent
-                    / "contracts"
-                    / "dcc_mcp_photoshop_methods.json"
+                    pathlib.Path(__file__).parent.parent.parent / "contracts" / "dcc_mcp_photoshop_methods.json"
                 )
             if contract_path.exists():
                 cls._METHOD_MAP = json.loads(contract_path.read_text())["methods"]
@@ -970,31 +1019,28 @@ class TestAdobepyMethodMapCoverage:
         if not methods:
             pytest.skip("method map contract not found")
         for entry in methods:
-            assert entry.get("adobepy"), (
-                f"{entry['legacyMethod']} has no adobepy replacement"
-            )
+            assert entry.get("adobepy"), f"{entry['legacyMethod']} has no adobepy replacement"
 
     def test_method_count_matches_legacy_surface(self) -> None:
         """The contract covers all 27 legacy methods."""
         methods = self._load_method_map()
         if not methods:
             pytest.skip("method map contract not found")
-        assert len(methods) == 27, (
-            f"Expected 27 legacy methods, found {len(methods)}"
-        )
+        assert len(methods) == 27, f"Expected 27 legacy methods, found {len(methods)}"
 
     def test_each_legacy_method_has_valid_route(self) -> None:
         methods = self._load_method_map()
         if not methods:
             pytest.skip("method map contract not found")
         valid_routes = {
-            "typed_facade", "batch_play", "dom_escape_hatch",
-            "raw_eval", "capability_contract",
+            "typed_facade",
+            "batch_play",
+            "dom_escape_hatch",
+            "raw_eval",
+            "capability_contract",
         }
         for entry in methods:
-            assert entry["route"] in valid_routes, (
-                f"{entry['legacyMethod']} has unknown route: {entry['route']}"
-            )
+            assert entry["route"] in valid_routes, f"{entry['legacyMethod']} has unknown route: {entry['route']}"
 
     def test_method_map_json_has_all_required_keys(self) -> None:
         methods = self._load_method_map()
@@ -1003,9 +1049,7 @@ class TestAdobepyMethodMapCoverage:
         required = {"legacyMethod", "family", "route", "adobepy"}
         for entry in methods:
             missing = required - set(entry.keys())
-            assert not missing, (
-                f"{entry.get('legacyMethod', '?')} missing keys: {missing}"
-            )
+            assert not missing, f"{entry.get('legacyMethod', '?')} missing keys: {missing}"
 
     def test_typed_facade_methods_are_present(self) -> None:
         methods = self._load_method_map()
@@ -1013,8 +1057,12 @@ class TestAdobepyMethodMapCoverage:
             pytest.skip("method map contract not found")
         facade_methods = {m["legacyMethod"] for m in methods if m["route"] == "typed_facade"}
         expected = {
-            "ps.getDocumentInfo", "ps.listDocuments", "ps.exportDocument",
-            "ps.listLayers", "ps.updateTextLayer", "ps.getTextLayerInfo",
+            "ps.getDocumentInfo",
+            "ps.listDocuments",
+            "ps.exportDocument",
+            "ps.listLayers",
+            "ps.updateTextLayer",
+            "ps.getTextLayerInfo",
         }
         missing = expected - facade_methods
         assert not missing, f"Expected typed_facade methods missing from contract: {missing}"

@@ -48,8 +48,19 @@ def create_text_layer(
     )
 
 
-def _create_text(app: Photoshop, content: str, name: str, x: float, y: float, font_name: str,
-                 font_size: float, hex_color: str, alignment: str, bold: bool, italic: bool) -> dict:
+def _create_text(
+    app: Photoshop,
+    content: str,
+    name: str,
+    x: float,
+    y: float,
+    font_name: str,
+    font_size: float,
+    hex_color: str,
+    alignment: str,
+    bold: bool,
+    italic: bool,
+) -> dict:
     r, g, b = _hex_to_rgb(hex_color)
     alignment_map = {"left": "left", "center": "center", "right": "right"}
 

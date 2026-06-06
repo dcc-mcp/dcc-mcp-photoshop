@@ -244,7 +244,10 @@ class TestTextSkills:
     def test_create_text_layer(self):
         mod = _load_script(_TEXT_SCRIPTS, "create_text_layer.py")
         result = mod.create_text_layer(
-            content="Hello, World!", font="ArialMT", size=72, color="#ffffff",
+            content="Hello, World!",
+            font="ArialMT",
+            size=72,
+            color="#ffffff",
         )
         assert result["success"] is True
         assert result["context"]["content"] == "Hello, World!"
