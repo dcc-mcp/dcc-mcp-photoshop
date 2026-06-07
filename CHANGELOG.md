@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.4](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.3...v0.1.4) (2026-06-07)
+
+
+### Bug Fixes
+
+* apply ruff format to test_agent_instruction_files.py ([e466dd0](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e466dd0dd31abb07a4ea18437a538d0168b5b723))
+* ruff import organization in test_agent_instruction_files.py ([c695bb9](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c695bb97b23f7a529d140131b04895dc9aa7da01))
+
 ## [0.1.3](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.2...v0.1.3) (2026-06-06)
 
 
