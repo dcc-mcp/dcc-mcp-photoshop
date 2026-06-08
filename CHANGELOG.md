@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.6](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.5...v0.1.6) (2026-06-08)
+
+
+### Code Refactoring
+
+* migrate PhotoshopMcpServer to extend DccServerBase (4-seam controller PIP-688) ([6081dbd](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6081dbda37ae47162729899f617fbde07730c385))
+
 ## [0.1.5](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.4...v0.1.5) (2026-06-08)
 
 
