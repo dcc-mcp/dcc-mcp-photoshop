@@ -35,6 +35,9 @@ import threading
 from pathlib import Path
 from typing import Any, Optional
 
+from dcc_mcp_core._server.options import DccServerOptions
+from dcc_mcp_core.server_base import DccServerBase
+
 logger = logging.getLogger(__name__)
 
 # Built-in skills directory shipped with this package
@@ -142,12 +145,16 @@ class PhotoshopBridgePlugin:
 
 
 # ---------------------------------------------------------------------------
-# PhotoshopMcpServer — built on DccServerBase
+# PhotoshopMcpServer — extends DccServerBase (4-seam controller, PIP-688)
 # ---------------------------------------------------------------------------
 
 
-class PhotoshopMcpServer:
-    """MCP server for Adobe Photoshop, built on :class:`dcc_mcp_core.server_base.DccServerBase`.
+class PhotoshopMcpServer(DccServerBase):
+    """MCP server for Adobe Photoshop, extends :class:`DccServerBase`.
+
+    Inherits the 4-seam controller architecture (PIP-688):
+    :class:`SkillDiscoveryController`, :class:`ExecutionBridgeBinder`,
+    :class:`LifecycleController`, :class:`ObservabilityFacade`.
 
     In embedded mode the MCP HTTP server and the WebSocket bridge both run in
     this process, so skill scripts can access the bridge directly via
@@ -173,19 +180,16 @@ class PhotoshopMcpServer:
         rpc_port: int = 9100,
         gateway_port: int | None = None,
     ) -> None:
-        from dcc_mcp_core._server.options import DccServerOptions  # noqa: PLC0415
-        from dcc_mcp_core.server_base import DccServerBase  # noqa: PLC0415
-
-        self._base = DccServerBase(
-            DccServerOptions.from_env(
-                dcc_name="photoshop",
-                builtin_skills_dir=_BUILTIN_SKILLS_DIR,
-                port=port,
-                server_name=server_name,
-                server_version=server_version,
-                gateway_port=gateway_port,
-            )
+        options = DccServerOptions.from_env(
+            dcc_name="photoshop",
+            builtin_skills_dir=_BUILTIN_SKILLS_DIR,
+            port=port,
+            server_name=server_name,
+            server_version=server_version,
+            gateway_port=gateway_port,
         )
+        super().__init__(options=options)
+
         self._ws_host = ws_host
         self._ws_port = ws_port
         self._rpc_port = rpc_port
@@ -204,11 +208,6 @@ class PhotoshopMcpServer:
 
     # ── action / skill registration ────────────────────────────────────────
 
-    @property
-    def registry(self):
-        """The underlying ``ActionRegistry`` (internal; prefer ``list_skills``)."""
-        return self._base.registry
-
     def discover_builtin_skills(self, extra_skill_paths: list[str] | None = None) -> PhotoshopMcpServer:
         """Discover all built-in Photoshop skills (lazy loading mode).
 
@@ -221,8 +220,8 @@ class PhotoshopMcpServer:
         Returns:
             ``self`` for fluent chaining
         """
-        paths = self._base.collect_skill_search_paths(extra_paths=extra_skill_paths)
-        count = self._base._server.discover(extra_paths=paths)
+        paths = self.collect_skill_search_paths(extra_paths=extra_skill_paths)
+        count = self._server.discover(extra_paths=paths)
         logger.info(
             "SkillCatalog discovered %d skill(s) — use load_skill to load them on-demand",
             count,
@@ -239,50 +238,34 @@ class PhotoshopMcpServer:
             "register_builtin_actions is deprecated; use discover_builtin_skills() "
             "for lazy loading, or switch to dcc-mcp-server.exe in gateway mode"
         )
-        self._base.register_builtin_actions(extra_skill_paths=extra_skill_paths)
+        super().register_builtin_actions(extra_skill_paths=extra_skill_paths)
         return self
 
     # ── skill discovery helpers ────────────────────────────────────────────
 
     def find_skills(self, query=None, tags=None, dcc=None):
-        return self._base.search_skills(query=query, tags=tags, dcc=dcc)
-
-    def is_skill_loaded(self, name: str) -> bool:
-        return self._base.is_skill_loaded(name)
-
-    def get_skill_info(self, name: str):
-        return self._base.get_skill_info(name)
+        """Search for skills by query, tags, and DCC name."""
+        return self.search_skills(query=query, tags=tags, dcc=dcc)
 
     # ── capabilities ──────────────────────────────────────────────────────
 
     def get_capabilities(self):
+        """Return the :class:`DccCapabilities` for this Photoshop adapter."""
         from dcc_mcp_photoshop.capabilities import photoshop_capabilities  # noqa: PLC0415
 
         return photoshop_capabilities()
 
     # ── lifecycle ──────────────────────────────────────────────────────────
 
-    def start(self) -> Any:
+    def start(self, *, install_atexit_hook: bool = True) -> Any:
         """Start the MCP HTTP server and connect the WebSocket bridge."""
         self._connect_bridge()
-        return self._base.start()
+        return super().start(install_atexit_hook=install_atexit_hook)
 
     def stop(self) -> None:
         """Gracefully stop the MCP HTTP server and disconnect the bridge."""
-        self._base.stop()
+        super().stop()
         self._disconnect_bridge()
-
-    @property
-    def is_running(self) -> bool:
-        return self._base.is_running
-
-    @property
-    def mcp_url(self) -> Optional[str]:
-        return self._base.mcp_url
-
-    def update_gateway_metadata(self, scene=None, version=None) -> bool:
-        """Update scene/version in the gateway registry."""
-        return self._base.update_gateway_metadata(scene=scene, version=version)
 
 
 # ---------------------------------------------------------------------------
