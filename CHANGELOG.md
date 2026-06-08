@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.5](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.4...v0.1.5) (2026-06-08)
+
+
+### Bug Fixes
+
+* adapt DccServerBase to core v0.18.14 DccServerOptions API ([dfd5b6f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/dfd5b6fd76c835ef3fbee4478129c220ac25a0c6))
+
 ## [0.1.4](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.3...v0.1.4) (2026-06-07)
 
 
