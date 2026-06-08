@@ -173,15 +173,18 @@ class PhotoshopMcpServer:
         rpc_port: int = 9100,
         gateway_port: int | None = None,
     ) -> None:
+        from dcc_mcp_core._server.options import DccServerOptions  # noqa: PLC0415
         from dcc_mcp_core.server_base import DccServerBase  # noqa: PLC0415
 
         self._base = DccServerBase(
-            dcc_name="photoshop",
-            builtin_skills_dir=_BUILTIN_SKILLS_DIR,
-            port=port,
-            server_name=server_name,
-            server_version=server_version,
-            gateway_port=gateway_port,
+            DccServerOptions.from_env(
+                dcc_name="photoshop",
+                builtin_skills_dir=_BUILTIN_SKILLS_DIR,
+                port=port,
+                server_name=server_name,
+                server_version=server_version,
+                gateway_port=gateway_port,
+            )
         )
         self._ws_host = ws_host
         self._ws_port = ws_port
@@ -219,7 +222,7 @@ class PhotoshopMcpServer:
             ``self`` for fluent chaining
         """
         paths = self._base.collect_skill_search_paths(extra_paths=extra_skill_paths)
-        count = self._base._server.discover(extra_paths=paths, dcc_name="photoshop")
+        count = self._base._server.discover(extra_paths=paths)
         logger.info(
             "SkillCatalog discovered %d skill(s) — use load_skill to load them on-demand",
             count,
@@ -242,7 +245,7 @@ class PhotoshopMcpServer:
     # ── skill discovery helpers ────────────────────────────────────────────
 
     def find_skills(self, query=None, tags=None, dcc=None):
-        return self._base.find_skills(query=query, tags=tags, dcc=dcc)
+        return self._base.search_skills(query=query, tags=tags, dcc=dcc)
 
     def is_skill_loaded(self, name: str) -> bool:
         return self._base.is_skill_loaded(name)
