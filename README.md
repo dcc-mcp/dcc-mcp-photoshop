@@ -39,14 +39,9 @@ The Python bridge runs a WebSocket server that the UXP plugin connects to as a c
 
 Download the latest `.ccx` from [GitHub Releases](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases), install via Creative Cloud Desktop, and restart Photoshop.
 
-### 2. Start the bridge
+The plugin automatically starts the bundled sidecar (bridge + MCP server) when Photoshop loads.
 
-```bash
-pip install "dcc-mcp-photoshop[sidecar]"
-dcc-mcp-photoshop --embedded
-```
-
-### 3. Configure your MCP client
+### 2. Configure your MCP client
 
 ```json
 {
@@ -58,7 +53,7 @@ dcc-mcp-photoshop --embedded
 }
 ```
 
-### 4. Smoke test
+### 3. Smoke test
 
 ```text
 Search for Photoshop tools, load the photoshop-document skill, and list layers in the current document.
