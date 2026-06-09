@@ -55,15 +55,13 @@ pip install "dcc-mcp-photoshop[sidecar]"
 
 安装 UXP 插件并重启 Photoshop 后，插件会自动启动内置 sidecar（bridge + MCP 服务器）。
 
-将 MCP 客户端指向 `http://127.0.0.1:8765/mcp`。
-
-### Claude Desktop 配置
+将 MCP 客户端指向**网关地址**。网关会自动发现请求应路由到哪个 DCC（Photoshop、Maya 等），因此你只需要一个端点：
 
 ```json
 {
   "mcpServers": {
     "photoshop": {
-      "url": "http://127.0.0.1:8765/mcp"
+      "url": "http://127.0.0.1:9765/mcp"
     }
   }
 }
@@ -312,7 +310,9 @@ dcc-mcp-server --dcc photoshop --mcp-port 8765 --gateway-port 9765
 python -m dcc_mcp_photoshop
 ```
 
-MCP 客户端连接到 `http://127.0.0.1:8765/mcp`（直连）或 `http://127.0.0.1:9765/mcp`（网关聚合）。
+MCP 客户端连接到网关地址：
+- `http://127.0.0.1:9765/mcp` — **网关代理（推荐）**：统一 facade，自动发现目标 DCC
+- `http://127.0.0.1:8765/mcp` — 直连（用于调试或单 DCC 场景）
 
 ## 开发
 
