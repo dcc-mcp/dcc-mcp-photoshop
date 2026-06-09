@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.10](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.9...v0.1.10) (2026-06-09)
+
+
+### Features
+
+* download dcc-mcp-server from dcc-mcp-core releases instead of committing binary ([1acdda7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/1acdda79b9c009732c10b7bfc11d2157f6aae1eb))
+
+
+### Bug Fixes
+
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([19f553e](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/19f553eb1af7d9526a555c3db89b5d9ab9a61438))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([19f553e](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/19f553eb1af7d9526a555c3db89b5d9ab9a61438))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([632ef30](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/632ef309d4fee65f48a5a544a585bad17f01fa24))
+
 ## [0.1.9](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.8...v0.1.9) (2026-06-09)
 
 
