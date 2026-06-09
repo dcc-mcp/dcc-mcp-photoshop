@@ -1,0 +1,27 @@
+[tools]
+python = "3.12"
+uv = "latest"
+
+[settings]
+cache_duration = "7d"
+auto_install = true
+
+[scripts]
+# === Development ===
+dev = "uv pip install -e \".[dev]\""
+install = "uv pip install -e \".[dev]\""
+
+# === Lint & Format ===
+lint = "uv run ruff check src/ tests/"
+lint-fix = "uv run ruff check --fix src/ tests/"
+format = "uv run ruff format src/ tests/"
+format-check = "uv run ruff format --check src/ tests/"
+preflight = "uv run ruff check src/ tests/ && uv run ruff format --check src/ tests/"
+
+# === Test ===
+test = "uv run pytest tests/ -v --tb=short"
+test-cov = "uv run pytest tests/ -v --tb=short --cov=src/dcc_mcp_photoshop"
+
+# === Pre-commit (vx prek) ===
+prek = "pre-commit run --all-files"
+prek-install = "pre-commit install"
