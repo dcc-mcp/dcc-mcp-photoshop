@@ -129,6 +129,26 @@ URL: http://127.0.0.1:9765/mcp
 
 Make sure Photoshop is running with the UXP plugin loaded. The sidecar auto-starts. Configure the gateway URL in your MCP client and start controlling Photoshop with AI.
 
+### 5. 一键安装配置 / One-Click Setup
+
+如果通过 AI 助手使用，加载 `photoshop-setup` skill 即可自动化全流程：
+When using through an AI assistant, load the `photoshop-setup` skill for one-click automation:
+
+```
+load_skill("photoshop-setup")
+```
+
+| 工具 / Tool | 说明 / Description |
+|-------------|-------------------|
+| `check_environment` | 检查系统环境 / Check system prerequisites |
+| `install_package` | 安装 pip 包 / Install via pip |
+| `setup_uxp_plugin` | 安装 UXP 插件 / Install UXP .ccx plugin |
+| `start_server` | 启动服务器（开发模式）/ Start server (dev mode) |
+| `verify_connection` | 验证连接 / Verify bridge connection |
+| `configure_mcp_client` | 自动配置 Claude Desktop / Cursor / VS Code / Auto-configure MCP client |
+
+工作流 / Workflow: `check_environment` → `setup_uxp_plugin` → `configure_mcp_client` → 完成 / done。
+
 ---
 
 ## Features
