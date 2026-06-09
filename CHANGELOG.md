@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.8](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.7...v0.1.8) (2026-06-09)
+
+
+### Bug Fixes
+
+* correct skill count and remove broken references in README ([4eb55d3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4eb55d3c7c8d6c4317bf2dfcaae96b2c40417441))
+
+
+### Documentation
+
+* update README with comprehensive MCP installation and configuration guide ([0e2aebb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0e2aebbcfea2b663377c188bd1e52b7ac49c022c))
+
 ## [0.1.7](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.6...v0.1.7) (2026-06-09)
 
 
