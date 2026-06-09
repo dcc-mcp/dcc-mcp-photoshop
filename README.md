@@ -89,7 +89,7 @@ The bundled sidecar starts automatically and listens on the following ports. MCP
 {
   "mcpServers": {
     "photoshop": {
-      "url": "http://127.0.0.1:9765/mcp/dcc/photoshop"
+      "url": "http://127.0.0.1:9765/mcp"
     }
   }
 }
@@ -100,7 +100,7 @@ The bundled sidecar starts automatically and listens on the following ports. MCP
 ```
 Name: photoshop
 Type: url
-URL: http://127.0.0.1:9765/mcp/dcc/photoshop
+URL: http://127.0.0.1:9765/mcp
 ```
 
 **VS Code / 通用 MCP 客户端 / Generic MCP client**:
@@ -110,15 +110,15 @@ URL: http://127.0.0.1:9765/mcp/dcc/photoshop
   "mcp": {
     "servers": {
       "photoshop": {
-        "url": "http://127.0.0.1:9765/mcp/dcc/photoshop"
+        "url": "http://127.0.0.1:9765/mcp"
       }
     }
   }
 }
 ```
 
-> 网关地址格式为 `http://127.0.0.1:9765/mcp/dcc/photoshop`，其中 `9765` 是网关端口，`photoshop` 是 DCC 类型。网关会自动发现并路由到正确的服务实例。
-> The gateway URL format is `http://127.0.0.1:9765/mcp/dcc/photoshop` where `9765` is the gateway port and `photoshop` is the DCC type. The gateway auto-discovers and routes to the correct service instance.
+> 网关 `/mcp` 端点是一个统一 facade，聚合所有已注册 DCC（Maya / Houdini / Blender / Photoshop 等）的工具列表。`tools/call` 时网关通过 capability index 自动发现并路由到正确的 DCC 实例，无需在 URL 中指定 DCC 类型。
+> The gateway `/mcp` endpoint is a unified facade that aggregates tools from ALL registered DCCs (Maya / Houdini / Blender / Photoshop, etc.). On `tools/call`, the gateway auto-discovers the correct DCC instance via the capability index — no need to specify the DCC type in the URL.
 
 ### 4. 启动使用 / Start using
 
@@ -412,7 +412,7 @@ dcc-mcp-photoshop v0.1.6
   WS bridge   : ws://localhost:9001
   RPC endpoint: http://localhost:9100/rpc
 
-MCP clients: http://127.0.0.1:8765/mcp (direct) or http://127.0.0.1:9765/mcp/dcc/photoshop (gateway)
+MCP clients: http://127.0.0.1:8765/mcp (direct) or http://127.0.0.1:9765/mcp (gateway)
 
 Waiting for Photoshop UXP plugin to connect...
 Press Ctrl+C to stop.
@@ -436,7 +436,7 @@ python -m dcc_mcp_photoshop
 
 **MCP clients** connect to:
 - `http://127.0.0.1:8765/mcp` — Direct, stable port
-- `http://127.0.0.1:9765/mcp/dcc/photoshop` — Gateway proxy (auto-detects DCC type)
+- `http://127.0.0.1:9765/mcp` — Gateway proxy (unified facade for all DCCs)
 
 ### Python API
 
