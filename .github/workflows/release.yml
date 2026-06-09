@@ -3,6 +3,7 @@ name: Release
 on:
   push:
     branches: [main]
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       tag_name:
@@ -26,60 +27,51 @@ permissions:
   actions: read
 
 jobs:
-  # ── Decide what to release (release-please for push, manual backfill for dispatch) ──
+  # ── Release-please (push to main only) — creates release PRs and tags ──
   release-please:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
+    if: github.ref_type == 'branch' && github.ref == 'refs/heads/main'
     outputs:
-      release_created: ${{ steps.decide.outputs.release_created }}
-      tag_name: ${{ steps.decide.outputs.tag_name }}
-      version: ${{ steps.decide.outputs.version }}
+      release_created: ${{ steps.release.outputs.release_created }}
     steps:
       - uses: actions/checkout@v4
-        if: github.event_name == 'push'
-
       - uses: googleapis/release-please-action@v4
         id: release
-        if: github.event_name == 'push'
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
 
-      - name: Validate manual release backfill inputs
-        if: github.event_name == 'workflow_dispatch' && inputs.tag_name != ''
-        env:
-          GH_TOKEN: ${{ github.token }}
-          RELEASE_TAG: ${{ inputs.tag_name }}
-          RELEASE_VERSION: ${{ inputs.release_version }}
-        run: |
-          if [ -z "$RELEASE_VERSION" ]; then
-            echo "::error::release_version is required when tag_name is set"
-            exit 1
-          fi
-          echo "Manual backfill for tag=$RELEASE_TAG version=$RELEASE_VERSION"
-
-      - name: Checkout tag for manual rebuild
-        if: github.event_name == 'workflow_dispatch' && inputs.tag_name != ''
-        uses: actions/checkout@v4
-        with:
-          ref: ${{ inputs.tag_name }}
-
-      - name: Decide release state
+  # ── Resolve version info from tag or dispatch inputs ──
+  decide:
+    runs-on: ubuntu-latest
+    if: github.ref_type == 'tag' || github.event_name == 'workflow_dispatch'
+    outputs:
+      tag_name: ${{ steps.decide.outputs.tag_name }}
+      version: ${{ steps.decide.outputs.version }}
+    steps:
+      - name: Validate and resolve version info
         id: decide
         env:
-          RELEASE_CREATED: ${{ steps.release.outputs.release_created || '' }}
-          TAG_NAME: ${{ steps.release.outputs.tag_name || inputs.tag_name }}
-          VERSION: ${{ steps.release.outputs.version || inputs.release_version }}
+          TAG_NAME: ${{ github.ref_type == 'tag' && github.ref_name || inputs.tag_name }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
         run: |
-          echo "release_created=${RELEASE_CREATED:-true}" >> "$GITHUB_OUTPUT"
-          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
-          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          TAG="$TAG_NAME"
+          if [ -z "$TAG" ]; then
+            echo "::error::tag_name is required for tag push or workflow_dispatch with tag_name"
+            exit 1
+          fi
+          VER="$RELEASE_VERSION"
+          if [ -z "$VER" ]; then
+            VER="${TAG#v}"
+          fi
+          echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
   # ── Build standalone binary (per platform) ─────────────────────────────────
   build-binary:
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    needs: [decide]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     strategy:
       matrix:
         include:
@@ -96,7 +88,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && needs.release-please.outputs.tag_name || github.ref }}
+          ref: ${{ needs.decide.outputs.tag_name }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
@@ -109,14 +101,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
-      # Smoke check: verify entry point works before building
       - name: Smoke test — CLI entry point
         run: dcc-mcp-photoshop --version
 
       - name: Build standalone binary
         run: python tools/build_binary.py
 
-      # Smoke check: verify binary was built and can print help
       - name: Smoke test — standalone binary
         shell: bash
         run: |
@@ -137,13 +127,13 @@ jobs:
   # ── Build wheel + sdist ──────────────────────────────────────────────────────
   build:
     name: Build wheel and sdist
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    needs: [decide]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && needs.release-please.outputs.tag_name || github.ref }}
+          ref: ${{ needs.decide.outputs.tag_name }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
@@ -173,13 +163,13 @@ jobs:
 
   # ── Build UXP plugin .ccx ───────────────────────────────────────────────────
   build-uxp-plugin:
-    needs: [release-please]
-    if: needs.release-please.outputs.release_created == 'true' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    needs: [decide]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ github.event_name == 'workflow_dispatch' && needs.release-please.outputs.tag_name || github.ref }}
+          ref: ${{ needs.decide.outputs.tag_name }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
@@ -197,11 +187,7 @@ jobs:
 
       - name: Pack UXP plugin (.ccx)
         run: |
-          VERSION="${{ needs.release-please.outputs.version }}"
-          if [ -z "$VERSION" ]; then
-            VERSION="${{ inputs.release_version }}"
-          fi
-          python tools/pack_plugin.py --version "$VERSION" --output dist/plugin
+          python tools/pack_plugin.py --version "${{ needs.decide.outputs.version }}" --output dist/plugin
         shell: bash
 
       - name: Verify .ccx file was created
@@ -216,10 +202,10 @@ jobs:
           name: uxp-plugin
           path: dist/plugin/*.ccx
 
-  # ── Publish to PyPI (push only, not on manual tag rebuild) ───────────────────
+  # ── Publish to PyPI (tag push only, not on manual rebuild) ───────────────────
   publish:
-    needs: [release-please, build]
-    if: needs.release-please.outputs.release_created == 'true' && github.event_name == 'push'
+    needs: [decide, build]
+    if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -242,8 +228,8 @@ jobs:
 
   # ── Attach wheels + plugin + binaries to GitHub Release ─────────────────────
   attach-release-assets:
-    needs: [release-please, build-uxp-plugin, build-binary]
-    if: needs.release-please.outputs.release_created == 'true'
+    needs: [decide, build-uxp-plugin, build-binary]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -288,7 +274,7 @@ jobs:
       - name: Attach all assets to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ needs.release-please.outputs.tag_name }}
+          tag_name: ${{ needs.decide.outputs.tag_name }}
           files: |
             dist/*.whl
             dist/*.tar.gz
