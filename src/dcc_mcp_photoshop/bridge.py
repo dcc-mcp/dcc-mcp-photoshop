@@ -20,8 +20,8 @@ Why inverted?
   UXP only supports WebSocket CLIENT, not server.
   See: https://forums.creativeclouddeveloper.com/t/7423
 
-Protocol
---------
+Protocol (v0.1.0)
+------------------
   Python → UXP  (request):
     {"jsonrpc":"2.0","id":1,"method":"ps.getDocumentInfo","params":{}}
 
@@ -29,10 +29,21 @@ Protocol
     {"jsonrpc":"2.0","id":1,"result":{"name":"Untitled-1.psd",...}}
 
   UXP → Python  (error):
-    {"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"..."}}
+    {"jsonrpc":"2.0","id":1,"error":{"code":-32603,"message":"...","hint":"..."}}
+
+  UXP → Python  (progress):
+    {"jsonrpc":"2.0","id":1,"type":"progress","progress":{"current":50,"total":100}}
 
   UXP → Python  (hello, on connect):
-    {"type":"hello","client":"photoshop-uxp","version":"0.1.0"}
+    {"type":"hello","protocol":"photoshop-bridge","version":"0.1.0","client":"photoshop-uxp"}
+
+  Python → UXP  (hello_ack):
+    {"type":"hello_ack","protocol":"photoshop-bridge","version":"0.1.0"}
+
+  Python → UXP  (disconnected):
+    {"type":"disconnected","reason":"Server stopped"}
+
+See docs/bridge-protocol.md for the full specification.
 """
 
 from __future__ import annotations
@@ -46,6 +57,15 @@ from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
 from pathlib import Path
 from typing import Any, Dict, Optional
+
+from dcc_mcp_photoshop.protocol import (
+    PROTOCOL_NAME,
+    PROTOCOL_VERSION,
+    build_hello_ack,
+    build_disconnected,
+    is_hello,
+    is_progress,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -112,12 +132,14 @@ class BridgeRpcError(RuntimeError):
 
     Attributes:
         code: JSON-RPC error code.
-        data: Optional extra data.
+        hint: Actionable suggestion from the UXP side.
+        data: Optional extra diagnostic data.
     """
 
-    def __init__(self, message: str, code: int = -32603, data: Any = None) -> None:
+    def __init__(self, message: str, code: int = -32603, hint: str = "", data: Any = None) -> None:
         super().__init__(message)
         self.code = code
+        self.hint = hint
         self.data = data
 
 
@@ -285,12 +307,30 @@ class PhotoshopBridge:
                     logger.warning("PhotoshopBridge: invalid JSON from UXP: %r", raw[:200])
                     continue
 
-                # Handle non-RPC hello message
-                if msg.get("type") == "hello":
+                # Handle hello handshake
+                if is_hello(msg):
+                    reconnect = " (reconnect)" if msg.get("reconnect") else ""
                     logger.info(
-                        "UXP plugin hello: %s v%s",
+                        "UXP plugin hello: %s v%s%s",
                         msg.get("client"),
                         msg.get("version"),
+                        reconnect,
+                    )
+                    try:
+                        await websocket.send(json.dumps(build_hello_ack()))
+                    except Exception:
+                        pass
+                    continue
+
+                # Handle progress notification — log but do NOT resolve pending future
+                if is_progress(msg):
+                    p = msg.get("progress", {})
+                    logger.debug(
+                        "Progress id=%r %d/%d%s",
+                        msg.get("id"),
+                        p.get("current", 0),
+                        p.get("total", 0),
+                        f" — {p['message']}" if p.get("message") else "",
                     )
                     continue
 
@@ -313,6 +353,7 @@ class PhotoshopBridge:
                     exc = BridgeRpcError(
                         err_info.get("message", "Unknown RPC error"),
                         code=err_info.get("code", -32603),
+                        hint=err_info.get("hint", ""),
                         data=err_info.get("data"),
                     )
                     self._set_future_exception(future, exc)
@@ -349,6 +390,11 @@ class PhotoshopBridge:
         if self._loop is not None:
 
             async def _close():
+                if self._uxp_ws:
+                    try:
+                        await self._uxp_ws.send(json.dumps(build_disconnected()))
+                    except Exception:
+                        pass
                 if self._server:
                     self._server.close()
                     await self._server.wait_closed()

@@ -165,7 +165,6 @@ def connected_bridge():
     bridge = PhotoshopBridge(host="localhost", port=0, timeout=10.0)
 
     _actual_port: list = []
-    _original_serve = bridge._serve
 
     async def _patched_serve(ready_event, uxp_event, exc_out):
         import websockets as ws  # noqa: PLC0415
@@ -205,7 +204,13 @@ def connected_bridge():
 
     async def _run_mock_uxp():
         async with websockets.connect(f"ws://localhost:{port}") as ws:
-            await ws.send(json.dumps({"type": "hello", "client": "photoshop-uxp-mock", "version": "0.1.0"}))
+            # Send hello (protocol v0)
+            await ws.send(json.dumps({
+                "type": "hello",
+                "protocol": "photoshop-bridge",
+                "version": "0.1.0",
+                "client": "photoshop-uxp-mock",
+            }))
             uxp_started.set()
             try:
                 async for raw in ws:
@@ -220,13 +225,23 @@ def connected_bridge():
                         result = await _handle_rpc(req)
                         await ws.send(json.dumps({"jsonrpc": "2.0", "id": req_id, "result": result}))
                     except ValueError as exc:
-                        await ws.send(
-                            json.dumps({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": str(exc)}})
-                        )
+                        await ws.send(json.dumps({
+                            "jsonrpc": "2.0", "id": req_id,
+                            "error": {
+                                "code": -32601,
+                                "message": str(exc),
+                                "hint": "Use ps.describeApi to list available methods",
+                            },
+                        }))
                     except Exception as exc:  # noqa: BLE001
-                        await ws.send(
-                            json.dumps({"jsonrpc": "2.0", "id": req_id, "error": {"code": -32603, "message": str(exc)}})
-                        )
+                        await ws.send(json.dumps({
+                            "jsonrpc": "2.0", "id": req_id,
+                            "error": {
+                                "code": -32603,
+                                "message": str(exc),
+                                "hint": "An unexpected error occurred inside the Photoshop handler.",
+                            },
+                        }))
             except Exception:
                 pass
 
