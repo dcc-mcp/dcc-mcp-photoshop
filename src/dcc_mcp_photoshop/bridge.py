@@ -52,9 +52,12 @@ import asyncio
 import json
 import logging
 import logging.handlers
+import socketserver
 import threading
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
+from http import HTTPStatus
+from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -509,3 +512,192 @@ class PhotoshopBridge:
 
     def __exit__(self, *args: Any) -> None:
         self.disconnect()
+
+
+# ---------------------------------------------------------------------------
+# BridgeRpcServer — exposes the bridge via HTTP for cross-process access
+# ---------------------------------------------------------------------------
+
+
+class BridgeRpcServer:
+    """Lightweight HTTP RPC server that wraps ``PhotoshopBridge`` for cross-process access.
+
+    Skill scripts running inside ``dcc-mcp-server.exe`` connect to this HTTP
+    endpoint to call the bridge via JSON-RPC over HTTP POST.
+
+    The server runs in a background daemon thread and exposes:
+      - ``POST /rpc`` — JSON-RPC 2.0 request, forwarded to the bridge
+      - ``GET /healthz`` — health check (returns 200 OK)
+
+    Args:
+        bridge: The ``PhotoshopBridge`` instance to wrap.
+        host: Hostname to bind to (default ``"localhost"``).
+        port: TCP port (default ``9100``).
+
+    Example::
+
+        server = BridgeRpcServer(bridge, port=9100)
+        server.start()
+        # ... server runs in background ...
+        server.stop()
+    """
+
+    def __init__(
+        self,
+        bridge: PhotoshopBridge,
+        host: str = "localhost",
+        port: int = 9100,
+    ) -> None:
+        self._bridge = bridge
+        self._host = host
+        self._port = port
+        self._server: Optional[HTTPServer] = None
+        self._thread: Optional[threading.Thread] = None
+
+    @property
+    def endpoint(self) -> str:
+        """HTTP server endpoint URL."""
+        return f"http://{self._host}:{self._port}/rpc"
+
+    def start(self) -> None:
+        """Start the HTTP RPC server in a background daemon thread.
+
+        The server binds immediately.  If the port is unavailable, a warning
+        is logged and the server is not started (the bridge itself still works,
+        but cross-process RPC will not be available).
+        """
+        if self._server is not None:
+            logger.debug("BridgeRpcServer already running at %s", self.endpoint)
+            return
+
+        _bridge_ref = self._bridge
+
+        class _Handler(BaseHTTPRequestHandler):
+            # Silence per-request logs by default — the logger handles it
+            _bridge = _bridge_ref
+
+            def log_message(self, fmt, *args):
+                logger.debug("BridgeRpcServer: %s", fmt % args)
+
+            def _send_json(self, status: int, body: dict) -> None:
+                data = json.dumps(body).encode("utf-8")
+                self.send_response(status)
+                self.send_header("Content-Type", "application/json")
+                self.send_header("Content-Length", str(len(data)))
+                self.end_headers()
+                self.wfile.write(data)
+
+            def _send_error(self, status: int, message: str) -> None:
+                self._send_json(status, {"error": message})
+
+            def do_GET(self):
+                if self.path == "/healthz":
+                    self._send_json(HTTPStatus.OK, {"status": "ok"})
+                else:
+                    self._send_error(HTTPStatus.NOT_FOUND, "Not found")
+
+            def do_POST(self):
+                if self.path != "/rpc":
+                    self._send_error(HTTPStatus.NOT_FOUND, "Not found")
+                    return
+
+                content_length = int(self.headers.get("Content-Length", 0))
+                if content_length == 0:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "Empty request body")
+                    return
+
+                try:
+                    raw = self.rfile.read(content_length)
+                    req = json.loads(raw)
+                except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                    self._send_error(HTTPStatus.BAD_REQUEST, f"Invalid JSON: {exc}")
+                    return
+
+                method = req.get("method")
+                if not method:
+                    self._send_error(HTTPStatus.BAD_REQUEST, "Missing 'method' field")
+                    return
+
+                params = req.get("params", {})
+                req_id = req.get("id", 0)
+
+                try:
+                    result = self._bridge.call(method, **params)
+                    self._send_json(
+                        HTTPStatus.OK,
+                        {"jsonrpc": "2.0", "id": req_id, "result": result},
+                    )
+                except BridgeConnectionError as exc:
+                    self._send_json(
+                        HTTPStatus.SERVICE_UNAVAILABLE,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": -32007, "message": str(exc)},
+                        },
+                    )
+                except BridgeTimeoutError as exc:
+                    self._send_json(
+                        HTTPStatus.GATEWAY_TIMEOUT,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": -32006, "message": str(exc)},
+                        },
+                    )
+                except BridgeRpcError as exc:
+                    self._send_json(
+                        HTTPStatus.OK,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": exc.code, "message": str(exc), "hint": exc.hint},
+                        },
+                    )
+                except Exception as exc:  # noqa: BLE001
+                    logger.exception("BridgeRpcServer: unhandled error in POST /rpc")
+                    self._send_json(
+                        HTTPStatus.INTERNAL_SERVER_ERROR,
+                        {
+                            "jsonrpc": "2.0",
+                            "id": req_id,
+                            "error": {"code": -32603, "message": f"Internal error: {exc}"},
+                        },
+                    )
+
+        try:
+            self._server = HTTPServer((self._host, self._port), _Handler)
+        except OSError as exc:
+            logger.warning(
+                "BridgeRpcServer could not bind to %s:%d: %s — "
+                "cross-process RPC will not be available",
+                self._host,
+                self._port,
+                exc,
+            )
+            self._server = None
+            return
+
+        self._thread = threading.Thread(
+            target=self._server.serve_forever,
+            daemon=True,
+            name="bridge-rpc-server",
+        )
+        self._thread.start()
+        logger.info(
+            "BridgeRpcServer listening at http://%s:%d/rpc",
+            self._host,
+            self._port,
+        )
+
+    def stop(self) -> None:
+        """Stop the HTTP RPC server."""
+        if self._server is not None:
+            logger.info("BridgeRpcServer stopping")
+            self._server.shutdown()
+            self._server.server_close()
+            self._server = None
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+            self._thread = None
+        logger.info("BridgeRpcServer stopped")
