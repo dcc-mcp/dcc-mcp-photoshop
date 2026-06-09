@@ -80,6 +80,15 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install dcc-mcp-core (for version detection)
+        run: pip install dcc-mcp-core
+
+      - name: Download dcc-mcp-server Windows binary
+        run: python tools/download_dcc_mcp_server.py --platform windows
+
+      - name: Stage sidecar into UXP plugin tree
+        run: python tools/stage_plugin_sidecar.py
+
       - name: Pack UXP plugin (.ccx)
         run: python tools/pack_plugin.py --output dist/plugin
 
