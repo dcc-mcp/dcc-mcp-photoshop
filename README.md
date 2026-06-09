@@ -43,11 +43,13 @@ The plugin automatically starts the bundled sidecar (bridge + MCP server) when P
 
 ### 2. Configure your MCP client
 
+Point your MCP client to the **gateway URL**. The gateway auto-discovers which DCC (Photoshop, Maya, etc.) to route each tool call to, so you only need one endpoint:
+
 ```json
 {
   "mcpServers": {
     "photoshop": {
-      "url": "http://127.0.0.1:8765/mcp"
+      "url": "http://127.0.0.1:9765/mcp"
     }
   }
 }
@@ -63,9 +65,12 @@ Search for Photoshop tools, load the photoshop-document skill, and list layers i
 
 ```
 AI Agent (Claude Desktop / Cursor / Copilot)
-    │  MCP Streamable HTTP (port 8765)
+    │  MCP Streamable HTTP (gateway port 9765)
     ▼
-PhotoshopMcpServer  [Python]
+dcc-mcp-server Gateway
+    │  auto-discovers DCC via capability index
+    ▼
+PhotoshopMcpServer  [Python sidecar]
     │  WebSocket JSON-RPC (port 9001)
     ▼
 UXP Plugin  [bridge/uxp-plugin/, JavaScript]
@@ -241,11 +246,13 @@ cp dcc-mcp-photoshop-bridge-*.ccx ~/Library/Application\ Support/Adobe/UXP/Plugi
 {
   "mcpServers": {
     "photoshop": {
-      "url": "http://127.0.0.1:8765/mcp"
+      "url": "http://127.0.0.1:9765/mcp"
     }
   }
 }
 ```
+
+The gateway URL (`:9765`) is a unified facade that aggregates tools from all registered DCCs. On `tools/call`, the gateway auto-discovers the correct DCC instance via the capability index — no need to specify the DCC type in the URL.
 
 Embedded mode via command:
 
@@ -530,9 +537,9 @@ dcc-mcp-server --dcc photoshop --mcp-port 8765 \
 python -m dcc_mcp_photoshop
 ```
 
-**MCP clients** connect to:
-- `http://127.0.0.1:8765/mcp` — Direct, stable port
-- `http://127.0.0.1:9765/mcp` — Gateway proxy (unified facade for all DCCs)
+**MCP clients** connect to the gateway URL:
+- `http://127.0.0.1:9765/mcp` — **Gateway proxy (recommended)**: unified facade for all DCCs, auto-discovers the correct DCC on each call
+- `http://127.0.0.1:8765/mcp` — Direct access (useful for debugging or single-DCC setups)
 
 The gateway `/mcp` endpoint aggregates tools from ALL registered DCCs (Maya, Houdini, Blender, Photoshop, etc.). On `tools/call`, the gateway auto-discovers the correct DCC instance via the capability index.
 
