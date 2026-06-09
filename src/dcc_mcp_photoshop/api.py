@@ -43,6 +43,11 @@ _F = TypeVar("_F", bound=Callable[..., Any])
 # Kept for backward-compatible get_bridge() path.
 _bridge = None
 
+# Environment variable key used by the bridge to publish its WebSocket URL
+# so that child processes (e.g. skill scripts running under dcc-mcp-server)
+# can discover the bridge via os.environ or dcc_mcp_photoshop.api.get_bridge().
+BRIDGE_URL_ENV_VAR = "DCC_MCP_PHOTOSHOP_BRIDGE_URL"
+
 
 # ---------------------------------------------------------------------------
 # New adobepy-backed helpers (v0.2.0+)
@@ -248,6 +253,8 @@ __all__ = [
     "is_photoshop_available",
     # Legacy decorator (deprecated)
     "with_photoshop",
+    # Constants
+    "BRIDGE_URL_ENV_VAR",
     # Exception types
     "PhotoshopNotAvailableError",
     # Capabilities
