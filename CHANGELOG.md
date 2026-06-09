@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.14](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.13...v0.1.14) (2026-06-09)
+
+
+### Bug Fixes
+
+* restore _hidden_vbs_launcher, _sidecar_launcher, _sidecar_stopper to pack_plugin.py ([c29b2ef](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c29b2ef351fc5000e211351cec7f8324dea9ca08))
+* restore sidecar helper functions to pack_plugin.py ([9d391a0](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/9d391a0b5ec99826b98f3333d85a449567746fec))
+
 ## [0.1.13](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.12...v0.1.13) (2026-06-09)
 
 
