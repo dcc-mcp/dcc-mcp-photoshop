@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.15](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.14...v0.1.15) (2026-06-09)
+
+
+### Features
+
+* add bilingual README (readme.md / readme_zh.md) following standard template ([337c0d8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/337c0d8350cbb85a68cba8f73cf9e639987e4ae1))
+
+
+### Bug Fixes
+
+* apply ruff format to bridge.py to fix CI lint ([84c0d98](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/84c0d98f8eb8f8445bb03ea9a687989ecb5d1b9f))
+* correct release-please README path to uppercase README.md ([e8cdd2c](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e8cdd2c9d72c4269aa2741f2330bd853bcda2be3))
+* implement BridgeRpcServer, add _posix_sidecar_launcher and pack lint ([3dc3df2](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3dc3df2e4b317e8fde719d02890231a3b27b8c34))
+* remove hardcoded version URLs, add README to release-please extra-files ([4ddc5b2](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4ddc5b24e77a6fc516fc1e1cf695ef7091a84ab4))
+* remove pip install step from Quick Start — everything is bundled in .ccx ([c9f15ba](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c9f15bad7a786201b9e31a89b57f0c211d135244))
+* remove pip install step from Quick Start — everything is bundled in .ccx ([a5a2992](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a5a2992a86f29f9ae6d1926eec73f76f51b691cd))
+* remove unused socketserver import, restore missing _update_manifest_version ([d8f5e85](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d8f5e85c98118bbe7419010aa75b5961d86252b3))
+* use uppercase README filenames and unify MCP config to gateway URL ([86828b3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/86828b3beadb5b0f70692bb8931b6f7d59ddae13))
+
 ## [0.1.14](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.13...v0.1.14) (2026-06-09)
 
 
