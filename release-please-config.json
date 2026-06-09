@@ -16,7 +16,9 @@
           "path": "pyproject.toml",
           "jsonpath": "$.project.version"
         },
-        "src/dcc_mcp_photoshop/__version__.py"
+        "src/dcc_mcp_photoshop/__version__.py",
+        {"type": "generic", "path": "readme.md"},
+        {"type": "generic", "path": "README_zh.md"}
       ]
     }
   },
