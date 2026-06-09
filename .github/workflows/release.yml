@@ -6,7 +6,11 @@ on:
   workflow_dispatch:
     inputs:
       tag_name:
-        description: "Tag name for manual build (e.g. v0.2.0). Leave empty to only run release-please."
+        description: "Existing release tag to rebuild artifacts for (e.g. v0.2.0). Leave empty to trigger release-please only."
+        required: false
+        default: ""
+      release_version:
+        description: "Version for tag_name without the v prefix (e.g. 0.2.0). Required when tag_name is set."
         required: false
         default: ""
 
@@ -18,23 +22,59 @@ permissions:
   contents: write
   pull-requests: write
   id-token: write
+  attestations: write
+  actions: read
 
 jobs:
-  # ── Release Please — creates/updates the release PR ────────────────────────
+  # ── Decide what to release (release-please for push, manual backfill for dispatch) ──
   release-please:
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' || github.event_name == 'workflow_dispatch'
     outputs:
-      release_created: ${{ steps.release.outputs.release_created }}
-      tag_name: ${{ steps.release.outputs.tag_name || inputs.tag_name }}
-      version: ${{ steps.release.outputs.version }}
+      release_created: ${{ steps.decide.outputs.release_created }}
+      tag_name: ${{ steps.decide.outputs.tag_name }}
+      version: ${{ steps.decide.outputs.version }}
     steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'push'
+
       - uses: googleapis/release-please-action@v4
         id: release
+        if: github.event_name == 'push'
         with:
           token: ${{ secrets.PERSONAL_ACCESS_TOKEN }}
           config-file: release-please-config.json
           manifest-file: .release-please-manifest.json
+
+      - name: Validate manual release backfill inputs
+        if: github.event_name == 'workflow_dispatch' && inputs.tag_name != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ inputs.tag_name }}
+          RELEASE_VERSION: ${{ inputs.release_version }}
+        run: |
+          if [ -z "$RELEASE_VERSION" ]; then
+            echo "::error::release_version is required when tag_name is set"
+            exit 1
+          fi
+          echo "Manual backfill for tag=$RELEASE_TAG version=$RELEASE_VERSION"
+
+      - name: Checkout tag for manual rebuild
+        if: github.event_name == 'workflow_dispatch' && inputs.tag_name != ''
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag_name }}
+
+      - name: Decide release state
+        id: decide
+        env:
+          RELEASE_CREATED: ${{ steps.release.outputs.release_created || '' }}
+          TAG_NAME: ${{ steps.release.outputs.tag_name || inputs.tag_name }}
+          VERSION: ${{ steps.release.outputs.version || inputs.release_version }}
+        run: |
+          echo "release_created=${RELEASE_CREATED:-true}" >> "$GITHUB_OUTPUT"
+          echo "tag_name=${TAG_NAME}" >> "$GITHUB_OUTPUT"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
   # ── Build standalone binary (per platform) ─────────────────────────────────
   build-binary:
@@ -55,6 +95,8 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && needs.release-please.outputs.tag_name || github.ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
@@ -62,10 +104,29 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install -e ".[dev]" pyinstaller
+        run: pip install -e ".[dev]"
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      # Smoke check: verify entry point works before building
+      - name: Smoke test — CLI entry point
+        run: dcc-mcp-photoshop --version
 
       - name: Build standalone binary
         run: python tools/build_binary.py
+
+      # Smoke check: verify binary was built and can print help
+      - name: Smoke test — standalone binary
+        shell: bash
+        run: |
+          BINARY="${{ matrix.binary }}"
+          if [ ! -f "$BINARY" ]; then
+            echo "Binary not found: $BINARY"
+            exit 1
+          fi
+          "$BINARY" --version
+          "$BINARY" --help
 
       - name: Upload binary artifact
         uses: actions/upload-artifact@v4
@@ -81,6 +142,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && needs.release-please.outputs.tag_name || github.ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
@@ -90,10 +153,14 @@ jobs:
       - name: Install build tools
         run: pip install hatchling build
 
+      - name: Install dev dependencies
+        run: pip install ".[dev]"
+
+      - name: Smoke test — CLI entry point
+        run: dcc-mcp-photoshop --version
+
       - name: Run tests
-        run: |
-          pip install ".[dev]"
-          pytest tests/ -v --tb=short
+        run: pytest tests/ -v --tb=short
 
       - name: Build wheel and sdist
         run: python -m build
@@ -111,21 +178,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'workflow_dispatch' && needs.release-please.outputs.tag_name || github.ref }}
 
       - name: Set up Python 3.12
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
+      - name: Install dcc-mcp-core (for version detection)
+        run: pip install dcc-mcp-core
+
+      - name: Download dcc-mcp-server Windows binary from dcc-mcp-core release
+        run: python tools/download_dcc_mcp_server.py --platform windows
+
+      - name: Stage sidecar into UXP plugin tree
+        run: python tools/stage_plugin_sidecar.py
+
       - name: Pack UXP plugin (.ccx)
         run: |
           VERSION="${{ needs.release-please.outputs.version }}"
           if [ -z "$VERSION" ]; then
-            VERSION="${{ inputs.tag_name }}"
-            VERSION="${VERSION#v}"
+            VERSION="${{ inputs.release_version }}"
           fi
           python tools/pack_plugin.py --version "$VERSION" --output dist/plugin
         shell: bash
+
+      - name: Verify .ccx file was created
+        shell: bash
+        run: |
+          ls -la dist/plugin/
+          test -n "$(find dist/plugin/ -name '*.ccx' -print -quit)"
 
       - name: Upload plugin artifact
         uses: actions/upload-artifact@v4
@@ -133,10 +216,10 @@ jobs:
           name: uxp-plugin
           path: dist/plugin/*.ccx
 
-  # ── Publish to PyPI ─────────────────────────────────────────────────────────
+  # ── Publish to PyPI (push only, not on manual tag rebuild) ───────────────────
   publish:
     needs: [release-please, build]
-    if: needs.release-please.outputs.release_created == 'true'
+    if: needs.release-please.outputs.release_created == 'true' && github.event_name == 'push'
     runs-on: ubuntu-latest
     environment:
       name: pypi
@@ -159,7 +242,7 @@ jobs:
 
   # ── Attach wheels + plugin + binaries to GitHub Release ─────────────────────
   attach-release-assets:
-    needs: [release-please, publish, build-uxp-plugin, build-binary]
+    needs: [release-please, build-uxp-plugin, build-binary]
     if: needs.release-please.outputs.release_created == 'true'
     runs-on: ubuntu-latest
     permissions:
