@@ -1,0 +1,124 @@
+tools:
+  - name: check_environment
+    description: "Check system prerequisites: Python version, pip, installed packages, Photoshop and UXP plugin status."
+    source_file: scripts/check_environment.py
+    inputSchema:
+      type: object
+      properties:
+        verbose:
+          type: boolean
+          default: false
+          description: Show detailed system information.
+    read_only: true
+    destructive: false
+    idempotent: true
+
+  - name: install_package
+    description: "Install or upgrade dcc-mcp-photoshop and its dependencies via pip."
+    source_file: scripts/install_package.py
+    inputSchema:
+      type: object
+      properties:
+        version:
+          type: string
+          default: ""
+          description: Specific version to install (e.g. 0.2.0); empty means latest.
+        upgrade:
+          type: boolean
+          default: false
+          description: Upgrade to the latest version if already installed.
+        editable:
+          type: boolean
+          default: false
+          description: Install in editable/development mode from source.
+        source_path:
+          type: string
+          default: ""
+          description: Local source path for editable install.
+    read_only: false
+    destructive: false
+    idempotent: true
+
+  - name: setup_uxp_plugin
+    description: "Install the UXP .ccx plugin into Photoshop — download, install via Creative Cloud or manual copy."
+    source_file: scripts/setup_uxp_plugin.py
+    inputSchema:
+      type: object
+      properties:
+        version:
+          type: string
+          default: ""
+          description: Plugin version to install (e.g. 0.2.0); empty means latest.
+        method:
+          type: string
+          enum: [auto, guide]
+          default: auto
+          description: |
+            Installation method:
+            - auto: Attempt automatic install (download + copy)
+            - guide: Print step-by-step instructions only
+        ccx_path:
+          type: string
+          default: ""
+          description: Local path to a pre-downloaded .ccx file.
+    read_only: false
+    destructive: false
+    idempotent: true
+
+  - name: start_server
+    description: "Start the dcc-mcp-photoshop server in embedded mode for development and testing."
+    source_file: scripts/start_server.py
+    inputSchema:
+      type: object
+      properties:
+        mcp_port:
+          type: integer
+          default: 8765
+          minimum: 1024
+          maximum: 65535
+          description: MCP HTTP server port.
+        ws_port:
+          type: integer
+          default: 9001
+          minimum: 1024
+          maximum: 65535
+          description: WebSocket port for UXP plugin connection.
+        rpc_port:
+          type: integer
+          default: 9100
+          minimum: 1024
+          maximum: 65535
+          description: RPC port for bridge access.
+        timeout:
+          type: integer
+          default: 30
+          minimum: 5
+          maximum: 300
+          description: Seconds to wait for UXP plugin connection before reporting status.
+    read_only: false
+    destructive: false
+    idempotent: false
+
+  - name: verify_connection
+    description: "Verify the full bridge connection: Photoshop UXP plugin reachable, server responding, skills discoverable."
+    source_file: scripts/verify_connection.py
+    inputSchema:
+      type: object
+      properties:
+        mcp_port:
+          type: integer
+          default: 8765
+          description: MCP HTTP server port to check.
+        ws_port:
+          type: integer
+          default: 9001
+          description: WebSocket port to check for UXP plugin.
+        timeout:
+          type: integer
+          default: 10
+          minimum: 1
+          maximum: 60
+          description: Connection timeout in seconds.
+    read_only: true
+    destructive: false
+    idempotent: true
