@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 import os
 import platform
-from pathlib import Path
 
 from dcc_mcp_core.skill import skill_entry
 
