@@ -115,10 +115,10 @@ def _configure_vscode(gateway_url: str, server_name: str, overwrite: bool) -> di
     config_paths = _find_vscode_config_paths()
     config_path = None
     for p in config_paths:
-        if os.path.isfile(p) or (os.path.dirname(p) and any(
-            os.path.isdir(os.path.dirname(p).replace("globalStorage", x))
-            for x in ["globalStorage", "User"]
-        )):
+        if os.path.isfile(p) or (
+            os.path.dirname(p)
+            and any(os.path.isdir(os.path.dirname(p).replace("globalStorage", x)) for x in ["globalStorage", "User"])
+        ):
             config_path = p
             break
 
@@ -193,13 +193,7 @@ def _vscode_manual_guide(gateway_url: str, server_name: str) -> str:
     }
     config_json = json.dumps(config, indent=4)
 
-    return (
-        f"# VS Code Manual Configuration\n"
-        f"\n"
-        f"Add to your VS Code `settings.json`:\n"
-        f"\n"
-        f"```json\n{config_json}\n```\n"
-    )
+    return f"# VS Code Manual Configuration\n\nAdd to your VS Code `settings.json`:\n\n```json\n{config_json}\n```\n"
 
 
 @skill_entry
