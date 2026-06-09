@@ -36,7 +36,7 @@ Adobe Photoshop 2022+
 **Current (v0.1.x):**
 - ✅ UXP plugin (WebSocket client inside Photoshop) with exponential back-off reconnect
 - ✅ `PhotoshopBridge` WebSocket server (Python, port 9001) with JSON-RPC 2.0 protocol
-- ✅ 25+ Photoshop skills across 5 skill packages
+- ✅ 20+ Photoshop skills across 4 skill packages
 - ✅ Skill authoring helpers (`ps_success`, `ps_error`, `with_photoshop`)
 - ✅ `PhotoshopMcpServer` wrapping `dcc-mcp-core` (4-seam controller)
 - ✅ Standalone binary (no Python runtime required)
@@ -376,7 +376,7 @@ Options:
 
 ## Built-in Skills
 
-dcc-mcp-photoshop ships with **5 skill packages** containing **25+ tools** organized by domain.
+dcc-mcp-photoshop ships with **4 skill packages** containing **20+ tools** organized by domain.
 Skills are **lazy-loaded**: only meta-tools are available initially; use the MCP `load_skill` tool
 to load the skill package you need.
 
@@ -427,16 +427,6 @@ Text layer creation, editing, and inspection.
 | `create_text_layer` | Create a new text layer with content and styling | ❌ | `content` (required), `name`, `x` (100), `y` (100), `font` (ArialMT), `size` (48), `color` (#000000), `alignment` (left/center/right), `bold`, `italic` |
 | `update_text_layer` | Update text content or style of an existing text layer | ❌ | `name` (required), `content`, `font`, `size`, `color`, `alignment`, `bold`, `italic` |
 | `get_text_layer_info` | Get text content and style properties of a text layer | ✅ | `name` (required) |
-
-### photoshop-examples
-
-Minimal host-rpc examples that dispatch directly to the UXP plugin without Python skill scripts.
-
-| Tool | Description | Inputs |
-|------|-------------|--------|
-| `new_square_document` | Create a square RGB document | `name`, `size` (1024), `resolution` (72), `fill` |
-| `make_named_layer` | Create a named pixel or group layer | `name`, `type` (pixel/group) |
-| `title_card` | Create a document with a text title layer | `document_name`, `title`, `width`, `height`, `color`, `size` |
 
 ## Skill Authoring
 
@@ -595,9 +585,6 @@ skills/
 │       ├── create_text_layer.py
 │       ├── update_text_layer.py
 │       └── get_text_layer_info.py
-└── photoshop-examples/
-    ├── SKILL.md
-    └── tools.yaml
 ```
 
 ## Bridge Protocol
@@ -767,11 +754,7 @@ If an expected tool is not available:
 | 0.1.x | >=0.12.14,<1.0.0 | 0.1.x | dcc-mcp-server >=0.12.14 |
 | 0.2.x (planned) | >=0.18.2,<1.0.0 | 0.2.x | dcc-mcp-server >=0.18.2 |
 
-See [docs/distribution.md](docs/distribution.md) for the full distribution guide and sidecar setup.
-
 ## Distribution
-
-Detailed distribution instructions (PyPI, standalone binary, `.ccx` plugin, sidecar auto-launcher) are in [docs/distribution.md](docs/distribution.md).
 
 Release artifacts per version:
 - `dcc-mcp-photoshop-<version>-py3-none-any.whl` — Python wheel
@@ -794,7 +777,7 @@ Release artifacts per version:
 - ✅ Python bridge WebSocket server
 - ✅ JSON-RPC 2.0 protocol implementation
 - ✅ Release distribution (pip, binary, .ccx)
-- ✅ 25+ Photoshop skills
+- ✅ 20+ Photoshop skills
 - ✅ Cross-process RPC bridge
 
 ### v0.3.0 — Skills & Polish (next)
