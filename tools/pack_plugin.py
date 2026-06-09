@@ -46,6 +46,29 @@ PROJECT_ROOT = _SCRIPT_DIR.parent
 PLUGIN_DIR = PROJECT_ROOT / "bridge" / "uxp-plugin"
 
 
+def _hidden_vbs_launcher(cmd_name: str) -> str:
+    """Return a .vbs script that launches a .cmd file without a console window."""
+    return (
+        f'CreateObject("Wscript.Shell").Run "cmd /c {cmd_name}", 0, False\n'
+    )
+
+
+def _sidecar_launcher(binary_name: str) -> str:
+    """Return a .cmd script that starts the sidecar server binary."""
+    return (
+        "@echo off\r\n"
+        f'start "" "%~dp0{binary_name}"\r\n'
+    )
+
+
+def _sidecar_stopper(binary_name: str) -> str:
+    """Return a .cmd script that stops the sidecar server by killing its process."""
+    return (
+        "@echo off\r\n"
+        f"taskkill /f /im {binary_name}\r\n"
+    )
+
+
 def _should_exclude(path: Path, plugin_root: Path) -> bool:
     """Return True if the path should be excluded from the archive."""
     rel = path.relative_to(plugin_root)
