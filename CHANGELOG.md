@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.1.7](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.6...v0.1.7) (2026-06-09)
+
+
+### Features
+
+* define Photoshop UXP WebSocket bridge protocol v0.1.0 ([f7bc2cc](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f7bc2cc37b79f5cb65c6b204391f1a0ebed9d338))
+
+
+### Bug Fixes
+
+* apply ruff formatting to conftest.py and test_protocol.py ([571bdb7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/571bdb761ede201661720b6856bc3e344ce4c8de))
+* resolve ruff lint errors (F401, I001, B904) ([de6cd2b](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/de6cd2b37b24edf87857cbd6018de5ccea6bc065))
+
 ## [0.1.6](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.5...v0.1.6) (2026-06-08)
 
 
