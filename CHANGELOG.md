@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.11](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.10...v0.1.11) (2026-06-09)
+
+
+### Bug Fixes
+
+* add missing _hidden_vbs_launcher, _sidecar_launcher, _sidecar_stopper to pack_plugin.py ([4d555b1](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4d555b174c85ffa63f1098d3e8bd5d0d8ea422d9))
+* add sidecar download and staging steps to CI build-uxp-plugin job ([e821488](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e8214884a08bd3cb0853794d8daf30d508ec3d0b))
+
 ## [0.1.10](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.9...v0.1.10) (2026-06-09)
 
 
