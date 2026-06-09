@@ -52,7 +52,6 @@ import asyncio
 import json
 import logging
 import logging.handlers
-import socketserver
 import threading
 from concurrent.futures import Future
 from concurrent.futures import TimeoutError as FutureTimeoutError
