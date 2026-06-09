@@ -59,10 +59,8 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dcc_mcp_photoshop.protocol import (
-    PROTOCOL_NAME,
-    PROTOCOL_VERSION,
-    build_hello_ack,
     build_disconnected,
+    build_hello_ack,
     is_hello,
     is_progress,
 )

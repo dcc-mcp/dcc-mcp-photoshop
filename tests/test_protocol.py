@@ -8,12 +8,10 @@ from __future__ import annotations
 
 import asyncio
 import json
-import threading
 import time
 
 import pytest
 import websockets
-
 
 # ---------------------------------------------------------------------------
 # Message builder unit tests (no server needed)
@@ -76,7 +74,7 @@ class TestMessageBuilders:
         assert msg["result"] == {"exported": True}
 
     def test_build_error_known_code_auto_hint(self):
-        from dcc_mcp_photoshop.protocol import build_error, RPC_METHOD_NOT_FOUND
+        from dcc_mcp_photoshop.protocol import RPC_METHOD_NOT_FOUND, build_error
 
         msg = build_error(1, RPC_METHOD_NOT_FOUND, "Method not found: ps.unknown")
         assert msg["error"]["code"] == RPC_METHOD_NOT_FOUND
@@ -96,7 +94,7 @@ class TestMessageBuilders:
         assert msg["error"]["data"] == {"missing": ["name"]}
 
     def test_build_error_null_id(self):
-        from dcc_mcp_photoshop.protocol import build_error, RPC_PARSE_ERROR
+        from dcc_mcp_photoshop.protocol import RPC_PARSE_ERROR, build_error
 
         msg = build_error(None, RPC_PARSE_ERROR, "Parse error")
         assert msg["id"] is None
@@ -339,9 +337,9 @@ class TestTimeoutBehavior:
             with pytest.raises(BridgeTimeoutError):
                 try:
                     stuck_future.result(timeout=0.05)
-                except FutureTimeoutError:
+                except FutureTimeoutError as err:
                     connected_bridge._pending.pop(req_id, None)
-                    raise BridgeTimeoutError("Timed out: ps.testOp")
+                    raise BridgeTimeoutError("Timed out: ps.testOp") from err
         finally:
             connected_bridge._pending.pop(req_id, None)
 
@@ -357,9 +355,9 @@ class TestTimeoutBehavior:
         try:
             try:
                 stuck_future.result(timeout=0.05)
-            except FutureTimeoutError:
+            except FutureTimeoutError as err:
                 connected_bridge._pending.pop(req_id, None)
-                raise BridgeTimeoutError("Timed out")
+                raise BridgeTimeoutError("Timed out") from err
         except BridgeTimeoutError:
             pass
         assert req_id not in connected_bridge._pending
