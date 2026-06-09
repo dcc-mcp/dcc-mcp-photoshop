@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import os
+import importlib.metadata
 import platform
 import socket
 import subprocess
@@ -31,15 +31,11 @@ def _check_pip() -> bool:
 def _get_installed_packages() -> dict[str, str]:
     """Return dict of relevant installed packages and their versions."""
     packages = {}
-    try:
-        import importlib.metadata
-        for name in ("dcc-mcp-photoshop", "dcc-mcp-core", "websockets"):
-            try:
-                packages[name] = importlib.metadata.version(name)
-            except importlib.metadata.PackageNotFoundError:
-                packages[name] = None
-    except Exception:
-        pass
+    for name in ("dcc-mcp-photoshop", "dcc-mcp-core", "websockets"):
+        try:
+            packages[name] = importlib.metadata.version(name)
+        except importlib.metadata.PackageNotFoundError:
+            packages[name] = None
     return packages
 
 
@@ -149,22 +145,22 @@ def check_environment(verbose: bool = False, **kwargs) -> dict:
 
     if verbose and packages.get("dcc-mcp-photoshop"):
         try:
-            from dcc_mcp_photoshop import __version__
-            result["dcc_mcp_photoshop_version"] = __version__
+            from dcc_mcp_photoshop import __version__ as _ps_version  # noqa: PLC0415
+
+            result["dcc_mcp_photoshop_version"] = _ps_version
         except Exception:
             pass
 
     return {
         "summary": " | ".join(summary_parts),
-        "all_ok": all([
-            python_ok,
-            pip_available or packages.get("dcc-mcp-photoshop"),
-        ]),
-        "details": result,
-        "prompt": (
-            "Use install_package to install dcc-mcp-photoshop, "
-            "or setup_uxp_plugin to install the UXP plugin."
+        "all_ok": all(
+            [
+                python_ok,
+                pip_available or packages.get("dcc-mcp-photoshop"),
+            ]
         ),
+        "details": result,
+        "prompt": ("Use install_package to install dcc-mcp-photoshop, or setup_uxp_plugin to install the UXP plugin."),
     }
 
 
@@ -174,4 +170,5 @@ def main(**kwargs) -> dict:
 
 if __name__ == "__main__":
     from dcc_mcp_core.skill import run_main
+
     run_main(main)

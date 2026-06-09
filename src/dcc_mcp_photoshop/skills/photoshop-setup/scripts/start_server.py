@@ -99,6 +99,7 @@ def start_server(
                 break
             try:
                 from dcc_mcp_photoshop.api import is_photoshop_available  # noqa: PLC0415
+
                 if is_photoshop_available():
                     connected = True
                     break
@@ -120,8 +121,7 @@ def start_server(
                 "wait_seconds": timeout,
             },
             "prompt": (
-                f"Server is running. Connect your MCP client to {mcp_url}. "
-                "Run verify_connection for a full check."
+                f"Server is running. Connect your MCP client to {mcp_url}. Run verify_connection for a full check."
             ),
         }
     except Exception as exc:
@@ -136,10 +136,7 @@ def start_server(
                     "rpc_port": rpc_port,
                 },
             },
-            "prompt": (
-                "Check the installation with check_environment, "
-                "ensure dcc-mcp-core is installed, and retry."
-            ),
+            "prompt": ("Check the installation with check_environment, ensure dcc-mcp-core is installed, and retry."),
         }
 
 
@@ -149,4 +146,5 @@ def main(**kwargs) -> dict:
 
 if __name__ == "__main__":
     from dcc_mcp_core.skill import run_main
+
     run_main(main)

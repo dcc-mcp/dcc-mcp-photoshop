@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import socket
-import time
-from urllib.request import urlopen, Request
 from urllib.error import URLError
+from urllib.request import Request, urlopen
 
 from dcc_mcp_core.skill import skill_entry
 
@@ -25,23 +24,12 @@ def _check_mcp_endpoint(port: int, timeout: float = 5) -> tuple[bool, str]:
     try:
         req = Request(url, method="GET")
         with urlopen(req, timeout=timeout) as resp:
-            body = resp.read().decode("utf-8", errors="replace")
+            resp.read()
             return True, f"MCP endpoint responded (status {resp.status})"
     except URLError as e:
         return False, f"MCP endpoint unreachable: {e.reason}"
     except Exception as exc:
         return False, f"MCP endpoint error: {exc}"
-
-
-def _list_skills() -> list[str]:
-    """List discoverable skills from the running server."""
-    try:
-        from dcc_mcp_photoshop.server import PhotoshopMcpServer  # noqa: PLC0415
-        skills = []
-        # Try to check for a running server instance
-        return skills
-    except Exception:
-        return []
 
 
 @skill_entry
@@ -99,13 +87,16 @@ def verify_connection(
     results["rpc_endpoint"] = {
         "ok": rpc_ok,
         "port": rpc_port,
-        "detail": f"Port {rpc_port} {'open' if rpc_ok else 'closed'}" if rpc_ok else f"Port {rpc_port} not listening (expected if bridge-only mode)",
+        "detail": f"Port {rpc_port} {'open' if rpc_ok else 'closed'}"
+        if rpc_ok
+        else f"Port {rpc_port} not listening (expected if bridge-only mode)",
     }
 
     # 4. Check Photoshop connection via bridge
     photoshop_connected = False
     try:
-        from dcc_mcp_photoshop.api import is_photoshop_available, get_bridge  # noqa: PLC0415
+        from dcc_mcp_photoshop.api import is_photoshop_available, get_bridge  # noqa: PLC0415, I001
+
         if _check_tcp_port("127.0.0.1", ws_port, timeout=2):
             photoshop_connected = is_photoshop_available()
             if photoshop_connected:
@@ -150,9 +141,8 @@ def verify_connection(
         "prompt": (
             "All systems connected. Use photoshop-document, photoshop-image, "
             "or photoshop-layers skills to start working."
-            if all_ok else
-            "Run check_environment and ensure Photoshop is running "
-            "with the UXP plugin installed."
+            if all_ok
+            else "Run check_environment and ensure Photoshop is running with the UXP plugin installed."
         ),
     }
 
@@ -163,4 +153,5 @@ def main(**kwargs) -> dict:
 
 if __name__ == "__main__":
     from dcc_mcp_core.skill import run_main
+
     run_main(main)

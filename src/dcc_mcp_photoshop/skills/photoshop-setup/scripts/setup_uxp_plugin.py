@@ -45,13 +45,10 @@ def _download_ccx(version: str, dest_dir: str) -> str | None:
                 f"v{version}/dcc-mcp-photoshop-bridge-{version}.ccx"
             )
         else:
-            url = (
-                "https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/latest/download/"
-                "dcc-mcp-photoshop-bridge.ccx"
-            )
+            url = "https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/latest/download/dcc-mcp-photoshop-bridge.ccx"
 
         dest_path = os.path.join(dest_dir, f"dcc-mcp-photoshop-bridge-{ver}.ccx")
-        result = subprocess.run(
+        subprocess.run(
             [sys.executable, "-m", "pip", "download", "--no-deps", "--dest", dest_dir, url],
             capture_output=True,
             text=True,
@@ -88,47 +85,55 @@ def _generate_guide(version: str) -> str:
     ]
 
     if system == "Windows":
-        lines.extend([
-            "   a. Visit: https://github.com/dcc-mcp/dcc-mcp-photoshop/releases",
-            f"   b. Download: dcc-mcp-photoshop-bridge-{ver}.ccx",
-            "",
-            "## 2. Install via Creative Cloud Desktop (recommended)",
-            "   a. Open Creative Cloud Desktop → Plugins → Manage Plugins",
-            "   b. Click the gear icon → 'Install from file...'",
-            f"   c. Select the downloaded .ccx file",
-            "   d. Restart Photoshop",
-            "",
-            "## 3. Or install manually",
-            f"   Copy the .ccx to: {uxp_dir}",
-            f"   PowerShell: copy dcc-mcp-photoshop-bridge-{ver}.ccx \"$env:APPDATA\\Adobe\\UXP\\Plugins\\External\\\"",
-        ])
+        lines.extend(
+            [
+                "   a. Visit: https://github.com/dcc-mcp/dcc-mcp-photoshop/releases",
+                f"   b. Download: dcc-mcp-photoshop-bridge-{ver}.ccx",
+                "",
+                "## 2. Install via Creative Cloud Desktop (recommended)",
+                "   a. Open Creative Cloud Desktop → Plugins → Manage Plugins",
+                "   b. Click the gear icon → 'Install from file...'",
+                "   c. Select the downloaded .ccx file",
+                "   d. Restart Photoshop",
+                "",
+                "## 3. Or install manually",
+                f"   Copy the .ccx to: {uxp_dir}",
+                f'   PowerShell: copy dcc-mcp-photoshop-bridge-{ver}.ccx "$env:APPDATA\\Adobe\\UXP\\Plugins\\External\\"',
+            ]
+        )
     elif system == "Darwin":
-        lines.extend([
-            "   a. Visit: https://github.com/dcc-mcp/dcc-mcp-photoshop/releases",
-            f"   b. Download: dcc-mcp-photoshop-bridge-{ver}.ccx",
-            "",
-            "## 2. Install via Creative Cloud Desktop (recommended)",
-            "   a. Open Creative Cloud Desktop → Plugins → Manage Plugins",
-            "   b. Click the gear icon → 'Install from file...'",
-            f"   c. Select the downloaded .ccx file",
-            "   d. Restart Photoshop",
-            "",
-            "## 3. Or install manually",
-            f"   cp dcc-mcp-photoshop-bridge-{ver}.ccx ~/Library/Application\\ Support/Adobe/UXP/Plugins/External/",
-        ])
+        lines.extend(
+            [
+                "   a. Visit: https://github.com/dcc-mcp/dcc-mcp-photoshop/releases",
+                f"   b. Download: dcc-mcp-photoshop-bridge-{ver}.ccx",
+                "",
+                "## 2. Install via Creative Cloud Desktop (recommended)",
+                "   a. Open Creative Cloud Desktop → Plugins → Manage Plugins",
+                "   b. Click the gear icon → 'Install from file...'",
+                "   c. Select the downloaded .ccx file",
+                "   d. Restart Photoshop",
+                "",
+                "## 3. Or install manually",
+                f"   cp dcc-mcp-photoshop-bridge-{ver}.ccx ~/Library/Application\\ Support/Adobe/UXP/Plugins/External/",
+            ]
+        )
     else:
-        lines.extend([
-            f"   Visit: https://github.com/dcc-mcp/dcc-mcp-photoshop/releases",
-            f"   Download: dcc-mcp-photoshop-bridge-{ver}.ccx",
-        ])
+        lines.extend(
+            [
+                "   Visit: https://github.com/dcc-mcp/dcc-mcp-photoshop/releases",
+                f"   Download: dcc-mcp-photoshop-bridge-{ver}.ccx",
+            ]
+        )
 
-    lines.extend([
-        "",
-        "## 4. Verify installation",
-        "   a. Restart Photoshop",
-        "   b. The plugin starts a WebSocket server on port 9001 automatically",
-        "   c. Run check_environment or verify_connection to confirm",
-    ])
+    lines.extend(
+        [
+            "",
+            "## 4. Verify installation",
+            "   a. Restart Photoshop",
+            "   b. The plugin starts a WebSocket server on port 9001 automatically",
+            "   c. Run check_environment or verify_connection to confirm",
+        ]
+    )
 
     return "\n".join(lines)
 
@@ -163,9 +168,7 @@ def setup_uxp_plugin(
                 "uxp_plugin_dir": uxp_dir,
                 "guide": guide_text,
             },
-            "prompt": (
-                "Follow the steps above, then run verify_connection to confirm."
-            ),
+            "prompt": ("Follow the steps above, then run verify_connection to confirm."),
         }
 
     # auto method
@@ -215,8 +218,7 @@ def setup_uxp_plugin(
                     "guide": _generate_guide(version),
                 },
                 "prompt": (
-                    "Use method='guide' for step-by-step instructions, "
-                    "or provide a ccx_path to a downloaded .ccx file."
+                    "Use method='guide' for step-by-step instructions, or provide a ccx_path to a downloaded .ccx file."
                 ),
             }
     else:
@@ -229,10 +231,7 @@ def setup_uxp_plugin(
                 "error": f"Directory does not exist: {uxp_dir}",
                 "guide": _generate_guide(version),
             },
-            "prompt": (
-                "Install manually using the guide steps above, "
-                "or create the directory and try again."
-            ),
+            "prompt": ("Install manually using the guide steps above, or create the directory and try again."),
         }
 
     return {
@@ -256,4 +255,5 @@ def main(**kwargs) -> dict:
 
 if __name__ == "__main__":
     from dcc_mcp_core.skill import run_main
+
     run_main(main)
