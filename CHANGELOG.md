@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.9](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.8...v0.1.9) (2026-06-09)
+
+
+### Features
+
+* create photoshop-setup skill for agent-guided MCP setup ([#26](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/26)) ([cd22358](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/cd2235846329d43756a70dcb4e5537c6ec89f8c5))
+
 ## [0.1.8](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.7...v0.1.8) (2026-06-09)
 
 
