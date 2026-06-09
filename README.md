@@ -208,8 +208,8 @@ Each [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases) inc
 | macOS | `dcc-mcp-photoshop-macos` |
 
 ```bash
-curl -L https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/download/v0.1.6/dcc-mcp-photoshop-linux \
-  -o dcc-mcp-photoshop
+# Download the latest release binary (example: Linux)
+curl -LO https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/latest/download/dcc-mcp-photoshop-linux
 chmod +x dcc-mcp-photoshop
 ./dcc-mcp-photoshop --help
 ```
