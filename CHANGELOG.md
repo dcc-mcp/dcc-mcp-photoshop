@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.12](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.11...v0.1.12) (2026-06-09)
+
+
+### Bug Fixes
+
+* restrict release workflow builds to tag push only ([e77c195](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e77c1954b2782e3cc5b8f3310fdfa19196924363))
+
 ## [0.1.11](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.10...v0.1.11) (2026-06-09)
 
 
