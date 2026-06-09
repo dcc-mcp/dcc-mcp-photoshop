@@ -219,10 +219,16 @@ class TestHelloHandshake:
 
         async def _raw_client():
             ws = await websockets.connect(f"ws://localhost:{port}")
-            await ws.send(json.dumps({
-                "type": "hello", "protocol": "photoshop-bridge",
-                "version": "0.1.0", "client": "test-harness",
-            }))
+            await ws.send(
+                json.dumps(
+                    {
+                        "type": "hello",
+                        "protocol": "photoshop-bridge",
+                        "version": "0.1.0",
+                        "client": "test-harness",
+                    }
+                )
+            )
             raw = await ws.recv()
             ack = json.loads(raw)
             await ws.close()
