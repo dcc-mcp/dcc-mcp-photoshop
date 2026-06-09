@@ -668,8 +668,7 @@ class BridgeRpcServer:
             self._server = HTTPServer((self._host, self._port), _Handler)
         except OSError as exc:
             logger.warning(
-                "BridgeRpcServer could not bind to %s:%d: %s — "
-                "cross-process RPC will not be available",
+                "BridgeRpcServer could not bind to %s:%d: %s — cross-process RPC will not be available",
                 self._host,
                 self._port,
                 exc,
