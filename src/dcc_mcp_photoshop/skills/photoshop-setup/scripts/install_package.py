@@ -68,10 +68,7 @@ def install_package(
                 "details": {
                     "error": "source_path is required when editable=True",
                 },
-                "prompt": (
-                    "Clone the repo first: "
-                    "git clone https://github.com/dcc-mcp/dcc-mcp-photoshop"
-                ),
+                "prompt": ("Clone the repo first: git clone https://github.com/dcc-mcp/dcc-mcp-photoshop"),
             }
         pip_args.extend(["-e", source_path])
     elif version:
@@ -85,6 +82,7 @@ def install_package(
         # Verify the installed version
         try:
             from dcc_mcp_photoshop import __version__  # noqa: PLC0415
+
             installed = __version__
         except Exception:
             installed = "unknown"
@@ -113,4 +111,5 @@ def main(**kwargs) -> dict:
 
 if __name__ == "__main__":
     from dcc_mcp_core.skill import run_main
+
     run_main(main)
