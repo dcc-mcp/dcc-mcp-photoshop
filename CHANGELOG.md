@@ -1,5 +1,26 @@
 # Changelog
 
+## [0.1.13](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.12...v0.1.13) (2026-06-09)
+
+
+### Features
+
+* add configure_mcp_client tool to photoshop-setup skill ([83a8544](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/83a8544ca6f17f063a6ee08cfabaee8b0457a707))
+* add pre-commit hooks and vx.toml for vx prek workflow ([dd385a8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/dd385a81a1a51340b1dc923a7d3aeda31af10518))
+
+
+### Bug Fixes
+
+* add missing _write_bridge_url_to_config and _remove_bridge_config to api.py ([7d07ca4](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/7d07ca410e0d1f4f6db4d09c4cb772de699001cc))
+* remove unused pathlib.Path import to pass ruff F401 lint ([b1a4284](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b1a428423c3d86b2f70a4607bcdcf7b246a2e774))
+* run ruff format on configure_mcp_client.py to pass CI lint ([684a70d](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/684a70d0ccc766ef8175cd69e7c6a5697a37bfc7))
+
+
+### Documentation
+
+* add bilingual quick-start to README with plugin install and gateway config ([81ff0fb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/81ff0fbbc4baaa9815cfdfd277d9ba6594392fd4))
+* unify gateway URL to /mcp endpoint in README ([5129d66](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5129d664f737b8e2191548ec8446c485ec070c4e))
+
 ## [0.1.12](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.11...v0.1.12) (2026-06-09)
 
 
