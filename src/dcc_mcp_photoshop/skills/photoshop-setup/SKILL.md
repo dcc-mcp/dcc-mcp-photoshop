@@ -39,6 +39,12 @@ tools:
     read_only: true
     destructive: false
     idempotent: true
+  - name: configure_mcp_client
+    description: "Configure MCP client (Claude Desktop, Cursor, VS Code) with the gateway URL — auto-writes config or prints manual steps."
+    source_file: scripts/configure_mcp_client.py
+    read_only: false
+    destructive: false
+    idempotent: true
 ---
 
 # photoshop-setup
@@ -57,15 +63,17 @@ installation, configuration, and verification flow.
 ## Workflow
 
 1. **check_environment** — Inspect the current system state
-2. **install_package** — Install dcc-mcp-photoshop via pip (or skip if using binary)
+2. **install_package** — Install dcc-mcp-photoshop via pip (or skip if using .ccx sidecar)
 3. **setup_uxp_plugin** — Install the UXP .ccx plugin in Photoshop
-4. **start_server** — Launch the MCP server (embedded mode)
+4. **start_server** — Launch the MCP server (embedded mode for dev)
 5. **verify_connection** — Confirm everything is working
+6. **configure_mcp_client** — Auto-configure Claude Desktop / Cursor / VS Code with the gateway URL
 
 ## Tools
 
 - `check_environment` — Python / pip / installed packages / Photoshop process / UXP port
 - `install_package` — pip install dcc-mcp-photoshop
 - `setup_uxp_plugin` — Download and install the .ccx plugin
-- `start_server` — Start embedded MCP server + bridge
+- `start_server` — Start embedded MCP server + bridge (dev mode)
 - `verify_connection` — End-to-end connection check
+- `configure_mcp_client` — Write MCP client config for Claude Desktop / Cursor / VS Code
