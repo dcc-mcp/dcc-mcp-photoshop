@@ -255,6 +255,14 @@ def _check_unwanted_files(plugin_dir: Path, issues: list[str]) -> None:
                 issues.append(f"INFO: {hint}")
 
 
+def _update_manifest_version(manifest_path: Path, version: str) -> dict:
+    """Read manifest.json and return it with the version field updated."""
+    with open(manifest_path, encoding="utf-8") as f:
+        manifest = json.load(f)
+    manifest["version"] = version
+    return manifest
+
+
 def pack_plugin(
     plugin_dir: Path,
     output_dir: Path,
