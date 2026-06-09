@@ -36,3 +36,7 @@ bridge/uxp-plugin/node_modules/
 # local_directory, but they must not be committed.
 .agent_context/
 .multica/
+
+# dcc-mcp-server binary — downloaded dynamically from dcc-mcp-core releases
+bin/dcc-mcp-server*
+!bin/.dcc-mcp-server-version
