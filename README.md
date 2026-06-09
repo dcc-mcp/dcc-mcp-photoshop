@@ -31,6 +31,106 @@ Adobe Photoshop 2022+
 - The MCP server (HTTP on port 8765) and the WebSocket bridge can run in the same process (embedded, dev only) or separately (gateway mode, recommended for deployment).
 - All Photoshop automation goes through the [adobepy](https://github.com/dcc-mcp/adobepy) facade layer, which abstracts over the WebSocket bridge.
 
+## 快速开始 / Quick Start
+
+> 下载安装 UXP 插件，配置统一网关地址，即可让 AI 助手控制 Photoshop。
+> Download and install the UXP plugin, configure the gateway URL, and your AI assistant can control Photoshop.
+
+### 1. 下载插件 / Download the plugin
+
+从 [GitHub Releases](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases) 下载最新的 `.ccx` 文件：
+Download the latest `.ccx` file from [GitHub Releases](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases):
+
+![Release assets](https://img.shields.io/github/v/release/dcc-mcp/dcc-mcp-photoshop)
+
+| 文件 / File | 说明 / Description |
+|-------------|-------------------|
+| `dcc-mcp-photoshop-bridge-<version>.ccx` | UXP 插件，内含 sidecar 服务（dcc-mcp-server + bridge） / UXP plugin with bundled sidecar |
+
+### 2. 安装插件 / Install the plugin
+
+**方式 A — Creative Cloud Desktop（推荐 / Recommended）:**
+
+1. 打开 **Creative Cloud Desktop** → **Plugins** → **Manage Plugins**
+2. 点击齿轮图标 → **Install from file...**
+3. 选择下载的 `.ccx` 文件
+4. 重启 Photoshop
+
+**方式 B — 手动安装 / Manual install:**
+
+Windows:
+```powershell
+copy dcc-mcp-photoshop-bridge-*.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
+```
+
+macOS:
+```bash
+cp dcc-mcp-photoshop-bridge-*.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
+```
+
+安装后重启 Photoshop，插件会自动出现在 **Plugins** 面板中，名称为 "dcc-mcp Bridge"。
+After restarting Photoshop, the plugin appears in the **Plugins** panel as "dcc-mcp Bridge".
+
+### 3. 配置网关地址 / Configure the gateway
+
+插件内置的 sidecar 服务启动后会监听以下端口。MCP 客户端只需配置统一的网关地址即可：
+The bundled sidecar starts automatically and listens on the following ports. MCP clients only need the gateway URL:
+
+| 端口 / Port | 用途 / Purpose |
+|------------|----------------|
+| `8765` | MCP HTTP 服务器（直连） / MCP HTTP server (direct) |
+| `9001` | WebSocket bridge（PS ↔ Python） |
+| `9100` | HTTP RPC 服务器（跨进程 bridge） |
+| `9765` | 网关代理 / Gateway proxy |
+
+**Claude Desktop 配置 / Claude Desktop config** (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "photoshop": {
+      "url": "http://127.0.0.1:9765/mcp/dcc/photoshop"
+    }
+  }
+}
+```
+
+**Cursor 配置 / Cursor config** (Settings → Features → MCP Servers):
+
+```
+Name: photoshop
+Type: url
+URL: http://127.0.0.1:9765/mcp/dcc/photoshop
+```
+
+**VS Code / 通用 MCP 客户端 / Generic MCP client**:
+
+```json
+{
+  "mcp": {
+    "servers": {
+      "photoshop": {
+        "url": "http://127.0.0.1:9765/mcp/dcc/photoshop"
+      }
+    }
+  }
+}
+```
+
+> 网关地址格式为 `http://127.0.0.1:9765/mcp/dcc/photoshop`，其中 `9765` 是网关端口，`photoshop` 是 DCC 类型。网关会自动发现并路由到正确的服务实例。
+> The gateway URL format is `http://127.0.0.1:9765/mcp/dcc/photoshop` where `9765` is the gateway port and `photoshop` is the DCC type. The gateway auto-discovers and routes to the correct service instance.
+
+### 4. 启动使用 / Start using
+
+1. 确保 Photoshop 已打开并加载了 UXP 插件
+2. 插件会自动启动 sidecar 服务（`dcc-mcp-server.exe` + bridge）
+3. 在 MCP 客户端中配置上述网关地址
+4. 开始让 AI 控制 Photoshop
+
+Make sure Photoshop is running with the UXP plugin loaded. The sidecar auto-starts. Configure the gateway URL in your MCP client and start controlling Photoshop with AI.
+
+---
+
 ## Features
 
 **Current (v0.1.x):**
