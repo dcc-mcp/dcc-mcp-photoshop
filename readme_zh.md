@@ -53,11 +53,7 @@ pip install "dcc-mcp-photoshop[sidecar]"
 
 ## 快速开始
 
-```bash
-# 安装并启动嵌入式模式
-pip install "dcc-mcp-photoshop[sidecar]"
-dcc-mcp-photoshop --embedded
-```
+安装 UXP 插件并重启 Photoshop 后，插件会自动启动内置 sidecar（bridge + MCP 服务器）。
 
 将 MCP 客户端指向 `http://127.0.0.1:8765/mcp`。
 
