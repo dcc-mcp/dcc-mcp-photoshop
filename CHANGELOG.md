@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.16](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.15...v0.1.16) (2026-06-10)
+
+
+### Features
+
+* switch packaging from PyInstaller to PyOxidizer ([6bd1867](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6bd186713247fdca78be63d489e61025fd7e00f1))
+
 ## [0.1.15](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.14...v0.1.15) (2026-06-09)
 
 
