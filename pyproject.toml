@@ -40,7 +40,7 @@ dev = [
     "hatchling",
     "build",
     "pyyaml>=6.0",
-    "pyinstaller>=6.0",
+    "pyoxidizer>=0.24.0",
 ]
 
 [project.urls]
