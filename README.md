@@ -199,7 +199,7 @@ pip install -e ".[dev]"
 
 ### Standalone Binary
 
-Each [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases) includes platform-specific binaries built with PyInstaller. No Python runtime required.
+Each [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases) includes platform-specific binaries built with PyOxidizer. No Python runtime required.
 
 | Platform | Binary name |
 |----------|-------------|
@@ -581,6 +581,7 @@ pytest tests/
   - `dcc-mcp-core >= 0.18.14, < 1.0.0`
   - `adobepy >= 0.1.0`
   - `websockets >= 12.0`
+- **Build** (to build standalone binary from source): Python 3.8+, [Rust toolchain](https://rustup.rs/), and PyOxidizer (`pip install pyoxidizer`)
 
 | Path | Photoshop Required? | Python Required? |
 |------|-------------------|-----------------|
