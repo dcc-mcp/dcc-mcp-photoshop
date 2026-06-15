@@ -61,8 +61,11 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 from dcc_mcp_photoshop.protocol import (
+    PROTOCOL_NAME,
     build_disconnected,
     build_hello_ack,
+    build_hello_ack_error,
+    check_version,
     is_hello,
     is_progress,
 )
@@ -307,19 +310,40 @@ class PhotoshopBridge:
                     logger.warning("PhotoshopBridge: invalid JSON from UXP: %r", raw[:200])
                     continue
 
-                # Handle hello handshake
+                # Handle hello handshake with version validation
                 if is_hello(msg):
+                    uxp_version = str(msg.get("version", "0.0.0"))
                     reconnect = " (reconnect)" if msg.get("reconnect") else ""
-                    logger.info(
-                        "UXP plugin hello: %s v%s%s",
-                        msg.get("client"),
-                        msg.get("version"),
-                        reconnect,
-                    )
-                    try:
-                        await websocket.send(json.dumps(build_hello_ack()))
-                    except Exception:
-                        pass
+                    if check_version(uxp_version):
+                        logger.info(
+                            "UXP plugin hello: %s v%s%s",
+                            msg.get("client"),
+                            uxp_version,
+                            reconnect,
+                        )
+                        try:
+                            await websocket.send(json.dumps(build_hello_ack()))
+                        except Exception:
+                            pass
+                    else:
+                        logger.warning(
+                            "UXP plugin version %s is incompatible with %s/%s%s",
+                            uxp_version,
+                            PROTOCOL_NAME,
+                            "0.1.0",
+                            reconnect,
+                        )
+                        try:
+                            await websocket.send(
+                                json.dumps(
+                                    build_hello_ack_error(
+                                        f"Incompatible protocol version: UXP={uxp_version}, "
+                                        f"expected {PROTOCOL_NAME}/0.1.0"
+                                    )
+                                )
+                            )
+                        except Exception:
+                            pass
                     continue
 
                 # Handle progress notification — log but do NOT resolve pending future
