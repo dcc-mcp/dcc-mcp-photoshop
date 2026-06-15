@@ -46,7 +46,7 @@ No Python runtime required.
 
 ```bash
 # Download and run (example: Linux)
-curl -L https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/download/v0.2.0/dcc-mcp-photoshop-linux \
+curl -L https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/latest/download/dcc-mcp-photoshop-linux \
   -o dcc-mcp-photoshop
 chmod +x dcc-mcp-photoshop
 ./dcc-mcp-photoshop --help
@@ -71,12 +71,12 @@ server that the Python or binary bridge connects to.
 **Install manually (Windows):**
 ```powershell
 # Copy the .ccx to the system plugin directory
-copy dcc-mcp-photoshop-bridge-0.2.0.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
+copy dcc-mcp-photoshop-bridge-<version>.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
 ```
 
 **Install manually (macOS):**
 ```bash
-cp dcc-mcp-photoshop-bridge-0.2.0.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
+cp dcc-mcp-photoshop-bridge-<version>.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
 ```
 
 ---
@@ -132,7 +132,7 @@ The following table shows which versions of each component work together:
 | Photoshop Plugin (.ccx) | dcc-mcp-photoshop | dcc-mcp-core | Sidecar Binary |
 |-------------------------|-------------------|--------------|----------------|
 | 0.1.x | 0.1.x | >=0.12.14,<1.0.0 | dcc-mcp-server >=0.12.14 |
-| 0.2.x | 0.2.x | >=0.18.2,<1.0.0 | dcc-mcp-server >=0.18.2 |
+| 0.2.x | 0.2.x | >=0.18.14,<1.0.0 | dcc-mcp-server >=0.18.14 |
 
 Version alignment rules:
 
@@ -178,9 +178,9 @@ replaces the release assets.
 ### Artifact set per release
 
 ```
-dcc-mcp-photoshop-0.2.0-py3-none-any.whl          # Python wheel
-dcc-mcp-photoshop-0.2.0.tar.gz                       # Python sdist
-dcc-mcp-photoshop-bridge-0.2.0.ccx                   # UXP plugin
+dcc-mcp-photoshop-<version>-py3-none-any.whl          # Python wheel
+dcc-mcp-photoshop-<version>.tar.gz                       # Python sdist
+dcc-mcp-photoshop-bridge-<version>.ccx                   # UXP plugin
 dcc-mcp-photoshop-windows.exe                        # Windows binary
 dcc-mcp-photoshop-linux                              # Linux binary
 dcc-mcp-photoshop-macos                              # macOS binary

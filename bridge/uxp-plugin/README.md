@@ -3,9 +3,8 @@
 This directory contains the Adobe UXP plugin that runs inside Photoshop and
 exposes a WebSocket server for the Python bridge to connect to.
 
-## Status
-
-> **Placeholder** — UXP plugin implementation is pending.
+The UXP plugin is bundled as a `.ccx` archive for distribution. See
+[`docs/distribution.md`](../../docs/distribution.md) for install instructions.
 
 ## Architecture
 

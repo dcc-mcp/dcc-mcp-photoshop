@@ -1,7 +1,7 @@
 # Product Requirements Document: dcc-mcp-photoshop
 
-**Version**: 0.1.0 (Placeholder)
-**Status**: Pre-Alpha
+**Version**: 0.1.x (Active)
+**Status**: Active Development — 16 releases shipped, 5 skill packages with 20+ MCP tools
 **Target**: Adobe Photoshop 2022+
 
 ---
