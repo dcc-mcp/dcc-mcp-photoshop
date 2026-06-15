@@ -158,8 +158,7 @@ class PhotoshopBridgePlugin:
         except Exception as exc:
             self._startup_state.set_failed(
                 "bridge_connect",
-                f"Could not start bridge server on {bridge_url}: {exc}. "
-                "Check port availability and permissions.",
+                f"Could not start bridge server on {bridge_url}: {exc}. Check port availability and permissions.",
             )
             logger.warning(
                 "PhotoshopBridge could not connect to %s: %s — "
@@ -249,7 +248,9 @@ class PhotoshopMcpServer(DccServerBase):
         self._rpc_port = rpc_port
         self._gateway_port = gateway_port
         self._bridge_plugin = PhotoshopBridgePlugin(
-            ws_host=ws_host, ws_port=ws_port, rpc_port=rpc_port,
+            ws_host=ws_host,
+            ws_port=ws_port,
+            rpc_port=rpc_port,
             startup_state=self._startup_state,
         )
 
@@ -364,8 +365,7 @@ class PhotoshopMcpServer(DccServerBase):
         except Exception as exc:
             self._startup_state.set_failed(
                 "server_start",
-                f"MCP HTTP server failed to start: {exc}. "
-                "Check port availability and dcc-mcp-core installation.",
+                f"MCP HTTP server failed to start: {exc}. Check port availability and dcc-mcp-core installation.",
             )
             self._push_diagnostics()
             raise
