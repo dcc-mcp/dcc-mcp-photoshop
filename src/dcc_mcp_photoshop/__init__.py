@@ -59,7 +59,9 @@ from dcc_mcp_photoshop.capabilities import PHOTOSHOP_CAPABILITIES_DICT
 from dcc_mcp_photoshop.server import (
     PhotoshopBridgePlugin,
     PhotoshopMcpServer,
+    StartupState,
     get_server,
+    run_daemon,
     start_bridge_only,
     start_server,
     stop_bridge_only,
@@ -69,6 +71,8 @@ from dcc_mcp_photoshop.server import (
 __all__ = [
     "__version__",
     "PhotoshopMcpServer",
+    "StartupState",
+    "run_daemon",
     "start_server",
     "stop_server",
     "get_server",
