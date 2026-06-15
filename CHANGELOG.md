@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.17](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.16...v0.1.17) (2026-06-15)
+
+
+### Documentation
+
+* add agent-facing docs and fix stale references ([22a810a](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/22a810a66279f9e3865d928a16beaa651a349f62))
+
 ## [0.1.16](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.15...v0.1.16) (2026-06-10)
 
 
