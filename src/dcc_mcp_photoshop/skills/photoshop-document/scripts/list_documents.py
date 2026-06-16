@@ -30,13 +30,15 @@ def _list_docs(app: Photoshop) -> dict:
 
     result = []
     for doc in docs:
-        result.append({
-            "id": doc.id,
-            "name": doc.name,
-            "path": doc.path,
-            "width": doc.width,
-            "height": doc.height,
-        })
+        result.append(
+            {
+                "id": doc.id,
+                "name": doc.name,
+                "path": doc.path,
+                "width": doc.width,
+                "height": doc.height,
+            }
+        )
     return {"count": len(result), "documents": result}
 
 

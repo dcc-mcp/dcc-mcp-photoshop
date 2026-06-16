@@ -44,9 +44,7 @@ def _close(app: Photoshop, document_id: int | None, save: bool) -> dict:
         [
             {
                 "_obj": "close",
-                "_target": [
-                    {"_ref": "document", "_id": doc.id}
-                ],
+                "_target": [{"_ref": "document", "_id": doc.id}],
                 "saving": {"_enum": "yesNo", "_value": save_option},
             }
         ],
