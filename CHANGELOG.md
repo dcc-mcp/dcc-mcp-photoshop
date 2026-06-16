@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.18](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.17...v0.1.18) (2026-06-15)
+
+
+### Features
+
+* gateway daemon-first startup, failure tracking, bridge version validation ([52f1d12](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/52f1d12f247fb620caf18a0240d1fc0100935c83))
+* gateway daemon-first startup, failure tracking, bridge version validation ([#44](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/44)) ([52f1d12](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/52f1d12f247fb620caf18a0240d1fc0100935c83))
+
 ## [0.1.17](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.16...v0.1.17) (2026-06-15)
 
 
