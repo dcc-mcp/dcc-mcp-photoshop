@@ -75,24 +75,40 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check if bridge/uxp-plugin exists
+        id: check
+        run: |
+          if [ -d "bridge/uxp-plugin" ] && [ -f "bridge/uxp-plugin/manifest.json" ]; then
+            echo "exists=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "exists=false" >> "$GITHUB_OUTPUT"
+            echo "bridge/uxp-plugin directory not found — skipping UXP plugin build"
+          fi
+
       - name: Set up Python 3.12
+        if: steps.check.outputs.exists == 'true'
         uses: actions/setup-python@v6
         with:
           python-version: "3.12"
 
       - name: Install dcc-mcp-core (for version detection)
+        if: steps.check.outputs.exists == 'true'
         run: pip install dcc-mcp-core
 
       - name: Download dcc-mcp-server Windows binary
+        if: steps.check.outputs.exists == 'true'
         run: python tools/download_dcc_mcp_server.py --platform windows
 
       - name: Stage sidecar into UXP plugin tree
+        if: steps.check.outputs.exists == 'true'
         run: python tools/stage_plugin_sidecar.py
 
       - name: Pack UXP plugin (.ccx)
+        if: steps.check.outputs.exists == 'true'
         run: python tools/pack_plugin.py --output dist/plugin
 
       - name: Upload plugin artifact
+        if: steps.check.outputs.exists == 'true'
         uses: actions/upload-artifact@v4
         with:
           name: uxp-plugin
