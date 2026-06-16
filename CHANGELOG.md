@@ -1,5 +1,24 @@
 # Changelog
 
+## [0.1.20](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.19...v0.1.20) (2026-06-16)
+
+
+### Features
+
+* add install_photoshop_connector.ps1 one-click installer + smoke check ([7d5675f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/7d5675fd84c9b1bdc5dc3114501b5ed5dae71fa5))
+* install_photoshop_connector.ps1 one-click installer + smoke check ([9be62dd](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/9be62dd67f4594fb92f577ae13b0fe4410f73ef4))
+
+
+### Bug Fixes
+
+* standalone binary build for dcc-mcp-photoshop (PyOxidizer fixes) ([4fc6e92](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4fc6e920367625fd6cb6d1784ab32ed0856bd776))
+* sync manifest.json version and add release version validation ([#50](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/50)) ([575ec44](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/575ec4477c7563143b71aa2b897583bb6d4b0da2))
+
+
+### Documentation
+
+* add one-click installer docs and install/upgrade/uninstall/rollback examples ([d50e566](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d50e566d48329c01329cd566e279d97f4254d946))
+
 ## [0.1.19](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.18...v0.1.19) (2026-06-16)
 
 
