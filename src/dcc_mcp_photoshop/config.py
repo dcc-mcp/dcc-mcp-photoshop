@@ -28,34 +28,14 @@ class PhotoshopMcpConfig:
     """
 
     # --- Broker connection (adobepy) ---
-    broker_url: str = field(
-        default_factory=lambda: os.getenv(
-            "ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"
-        )
-    )
-    broker_token: str = field(
-        default_factory=lambda: os.getenv("ADOBEPY_TOKEN", "dev-token")
-    )
-    broker_target: str = field(
-        default_factory=lambda: os.getenv("ADOBEPY_TARGET", "default")
-    )
+    broker_url: str = field(default_factory=lambda: os.getenv("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"))
+    broker_token: str = field(default_factory=lambda: os.getenv("ADOBEPY_TOKEN", "dev-token"))
+    broker_target: str = field(default_factory=lambda: os.getenv("ADOBEPY_TARGET", "default"))
 
     # --- MCP server ---
-    mcp_port: int = field(
-        default_factory=lambda: int(
-            os.getenv("DCC_MCP_PHOTOSHOP_PORT", "8765")
-        )
-    )
-    gateway_port: Optional[int] = field(
-        default_factory=lambda: _parse_optional_int(
-            os.getenv("DCC_MCP_GATEWAY_PORT")
-        )
-    )
-    server_name: str = field(
-        default_factory=lambda: os.getenv(
-            "DCC_MCP_PHOTOSHOP_SERVER_NAME", "photoshop-mcp"
-        )
-    )
+    mcp_port: int = field(default_factory=lambda: int(os.getenv("DCC_MCP_PHOTOSHOP_PORT", "8765")))
+    gateway_port: Optional[int] = field(default_factory=lambda: _parse_optional_int(os.getenv("DCC_MCP_GATEWAY_PORT")))
+    server_name: str = field(default_factory=lambda: os.getenv("DCC_MCP_PHOTOSHOP_SERVER_NAME", "photoshop-mcp"))
 
     # --- Logging ---
     log_dir: Path = field(
@@ -66,18 +46,10 @@ class PhotoshopMcpConfig:
             )
         )
     )
-    log_level: str = field(
-        default_factory=lambda: os.getenv(
-            "DCC_MCP_PHOTOSHOP_LOG_LEVEL", "INFO"
-        )
-    )
+    log_level: str = field(default_factory=lambda: os.getenv("DCC_MCP_PHOTOSHOP_LOG_LEVEL", "INFO"))
 
     # --- Timeout ---
-    timeout: float = field(
-        default_factory=lambda: float(
-            os.getenv("DCC_MCP_PHOTOSHOP_TIMEOUT", "30.0")
-        )
-    )
+    timeout: float = field(default_factory=lambda: float(os.getenv("DCC_MCP_PHOTOSHOP_TIMEOUT", "30.0")))
 
     @classmethod
     def from_env(cls) -> PhotoshopMcpConfig:
