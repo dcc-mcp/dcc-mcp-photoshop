@@ -1,7 +1,7 @@
 {
   "id": "com.dcc-mcp.photoshop-bridge",
   "name": "dcc-mcp Bridge",
-  "version": "0.1.0",
+  "version": "0.1.19",
   "manifestVersion": 5,
   "main": "index.html",
   "host": {
