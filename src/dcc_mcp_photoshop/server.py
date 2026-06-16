@@ -1,49 +1,35 @@
 """PhotoshopMcpServer — MCP server for Adobe Photoshop.
 
-Two operating modes:
+Uses the adobepy Rust broker to communicate with Photoshop via the UXP bridge.
+Skill scripts call the ``adobe.photoshop.Photoshop()`` facade which connects
+to the broker at ``ADOBEPY_BROKER_URL`` (default ``http://127.0.0.1:47391``).
 
-**Embedded mode (default)**:
-  Starts both MCP HTTP server and WebSocket bridge in one process.
-  MCP clients connect to ``http://127.0.0.1:8765/mcp`` and get the full
-  Photoshop tool list immediately (progressive loading via ``load_skill``).
+Flow::
 
-**Gateway / bridge-only mode**:
-  Use ``dcc-mcp-server.exe`` externally; this module only connects the
-  WebSocket bridge via :class:`PhotoshopBridgePlugin`.
+    MCP Client -> PhotoshopMcpServer (HTTP:8765)
+        Skill scripts -> adobe.photoshop.Photoshop() -> BrokerClient -> adobepy broker (HTTP:47391)
+            -> adobepy UXP bridge (WS:47391) -> Photoshop UXP API
 
-**Daemon mode**:
-  Like embedded mode but runs silently in background — no interactive
-  polling loop.  Use ``--daemon`` on the CLI or call :func:`run_daemon`.
-  The server registers with the gateway on startup and exposes readiness
-  and diagnostics via HTTP endpoints served by ``DccServerBase``.
+Configuration::
 
-Flow (embedded mode)::
-
-    python -m dcc_mcp_photoshop
-    # MCP client connects to http://127.0.0.1:8765/mcp
-    # Initial: 10 tools (6 meta + 4 stubs)
-    # After load_skill("photoshop-document"): 12 tools
-    # After all loaded: 26 tools (6 meta + 20 PS)
-
-Flow (gateway mode)::
-
-    dcc-mcp-server.exe --dcc photoshop --skill-paths ./skills --no-bridge
-    python -m dcc_mcp_photoshop --bridge-only
-    # MCP client connects to http://127.0.0.1:8765/mcp (direct)
-    # or http://127.0.0.1:9765/mcp (gateway)
+    Environment variables:
+      ADOBEPY_BROKER_URL  Broker HTTP endpoint (default: http://127.0.0.1:47391)
+      ADOBEPY_TOKEN       Authentication token (default: dev-token)
+      DCC_MCP_PHOTOSHOP_PORT  MCP HTTP server port (default: 8765)
 """
 
 from __future__ import annotations
 
 import dataclasses
 import logging
-import os
 import threading
 from pathlib import Path
 from typing import Any, Optional
 
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core.server_base import DccServerBase
+
+from dcc_mcp_photoshop.config import PhotoshopMcpConfig
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +47,7 @@ class StartupState:
     """Tracks the server startup lifecycle for diagnostics.
 
     The server transitions through:
-      booting → bridge_connecting → bridge_connected
+      booting → broker_checking → broker_ready
       → skills_discovering → dispatch_ready
 
     On failure the state carries ``failure_stage`` and
@@ -70,7 +56,7 @@ class StartupState:
     """
 
     stage: str = "booting"
-    """Current startup stage (booting / bridge_connecting / bridge_connected /
+    """Current startup stage (booting / broker_checking / broker_ready /
     skills_discovering / dispatch_ready / failed)."""
 
     failure_stage: str = ""
@@ -88,115 +74,6 @@ class StartupState:
 
 
 # ---------------------------------------------------------------------------
-# PhotoshopBridgePlugin — manages UXP WebSocket + HTTP RPC server
-# ---------------------------------------------------------------------------
-
-
-class PhotoshopBridgePlugin:
-    """Minimal bridge plugin for Photoshop — manages UXP WebSocket + RPC server.
-
-    Args:
-        ws_host: Hostname for the WebSocket bridge server.
-        ws_port: Port for the WebSocket bridge server (UXP connects here).
-        rpc_port: Port for the HTTP RPC server (skill scripts use this).
-        startup_state: Shared :class:`StartupState` for diagnostics (optional).
-    """
-
-    def __init__(
-        self,
-        ws_host: str = "localhost",
-        ws_port: int = 9001,
-        rpc_port: int = 9100,
-        startup_state: Optional[StartupState] = None,
-    ) -> None:
-        self._ws_host = ws_host
-        self._ws_port = ws_port
-        self._rpc_port = rpc_port
-        self._bridge = None
-        self._rpc_server = None
-        self._startup_state = startup_state or StartupState()
-
-    def connect(self) -> None:
-        """Connect the WebSocket bridge (best-effort; warns on failure).
-
-        Side-effects:
-        - Sets ``DCC_MCP_PHOTOSHOP_BRIDGE_URL`` in the current process environment.
-        - Writes ``~/.dcc-mcp/bridge-photoshop.json`` with the RPC endpoint URL
-          so that skill scripts running inside ``dcc-mcp-server.exe`` can
-          discover and call the bridge via :func:`dcc_mcp_photoshop.api.get_bridge`.
-        - Starts an HTTP RPC server on ``rpc_port`` for cross-process bridge access.
-        """
-        from dcc_mcp_photoshop import api  # noqa: PLC0415
-        from dcc_mcp_photoshop.api import (  # noqa: PLC0415
-            BRIDGE_URL_ENV_VAR,
-            _write_bridge_url_to_config,
-        )
-        from dcc_mcp_photoshop.bridge import BridgeRpcServer, PhotoshopBridge  # noqa: PLC0415
-
-        bridge = PhotoshopBridge(host=self._ws_host, port=self._ws_port)
-        bridge_url = f"ws://{self._ws_host}:{self._ws_port}"
-        self._startup_state.stage = "bridge_connecting"
-        try:
-            bridge.connect()
-            self._bridge = bridge
-            api._bridge = bridge
-
-            # Start HTTP RPC server for cross-process access
-            self._rpc_server = BridgeRpcServer(bridge, port=self._rpc_port)
-            self._rpc_server.start()
-
-            # Publish the RPC endpoint URL for skill scripts to discover
-            rpc_url = f"http://{self._ws_host}:{self._rpc_port}/rpc"
-            os.environ[BRIDGE_URL_ENV_VAR] = rpc_url
-            _write_bridge_url_to_config(rpc_url)
-            self._startup_state.stage = "bridge_connected"
-            logger.info(
-                "PhotoshopBridge + RPC ready: ws=%s rpc=%s",
-                bridge_url,
-                rpc_url,
-            )
-        except Exception as exc:
-            self._startup_state.set_failed(
-                "bridge_connect",
-                f"Could not start bridge server on {bridge_url}: {exc}. Check port availability and permissions.",
-            )
-            logger.warning(
-                "PhotoshopBridge could not connect to %s: %s — "
-                "skill calls will fail until the Photoshop UXP plugin is running",
-                bridge_url,
-                exc,
-            )
-
-    def disconnect(self) -> None:
-        """Disconnect the bridge, stop RPC server, and clear singletons."""
-        from dcc_mcp_photoshop import api  # noqa: PLC0415
-        from dcc_mcp_photoshop.api import (  # noqa: PLC0415
-            BRIDGE_URL_ENV_VAR,
-            _remove_bridge_config,
-        )
-
-        if self._rpc_server is not None:
-            self._rpc_server.stop()
-            self._rpc_server = None
-
-        if self._bridge is not None:
-            try:
-                self._bridge.disconnect()
-            except Exception as exc:
-                logger.debug("PhotoshopBridge disconnect error: %s", exc)
-            api._bridge = None
-            self._bridge = None
-            os.environ.pop(BRIDGE_URL_ENV_VAR, None)
-            _remove_bridge_config()
-            logger.info("PhotoshopBridge disconnected")
-
-    @property
-    def is_connected(self) -> bool:
-        """Whether the bridge is currently connected."""
-        return self._bridge is not None
-
-
-# ---------------------------------------------------------------------------
 # PhotoshopMcpServer — extends DccServerBase (4-seam controller, PIP-688)
 # ---------------------------------------------------------------------------
 
@@ -208,61 +85,70 @@ class PhotoshopMcpServer(DccServerBase):
     :class:`SkillDiscoveryController`, :class:`ExecutionBridgeBinder`,
     :class:`LifecycleController`, :class:`ObservabilityFacade`.
 
-    In embedded mode the MCP HTTP server and the WebSocket bridge both run in
-    this process, so skill scripts can access the bridge directly via
-    ``get_bridge()`` — no cross-process RPC needed.
+    Skill scripts use ``adobe.photoshop.Photoshop()`` facade which connects
+    to the adobepy Rust broker (port 47391 by default).
 
     Args:
-        port: TCP port for the MCP HTTP server.
+        config: ``PhotoshopMcpConfig`` instance.  If ``None``, reads from env.
+        port: TCP port for the MCP HTTP server (overrides config).
         server_name: Name reported in MCP ``initialize`` response.
         server_version: Version reported in MCP ``initialize`` response.
-        ws_host: Hostname for the UXP WebSocket bridge.
-        ws_port: Port for the UXP WebSocket bridge.
-        rpc_port: Port for the HTTP RPC bridge proxy (gateway mode).
         gateway_port: Gateway competition port.  ``None`` reads env var, ``0`` disables.
     """
 
     def __init__(
         self,
-        port: int = 8765,
+        config: Optional[PhotoshopMcpConfig] = None,
+        port: int | None = None,
         server_name: str = "photoshop-mcp",
-        server_version: str = "0.1.0",
-        ws_host: str = "localhost",
-        ws_port: int = 9001,
-        rpc_port: int = 9100,
+        server_version: str = "0.2.0",
         gateway_port: int | None = None,
     ) -> None:
+        self._config = config or PhotoshopMcpConfig.from_env()
+        self._startup_state = StartupState()
+
         options = DccServerOptions.from_env(
             dcc_name="photoshop",
             builtin_skills_dir=_BUILTIN_SKILLS_DIR,
-            port=port,
+            port=port if port is not None else self._config.mcp_port,
             server_name=server_name,
             server_version=server_version,
-            gateway_port=gateway_port,
+            gateway_port=gateway_port if gateway_port is not None else self._config.gateway_port,
         )
         super().__init__(options=options)
 
-        self._startup_state = StartupState()
-        self._ws_host = ws_host
-        self._ws_port = ws_port
-        self._rpc_port = rpc_port
-        self._gateway_port = gateway_port
-        self._bridge_plugin = PhotoshopBridgePlugin(
-            ws_host=ws_host,
-            ws_port=ws_port,
-            rpc_port=rpc_port,
-            startup_state=self._startup_state,
-        )
+    # ── broker health check ─────────────────────────────────────────────────
 
-    # ── bridge lifecycle ───────────────────────────────────────────────────
+    def _check_broker(self) -> None:
+        """Verify adobepy broker is reachable (best-effort; warns on failure)."""
+        self._startup_state.stage = "broker_checking"
+        try:
+            from adobe.core.client import BrokerClient  # noqa: PLC0415
 
-    def _connect_bridge(self) -> None:
-        """Connect the WebSocket bridge (best-effort; warns on failure)."""
-        self._bridge_plugin.connect()
-
-    def _disconnect_bridge(self) -> None:
-        """Disconnect the bridge and clear the module-level singleton."""
-        self._bridge_plugin.disconnect()
+            client = BrokerClient(
+                broker_url=self._config.broker_url,
+                token=self._config.broker_token,
+                timeout=self._config.timeout,
+            )
+            caps = client.capabilities()
+            self._startup_state.stage = "broker_ready"
+            logger.info(
+                "adobepy broker available at %s (target=%s)",
+                self._config.broker_url,
+                caps.get("target", self._config.broker_target),
+            )
+        except Exception as exc:
+            self._startup_state.set_failed(
+                "broker_check",
+                f"adobepy broker not reachable at {self._config.broker_url}: {exc}. "
+                "Start the broker with 'adobepy broker' and ensure the UXP bridge is loaded.",
+            )
+            logger.warning(
+                "adobepy broker not reachable at %s: %s — "
+                "skill calls will fail until the broker and UXP bridge are running",
+                self._config.broker_url,
+                exc,
+            )
 
     # ── action / skill registration ────────────────────────────────────────
 
@@ -327,7 +213,7 @@ class PhotoshopMcpServer(DccServerBase):
         - ``dispatch_ready`` — whether tools can be dispatched
         - ``failure_stage`` — which stage failed (empty if no failure)
         - ``recommended_next_action`` — how to resolve a failure
-        - ``bridge_connected`` — whether UXP plugin is connected
+        - ``broker_ready`` — whether adobepy broker is reachable
         - ``server_url`` — the MCP HTTP endpoint
         - ``gateway_status`` — gateway election status from ``DccServerBase``
         """
@@ -336,7 +222,7 @@ class PhotoshopMcpServer(DccServerBase):
             "startup_stage": self._startup_state.stage,
             "failure_stage": self._startup_state.failure_stage,
             "recommended_next_action": self._startup_state.recommended_next_action,
-            "bridge_connected": self._bridge_plugin.is_connected,
+            "broker_ready": self._startup_state.stage == "broker_ready" or self._startup_state.stage in ("skills_discovering", "dispatch_ready"),
             "server_running": self.is_running,
             "server_url": self.mcp_url,
         }
@@ -348,10 +234,20 @@ class PhotoshopMcpServer(DccServerBase):
 
     # ── lifecycle ──────────────────────────────────────────────────────────
 
+    def _push_diagnostics(self) -> None:
+        """Push current startup diagnostics to gateway metadata (best-effort)."""
+        try:
+            self.update_gateway_metadata(
+                scene=self._startup_state.stage,
+                version=self._startup_state.failure_stage,
+            )
+        except Exception:
+            pass
+
     def start(self, *, install_atexit_hook: bool = True) -> Any:
-        """Start the MCP HTTP server and connect the WebSocket bridge."""
+        """Start the MCP HTTP server and verify broker connectivity."""
         self._push_diagnostics()
-        self._connect_bridge()
+        self._check_broker()
         self._push_diagnostics()
         if self._startup_state.stage != "failed":
             self._startup_state.stage = "skills_discovering"
@@ -370,20 +266,9 @@ class PhotoshopMcpServer(DccServerBase):
             self._push_diagnostics()
             raise
 
-    def _push_diagnostics(self) -> None:
-        """Push current startup diagnostics to gateway metadata (best-effort)."""
-        try:
-            self.update_gateway_metadata(
-                scene=self._startup_state.stage,
-                version=self._startup_state.failure_stage,
-            )
-        except Exception:
-            pass
-
     def stop(self) -> None:
-        """Gracefully stop the MCP HTTP server and disconnect the bridge."""
+        """Gracefully stop the MCP HTTP server."""
         super().stop()
-        self._disconnect_bridge()
 
 
 # ---------------------------------------------------------------------------
@@ -391,60 +276,26 @@ class PhotoshopMcpServer(DccServerBase):
 # ---------------------------------------------------------------------------
 
 _server_instance: Optional[PhotoshopMcpServer] = None
-_bridge_plugin: Optional[PhotoshopBridgePlugin] = None
 _lock = threading.Lock()
-
-
-def start_bridge_only(ws_host: str = "localhost", ws_port: int = 9001, rpc_port: int = 9100) -> PhotoshopBridgePlugin:
-    """Start a minimal bridge-only plugin (for use with external dcc-mcp-server).
-
-    Args:
-        ws_host: Hostname of the Photoshop UXP WebSocket server.
-        ws_port: Port of the Photoshop UXP WebSocket server.
-        rpc_port: Port for the HTTP RPC server (cross-process bridge access).
-
-    Returns:
-        ``PhotoshopBridgePlugin`` instance.
-    """
-    global _bridge_plugin
-    with _lock:
-        if _bridge_plugin is None:
-            _bridge_plugin = PhotoshopBridgePlugin(ws_host=ws_host, ws_port=ws_port, rpc_port=rpc_port)
-        if not _bridge_plugin.is_connected:
-            _bridge_plugin.connect()
-        return _bridge_plugin
-
-
-def stop_bridge_only() -> None:
-    """Stop the bridge-only plugin and disconnect from Photoshop."""
-    global _bridge_plugin
-    with _lock:
-        if _bridge_plugin is not None:
-            _bridge_plugin.disconnect()
-            _bridge_plugin = None
 
 
 def start_server(
     port: int = 8765,
     server_name: str = "photoshop-mcp",
-    ws_host: str = "localhost",
-    ws_port: int = 9001,
-    rpc_port: int = 9100,
+    broker_url: str | None = None,
     gateway_port: int | None = None,
     register_builtins: bool = True,
     extra_skill_paths: list[str] | None = None,
 ) -> Any:
     """Start Photoshop MCP server in-process.
 
-    The embedded MCP server and the WebSocket bridge both run in this process,
-    so skill scripts can access the bridge directly — no cross-process RPC needed.
+    Skill scripts use ``adobe.photoshop.Photoshop()`` facade which connects
+    to the adobepy Rust broker.
 
     Args:
         port: TCP port for the MCP HTTP server.
         server_name: Name shown in MCP ``initialize`` response.
-        ws_host: Hostname of the Photoshop UXP WebSocket server.
-        ws_port: Port of the Photoshop UXP WebSocket server.
-        rpc_port: Port for the HTTP RPC server (used in gateway mode).
+        broker_url: adobepy broker URL (default: ``ADOBEPY_BROKER_URL`` env or ``http://127.0.0.1:47391``).
         gateway_port: Gateway competition port. ``None`` reads env var, ``0`` disables.
         register_builtins: If ``True``, discovers skills (lazy loading).
         extra_skill_paths: Additional directories to scan for ``SKILL.md`` files.
@@ -453,14 +304,17 @@ def start_server(
         ``McpServerHandle`` with ``.mcp_url()``, ``.port``, ``.shutdown()``.
     """
     global _server_instance
+
+    config = PhotoshopMcpConfig.from_env()
+    if broker_url is not None:
+        config.broker_url = broker_url
+
     with _lock:
         if _server_instance is None or not _server_instance.is_running:
             _server_instance = PhotoshopMcpServer(
+                config=config,
                 port=port,
                 server_name=server_name,
-                ws_host=ws_host,
-                ws_port=ws_port,
-                rpc_port=rpc_port,
                 gateway_port=gateway_port,
             )
             if register_builtins:
@@ -485,9 +339,7 @@ def get_server() -> Optional[PhotoshopMcpServer]:
 def run_daemon(
     port: int = 8765,
     server_name: str = "photoshop-mcp",
-    ws_host: str = "localhost",
-    ws_port: int = 9001,
-    rpc_port: int = 9100,
+    broker_url: str | None = None,
     gateway_port: int | None = None,
     register_builtins: bool = True,
     extra_skill_paths: list[str] | None = None,
@@ -499,7 +351,12 @@ def run_daemon(
     shut down via ``handle.shutdown()`` or ``stop_server()``.
 
     Args:
-        Same as :func:`start_server`.
+        port: TCP port for the MCP HTTP server.
+        server_name: Name shown in MCP ``initialize`` response.
+        broker_url: adobepy broker URL.
+        gateway_port: Gateway competition port.
+        register_builtins: If ``True``, discovers skills (lazy loading).
+        extra_skill_paths: Additional directories to scan for SKILL.md files.
 
     Returns:
         Tuple of ``(handle, startup_state)`` where *handle* is the
@@ -507,14 +364,17 @@ def run_daemon(
         that tracks the startup lifecycle.
     """
     global _server_instance
+
+    config = PhotoshopMcpConfig.from_env()
+    if broker_url is not None:
+        config.broker_url = broker_url
+
     with _lock:
         if _server_instance is None or not _server_instance.is_running:
             _server_instance = PhotoshopMcpServer(
+                config=config,
                 port=port,
                 server_name=server_name,
-                ws_host=ws_host,
-                ws_port=ws_port,
-                rpc_port=rpc_port,
                 gateway_port=gateway_port,
             )
             if register_builtins:
