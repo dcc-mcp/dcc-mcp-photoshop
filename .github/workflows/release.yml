@@ -68,9 +68,43 @@ jobs:
           echo "tag_name=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
+  # ── Validate release version against pyproject.toml ──────────────────────
+  validate-release-version:
+    needs: [decide]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.decide.outputs.tag_name }}
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Validate release version
+        env:
+          RELEASE_VERSION: ${{ needs.decide.outputs.version }}
+        run: |
+          import os, sys, tomllib
+          from pathlib import Path
+
+          release_version = os.environ["RELEASE_VERSION"]
+          pyproject = tomllib.loads(Path("pyproject.toml").read_text())
+          project_version = pyproject["project"]["version"]
+
+          if project_version != release_version:
+              print(f"::error::pyproject.toml version {project_version} does not match release tag version {release_version}")
+              sys.exit(1)
+
+          print(f"Release version {release_version} matches pyproject.toml")
+        shell: python
+
   # ── Build standalone binary (per platform) ─────────────────────────────────
   build-binary:
-    needs: [decide]
+    needs: [decide, validate-release-version]
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     strategy:
       matrix:
@@ -130,7 +164,7 @@ jobs:
   # ── Build wheel + sdist ──────────────────────────────────────────────────────
   build:
     name: Build wheel and sdist
-    needs: [decide]
+    needs: [decide, validate-release-version]
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     steps:
@@ -166,7 +200,7 @@ jobs:
 
   # ── Build UXP plugin .ccx ───────────────────────────────────────────────────
   build-uxp-plugin:
-    needs: [decide]
+    needs: [decide, validate-release-version]
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     steps:
@@ -207,7 +241,7 @@ jobs:
 
   # ── Publish to PyPI (tag push only, not on manual rebuild) ───────────────────
   publish:
-    needs: [decide, build]
+    needs: [decide, validate-release-version, build]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     environment:
@@ -231,7 +265,7 @@ jobs:
 
   # ── Attach wheels + plugin + binaries to GitHub Release ─────────────────────
   attach-release-assets:
-    needs: [decide, build-uxp-plugin, build-binary]
+    needs: [decide, validate-release-version, build-uxp-plugin, build-binary]
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     permissions:
