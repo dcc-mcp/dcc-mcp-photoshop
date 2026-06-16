@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.19](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.18...v0.1.19) (2026-06-16)
+
+
+### Bug Fixes
+
+* add pyoxidizer installation in release build-binary job ([bbd1efc](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/bbd1efc24fad9a5ecf38cdd20a9fe78fda64b442))
+
 ## [0.1.18](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.17...v0.1.18) (2026-06-15)
 
 
