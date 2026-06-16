@@ -222,7 +222,8 @@ class PhotoshopMcpServer(DccServerBase):
             "startup_stage": self._startup_state.stage,
             "failure_stage": self._startup_state.failure_stage,
             "recommended_next_action": self._startup_state.recommended_next_action,
-            "broker_ready": self._startup_state.stage == "broker_ready" or self._startup_state.stage in ("skills_discovering", "dispatch_ready"),
+            "broker_ready": self._startup_state.stage == "broker_ready"
+            or self._startup_state.stage in ("skills_discovering", "dispatch_ready"),
             "server_running": self.is_running,
             "server_url": self.mcp_url,
         }
