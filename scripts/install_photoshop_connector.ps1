@@ -1,11 +1,12 @@
 <#
 .SYNOPSIS
-    Install or upgrade the dcc-mcp Photoshop connector on Windows.
+    Install, upgrade, uninstall, or rollback the dcc-mcp Photoshop connector on Windows.
 
 .DESCRIPTION
-    All-in-one installer that downloads, configures, and smoke-tests
-    the dcc-mcp Photoshop connector. Performs the following steps:
+    All-in-one installer that downloads, configures, smoke-tests, upgrades,
+    uninstalls, or rolls back the dcc-mcp Photoshop connector.
 
+    Install mode performs the following steps:
     1. Install/upgrade binaries (dcc-mcp-photoshop + dcc-mcp-server)
        from GitHub Releases to $env:LOCALAPPDATA\dcc-mcp\bin\
     2. Install the UXP .ccx plugin into Photoshop's external plugin dir
@@ -13,32 +14,81 @@
     4. Register autostart via HKCU Run key
     5. Optional smoke check: start server, verify gateway health + bridge
 
+    Upgrade mode backs up existing binaries to .rollback, then installs
+    the new version while preserving configuration.
+
+    Uninstall mode stops running processes, removes autostart, and
+    optionally cleans configuration data.
+
+    Rollback mode restores binaries from the .rollback backup created
+    by a previous upgrade.
+
 .PARAMETER Install
-    Default action; install or upgrade the connector.
+    Default action; install the connector (fresh or overwrite).
+
+.PARAMETER Upgrade
+    Upgrade the connector: backup existing binaries, install new version,
+    preserve configuration.
+
+.PARAMETER Uninstall
+    Uninstall the connector: stop processes, remove autostart, clean
+    binaries and optional configuration.
+
+.PARAMETER Rollback
+    Rollback to the previous version from .rollback backup.
 
 .PARAMETER Version
     Semantic version of dcc-mcp-photoshop to install (e.g. "0.1.18").
-    Defaults to the latest release if not specified.
+    Defaults to the latest release if not specified. Applies to Install
+    and Upgrade modes.
 
 .PARAMETER CoreVersion
     Semantic version of dcc-mcp-core (dcc-mcp-server) to install.
     Defaults to the version pinned by the photoshop release's dependency
-    constraint, or the latest if unresolved.
+    constraint, or the latest if unresolved. Applies to Install and
+    Upgrade modes.
 
 .PARAMETER NoAutostart
     Skip registering the connector to start automatically with Windows.
+    Applies to Install and Upgrade modes.
 
 .PARAMETER NoSmoke
-    Skip the post-install smoke check.
+    Skip the post-install smoke check. Applies to Install and Upgrade
+    modes.
 
-.PARAMETER WhatIf
-    Show what would be done without making any changes.
+.PARAMETER KeepConfig
+    Preserve configuration and registry data during uninstall.
+
+.PARAMETER CheckVersion
+    Compare local installed version against the remote latest release
+    without making any changes.
 
 .PARAMETER Force
     Overwrite existing files without prompting.
 
+.PARAMETER WhatIf
+    Show what would be done without making any changes.
+
 .EXAMPLE
     .\install_photoshop_connector.ps1 -Install
+
+.EXAMPLE
+    .\install_photoshop_connector.ps1 -CheckVersion
+
+.EXAMPLE
+    .\install_photoshop_connector.ps1 -Upgrade
+
+.EXAMPLE
+    .\install_photoshop_connector.ps1 -Upgrade -Version 0.1.19 -CoreVersion 0.18.35
+
+.EXAMPLE
+    .\install_photoshop_connector.ps1 -Uninstall
+
+.EXAMPLE
+    .\install_photoshop_connector.ps1 -Uninstall -KeepConfig
+
+.EXAMPLE
+    .\install_photoshop_connector.ps1 -Rollback
 
 .EXAMPLE
     .\install_photoshop_connector.ps1 -Version 0.1.18 -CoreVersion 0.18.30
@@ -55,20 +105,39 @@ param(
     [Parameter(ParameterSetName = "Install")]
     [switch]$Install,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "Upgrade")]
+    [switch]$Upgrade,
+
+    [Parameter(ParameterSetName = "Uninstall")]
+    [switch]$Uninstall,
+
+    [Parameter(ParameterSetName = "Rollback")]
+    [switch]$Rollback,
+
+    [Parameter(ParameterSetName = "Check")]
+    [switch]$CheckVersion,
+
+    [Parameter(ParameterSetName = "Install")]
+    [Parameter(ParameterSetName = "Upgrade")]
     [string]$Version,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "Install")]
+    [Parameter(ParameterSetName = "Upgrade")]
     [string]$CoreVersion,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "Install")]
+    [Parameter(ParameterSetName = "Upgrade")]
     [switch]$NoAutostart,
 
-    [Parameter()]
+    [Parameter(ParameterSetName = "Install")]
+    [Parameter(ParameterSetName = "Upgrade")]
     [switch]$NoSmoke,
 
     [Parameter()]
-    [switch]$Force
+    [switch]$Force,
+
+    [Parameter(ParameterSetName = "Uninstall")]
+    [switch]$KeepConfig
 )
 
 $ErrorActionPreference = "Stop"
@@ -291,6 +360,110 @@ function Remove-FileIfExists {
     }
 }
 
+# ── Version Helpers ──────────────────────────────────────────────────────────
+
+function Get-InstalledVersion {
+    <#
+    .SYNOPSIS
+        Read the installed version from .version file in the binary directory.
+    #>
+    $versionFile = "$BIN_DIR\.version"
+    if (Test-Path $versionFile) {
+        try {
+            return (Get-Content $versionFile -Raw -ErrorAction Stop).Trim()
+        }
+        catch {
+            return $null
+        }
+    }
+    return $null
+}
+
+function Write-VersionFile {
+    param([string]$Version)
+    $versionFile = "$BIN_DIR\.version"
+    if (-not (Test-WhatIf "Write version file: $versionFile = $Version")) {
+        $Version | Out-File -FilePath $versionFile -Encoding utf8 -Force
+        Write-Success "Wrote version file: $versionFile"
+    }
+}
+
+# ── Backup & Process Helpers ────────────────────────────────────────────────
+
+function Backup-Binaries {
+    <#
+    .SYNOPSIS
+        Backup current binaries to the .rollback directory before upgrade.
+    #>
+    $rollbackDir = "$BIN_DIR\.rollback"
+    New-DirectoryIfAbsent $rollbackDir
+
+    $binaries = @($PHOTOSHOP_BINARY, $SERVER_BINARY)
+    $backedUp = $false
+    foreach ($binary in $binaries) {
+        $src = "$BIN_DIR\$binary"
+        $dst = "$rollbackDir\$binary"
+        if (Test-Path $src) {
+            if (-not (Test-WhatIf "Backup $binary to $rollbackDir")) {
+                Copy-Item -Path $src -Destination $dst -Force
+                Write-Success "Backed up $binary to rollback"
+                $backedUp = $true
+            }
+        }
+    }
+
+    # Backup version info
+    $versionFile = "$BIN_DIR\.version"
+    $backupVersionFile = "$rollbackDir\.version"
+    if (Test-Path $versionFile) {
+        if (-not (Test-WhatIf "Backup .version to rollback")) {
+            Copy-Item -Path $versionFile -Destination $backupVersionFile -Force
+        }
+    }
+
+    if ($backedUp) {
+        Write-Success "Backup complete (rollback dir: $rollbackDir)"
+    }
+    else {
+        Write-Info "No existing binaries to backup"
+    }
+}
+
+function Stop-DccMcpProcesses {
+    <#
+    .SYNOPSIS
+        Stop any running dcc-mcp processes (server and photoshop bridge).
+    #>
+    $processNames = @(
+        [System.IO.Path]::GetFileNameWithoutExtension($PHOTOSHOP_BINARY),
+        [System.IO.Path]::GetFileNameWithoutExtension($SERVER_BINARY)
+    )
+
+    $stopped = $false
+    foreach ($name in $processNames) {
+        $running = Get-Process -Name $name -ErrorAction SilentlyContinue
+        foreach ($proc in $running) {
+            if (Test-WhatIf "Stop process $name (PID: $($proc.Id))") { continue }
+            Write-Info "Stopping $name (PID: $($proc.Id))..."
+            try {
+                $proc.Kill()
+                $proc.WaitForExit(5000)
+                Write-Success "Stopped $name (PID: $($proc.Id))"
+                $stopped = $true
+            }
+            catch {
+                Write-WarningMsg "Failed to stop $name gracefully: $_"
+                try { taskkill /f /im "$name.exe" 2>$null | Out-Null } catch {}
+                $stopped = $true
+            }
+        }
+    }
+
+    if (-not $stopped) {
+        Write-Info "No running dcc-mcp processes found"
+    }
+}
+
 # ── Step Functions ───────────────────────────────────────────────────────────
 
 function Install-Binaries {
@@ -339,6 +512,9 @@ function Install-Binaries {
     $serverUrl = "$RELEASE_BASE_CORE/v$resolvedCoreVersion/$SERVER_BINARY"
     $serverDest = "$BIN_DIR\$SERVER_BINARY"
     $null = Download-File -Url $serverUrl -Destination $serverDest -Description "dcc-mcp-server binary"
+
+    # Write version file
+    Write-VersionFile -Version $resolvedVersion
 
     Write-Success "Binary installation complete (version photoshop=$resolvedVersion, core=$resolvedCoreVersion)"
 }
@@ -567,9 +743,333 @@ function Invoke-SmokeCheck {
     }
 }
 
+# ── Mode Functions ───────────────────────────────────────────────────────────
+
+function Invoke-Upgrade {
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host " dcc-mcp Photoshop Connector Upgrade" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Check current installation
+    $psBinary = "$BIN_DIR\$PHOTOSHOP_BINARY"
+    $serverBinary = "$BIN_DIR\$SERVER_BINARY"
+    $installed = (Test-Path $psBinary) -or (Test-Path $serverBinary)
+
+    if (-not $installed) {
+        Write-Info "No existing installation found at $BIN_DIR. Running fresh install instead."
+        Install-Binaries
+        Install-CcxPlugin
+        Write-LocalConfig
+        Register-Autostart
+        Invoke-SmokeCheck
+        Write-Host ""
+        Write-Host "============================================" -ForegroundColor Green
+        Write-Success "Fresh installation complete (no previous version to upgrade)!"
+        return
+    }
+
+    # Backup existing binaries
+    Write-Info "=== Step 1: Backup Existing Binaries ==="
+    Backup-Binaries
+    Write-Host ""
+
+    # Stop running processes so binaries can be replaced
+    Write-Info "=== Step 2: Stop Running Processes ==="
+    Stop-DccMcpProcesses
+    Write-Host ""
+
+    # Remove old binaries so Download-File fetches fresh copies
+    Write-Info "=== Step 3: Remove Old Binaries ==="
+    foreach ($binary in @($PHOTOSHOP_BINARY, $SERVER_BINARY)) {
+        Remove-FileIfExists "$BIN_DIR\$binary"
+    }
+    Write-Host ""
+
+    # Install new version
+    Write-Info "=== Step 4: Install New Binaries ==="
+    Install-Binaries
+    Write-Host ""
+
+    # Update plugin
+    Write-Info "=== Step 5: Update Plugin ==="
+    Install-CcxPlugin
+    Write-Host ""
+
+    # Config and autostart are preserved (not overwritten)
+    Write-Info "=== Step 6: Register Autostart ==="
+    Register-Autostart
+    Write-Host ""
+
+    # Smoke check
+    Write-Info "=== Step 7: Smoke Check ==="
+    Invoke-SmokeCheck
+    Write-Host ""
+
+    Write-Host "============================================" -ForegroundColor Green
+    Write-Success "Upgrade complete!"
+    Write-Host ""
+    Write-Host "  Previous version backed up to: $BIN_DIR\.rollback"
+    Write-Host "  Use -Rollback to restore the previous version."
+    Write-Host "============================================" -ForegroundColor Green
+}
+
+function Invoke-Uninstall {
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host " dcc-mcp Photoshop Connector Uninstall" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    # Stop running processes
+    Write-Info "=== Step 1: Stop Running Processes ==="
+    Stop-DccMcpProcesses
+    Write-Host ""
+
+    # Remove HKCU Run key
+    Write-Info "=== Step 2: Remove Autostart Registry Key ==="
+    $runKey = "HKCU:\Software\Microsoft\Windows\CurrentVersion\Run"
+    $runValueName = "DCC-MCP Photoshop"
+    if (Test-Path "$runKey") {
+        try {
+            $currentValue = Get-ItemProperty -Path $runKey -Name $runValueName -ErrorAction SilentlyContinue
+            if ($currentValue) {
+                if (-not (Test-WhatIf "Remove HKCU Run key '$runValueName'")) {
+                    Remove-ItemProperty -Path $runKey -Name $runValueName -ErrorAction Stop
+                    Write-Success "Removed autostart registry key: $runKey\$runValueName"
+                }
+            }
+            else {
+                Write-Info "No autostart registry key found: $runValueName"
+            }
+        }
+        catch {
+            Write-Info "No autostart registry key found: $runValueName"
+        }
+    }
+    else {
+        Write-Info "Registry key path does not exist: $runKey"
+    }
+    Write-Host ""
+
+    # Remove autostart script
+    Write-Info "=== Step 3: Remove Autostart Script ==="
+    $autostartScript = "$BIN_DIR\$AUTOSTART_SCRIPT_NAME"
+    Remove-FileIfExists $autostartScript
+    Write-Host ""
+
+    # Clean binary directory
+    Write-Info "=== Step 4: Clean Binary Directory ==="
+    if (Test-Path $BIN_DIR) {
+        if (-not (Test-WhatIf "Remove binary directory contents: $BIN_DIR")) {
+            # Remove everything except .rollback backup
+            Get-ChildItem -Path $BIN_DIR -Exclude ".rollback" | ForEach-Object {
+                Remove-Item $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+            }
+            Write-Success "Cleaned binary directory: $BIN_DIR"
+        }
+    }
+    else {
+        Write-Info "Binary directory does not exist: $BIN_DIR"
+    }
+    Write-Host ""
+
+    # Optionally remove configuration
+    if (-not $KeepConfig) {
+        Write-Info "=== Step 5: Clean Configuration ==="
+        $configDirs = @{ "Config" = $CONFIG_DIR; "Registry" = $REGISTRY_DIR }
+        foreach ($label in $configDirs.Keys) {
+            $dir = $configDirs[$label]
+            if (Test-Path $dir) {
+                if (-not (Test-WhatIf "Remove $label directory: $dir")) {
+                    Remove-Item $dir -Recurse -Force -ErrorAction SilentlyContinue
+                    Write-Success "Removed ${label}: $dir"
+                }
+            }
+            else {
+                Write-Info "$label directory does not exist: $dir"
+            }
+        }
+        # Also clean UXP plugin
+        $pluginFileName = if ($Version) { $PLUGIN_FILE -f $Version } else { $PLUGIN_FILE -f "*" }
+        $uxpFiles = Get-ChildItem -Path $UXP_DIR -Filter "dcc-mcp-photoshop-bridge-*.ccx" -ErrorAction SilentlyContinue
+        if ($uxpFiles) {
+            if (-not (Test-WhatIf "Remove UXP plugin files from $UXP_DIR")) {
+                $uxpFiles | Remove-Item -Force -ErrorAction SilentlyContinue
+                Write-Success "Removed UXP plugin files from $UXP_DIR"
+            }
+        }
+        Write-Host ""
+    }
+    else {
+        Write-Info "Configuration preserved (-KeepConfig specified)"
+        Write-Host ""
+    }
+
+    Write-Host "============================================" -ForegroundColor Green
+    Write-Success "Uninstall complete!"
+    if ($KeepConfig) {
+        Write-Host ""
+        Write-Host "  Configuration preserved at:"
+        Write-Host "    Config:  $CONFIG_DIR"
+        Write-Host "    Registry: $REGISTRY_DIR"
+    }
+    Write-Host "============================================" -ForegroundColor Green
+}
+
+function Invoke-Rollback {
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host " dcc-mcp Photoshop Connector Rollback" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $rollbackDir = "$BIN_DIR\.rollback"
+
+    # Verify rollback backup exists
+    if (-not (Test-Path $rollbackDir)) {
+        Write-ErrorMsg "No rollback backup found at $rollbackDir"
+        Write-ErrorMsg "Upgrade must be performed before rollback is available."
+        exit 1
+    }
+
+    # Check for backup content
+    $binaries = @($PHOTOSHOP_BINARY, $SERVER_BINARY)
+    $hasBackup = $false
+    foreach ($binary in $binaries) {
+        if (Test-Path "$rollbackDir\$binary") {
+            $hasBackup = $true
+            break
+        }
+    }
+
+    if (-not $hasBackup) {
+        Write-ErrorMsg "Rollback backup exists but contains no binary files at $rollbackDir"
+        exit 1
+    }
+
+    # Read rollback version info
+    $rollbackVersionFile = "$rollbackDir\.version"
+    if (Test-Path $rollbackVersionFile) {
+        try {
+            $rollbackVersion = (Get-Content $rollbackVersionFile -Raw -ErrorAction Stop).Trim()
+            Write-Info "Rollback target version: $rollbackVersion"
+        }
+        catch {
+            Write-Info "Rollback target version: unknown (no .version file in backup)"
+        }
+    }
+    else {
+        Write-Info "Rollback target version: unknown"
+    }
+    Write-Host ""
+
+    # Stop running processes
+    Write-Info "=== Step 1: Stop Running Processes ==="
+    Stop-DccMcpProcesses
+    Write-Host ""
+
+    # Restore binaries from backup
+    Write-Info "=== Step 2: Restore Binaries from Backup ==="
+    Write-Info "Restoring from: $rollbackDir"
+
+    foreach ($binary in $binaries) {
+        $backupFile = "$rollbackDir\$binary"
+        $destFile = "$BIN_DIR\$binary"
+        if (Test-Path $backupFile) {
+            if (-not (Test-WhatIf "Restore $binary from rollback backup")) {
+                Copy-Item -Path $backupFile -Destination $destFile -Force
+                Write-Success "Restored $binary"
+            }
+        }
+        else {
+            # Remove the current binary if no backup exists for it
+            Remove-FileIfExists $destFile
+            Write-Info "No rollback backup for $binary; removed current binary"
+        }
+    }
+
+    # Restore version file
+    if (Test-Path $rollbackVersionFile) {
+        if (-not (Test-WhatIf "Restore .version file from rollback backup")) {
+            Copy-Item -Path $rollbackVersionFile -Destination "$BIN_DIR\.version" -Force
+        }
+    }
+    else {
+        Remove-FileIfExists "$BIN_DIR\.version"
+    }
+
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Green
+    Write-Success "Rollback complete!"
+    Write-Host ""
+    Write-Host "  Previous version restored from: $rollbackDir"
+    Write-Host "============================================" -ForegroundColor Green
+}
+
 # ── Main ─────────────────────────────────────────────────────────────────────
 
+function Invoke-VersionCheck {
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host " dcc-mcp Photoshop Connector Version Check" -ForegroundColor Cyan
+    Write-Host "============================================" -ForegroundColor Cyan
+    Write-Host ""
+
+    $installedVersion = Get-InstalledVersion
+    if ($installedVersion) {
+        Write-Success "Local installed version: $installedVersion"
+    }
+    else {
+        Write-Info "Local installed version: not found (not installed yet)"
+    }
+
+    # Check remote latest
+    if (-not $script:WhatIfMode) {
+        try {
+            $latestVersion = Get-LatestReleaseVersion -Repo $PHOTOSHOP_REPO
+            Write-Success "Remote latest version: $latestVersion"
+
+            if ($installedVersion -and $latestVersion) {
+                if ($installedVersion -eq $latestVersion) {
+                    Write-Success "You have the latest version ($latestVersion)"
+                }
+                else {
+                    Write-WarningMsg "A newer version is available: $latestVersion (installed: $installedVersion)"
+                    Write-Host ""
+                    Write-Host "  To upgrade, run:" -ForegroundColor Yellow
+                    Write-Host "    .\install_photoshop_connector.ps1 -Upgrade" -ForegroundColor Yellow
+                }
+            }
+        }
+        catch {
+            Write-ErrorMsg "Failed to check remote version: $_"
+        }
+    }
+
+    Write-Host ""
+    Write-Host "============================================" -ForegroundColor Cyan
+}
+
 function Main {
+    # Dispatch to mode-specific function
+    switch ($PSCmdlet.ParameterSetName) {
+        "Check" {
+            Invoke-VersionCheck
+            return
+        }
+        "Upgrade" {
+            Invoke-Upgrade
+            return
+        }
+        "Uninstall" {
+            Invoke-Uninstall
+            return
+        }
+        "Rollback" {
+            Invoke-Rollback
+            return
+        }
+    }
+
+    # Default: Install
     Write-Host "============================================" -ForegroundColor Cyan
     Write-Host " dcc-mcp Photoshop Connector Installer" -ForegroundColor Cyan
     Write-Host "============================================" -ForegroundColor Cyan
