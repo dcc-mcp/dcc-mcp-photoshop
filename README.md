@@ -154,20 +154,80 @@ Text layer creation, editing, and inspection.
 | Cross-process RPC | HTTP RPC server on port 9100 for gateway mode inter-process bridge access. |
 | Lazy skill loading | `load_skill` meta-tool expands the tool surface on demand. |
 
-## One-Click Setup
+## One-Click Installer
+
+The `photoshop-setup` skill provides a complete installer workflow that automates environment checks, package installation, UXP plugin setup, and MCP client configuration.
 
 ```
 load_skill("photoshop-setup")
 ```
 
+### Tools
+
 | Tool | Description |
 |------|-------------|
-| `check_environment` | Check system prerequisites |
-| `install_package` | Install via pip |
-| `setup_uxp_plugin` | Install UXP .ccx plugin |
-| `start_server` | Start server (dev mode) |
-| `verify_connection` | Verify bridge connection |
+| `check_environment` | Check system prerequisites (Python, pip, Photoshop) |
+| `install_package` | Install or upgrade dcc-mcp-photoshop via pip |
+| `setup_uxp_plugin` | Install UXP .ccx plugin into Photoshop |
+| `start_server` | Start server in dev mode for testing |
+| `verify_connection` | Verify bridge connection to Photoshop |
 | `configure_mcp_client` | Auto-configure MCP client configs for Claude Desktop, Cursor, VS Code |
+
+### Standard Install Flow
+
+```text
+check_environment → install_package → setup_uxp_plugin → configure_mcp_client → verify_connection
+```
+
+1. **check_environment** — Verifies Python, pip, and Photoshop are available.
+2. **install_package** — Installs `dcc-mcp-photoshop` and dependencies from PyPI.
+3. **setup_uxp_plugin** — Installs the `.ccx` plugin into Photoshop.
+4. **configure_mcp_client** — Sets up `mcpServers` entries for Claude Desktop, Cursor, and VS Code.
+5. **verify_connection** — Confirms the bridge is connected and Photoshop responds.
+
+### Installing a Specific Version
+
+Pin to a specific version for compatibility with your existing dcc-mcp-core deployment:
+
+```text
+install_package(version="0.1.14")
+```
+
+### Upgrading
+
+Upgrade `dcc-mcp-photoshop` and its dependencies to the latest version on PyPI:
+
+```text
+install_package(upgrade=True)
+```
+
+### Rolling Back
+
+Install a previous version to roll back from a regression. The UXP plugin version must match the Python package version:
+
+```text
+install_package(version="0.1.13")
+```
+
+### Uninstalling
+
+Remove the Python package via pip:
+
+```bash
+pip uninstall dcc-mcp-photoshop
+```
+
+Remove the UXP plugin from Creative Cloud Desktop → Plugins → Manage Plugins, or delete the `.ccx` from the UXP plugins directory:
+
+```powershell
+# Windows
+Remove-Item "$env:APPDATA\Adobe\UXP\Plugins\External\dcc-mcp-photoshop-bridge-*.ccx"
+```
+
+```bash
+# macOS
+rm ~/Library/Application\ Support/Adobe/UXP/Plugins/External/dcc-mcp-photoshop-bridge-*.ccx
+```
 
 ## Installation
 
