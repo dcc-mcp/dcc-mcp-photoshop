@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.21](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.20...v0.1.21) (2026-06-16)
+
+
+### Features
+
+* PIP-673 adapter capabilities and code convergence ([74b35ca](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/74b35ca616bb75bc1bb140c59aa1fba53764517a))
+
+
+### Bug Fixes
+
+* remove stale PhotoshopBridgePlugin imports from __init__.py ([aba678b](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/aba678bc2b11891587ca23af9507bf2dcbc06003))
+* ruff format src/ tests/ ([b4d22cb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b4d22cb147d8d4d63e9ddcc0def21fd4a7149040))
+* update capability tests for adobepy_broker migration ([63b45d1](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/63b45d1c2c293943d832fbae471f07455224ada2))
+
 ## [0.1.20](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.19...v0.1.20) (2026-06-16)
 
 
