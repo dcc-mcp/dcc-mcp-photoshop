@@ -13,12 +13,19 @@ def make_exe():
     # Configure packaging policy.
     policy = dist.make_python_packaging_policy()
 
-    # Fall back to loading resources from a "lib" directory next to the binary
-    # when in-memory loading fails.
-    policy.resources_location_fallback = "filesystem-relative:lib"
+    # Load all Python resources from the "lib" directory next to the binary.
+    # Filesystem-relative mode sets __file__, which many packages (including
+    # dcc-mcp-core) depend on.  In-memory mode breaks __file__ usage.
+    policy.resources_location = "filesystem-relative:lib"
 
     # Configure the embedded Python interpreter.
     python_config = dist.make_python_interpreter_config()
+
+    # Use the standard Python filesystem importer instead of the oxidized
+    # importer.  The standard importer handles init_fs_encoding correctly
+    # and sets __file__ for all loaded modules.
+    python_config.oxidized_importer = False
+    python_config.filesystem_importer = True
 
     # Set module search path so the interpreter can find installed packages.
     python_config.module_search_paths = ["$ORIGIN/lib"]
@@ -26,8 +33,9 @@ def make_exe():
     # Run dcc_mcp_photoshop.cli as __main__ when the binary starts.
     python_config.run_module = "dcc_mcp_photoshop.cli"
 
-    # Forward command-line arguments to the Python program.
-    python_config.parse_argv = True
+    # Don't let CPython's arg parser intercept --help/--version.
+    # Our CLI argparse handles all args after Python is fully initialized.
+    python_config.parse_argv = False
 
     # Produce a PythonExecutable from the distribution, embedded resources,
     # and the configuration above.

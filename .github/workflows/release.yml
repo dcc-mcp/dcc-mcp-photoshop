@@ -112,12 +112,15 @@ jobs:
           - os: windows-latest
             artifact: dcc-mcp-photoshop-windows
             binary: dist/binary/dcc-mcp-photoshop.exe
+            binary_name: dcc-mcp-photoshop.exe
           - os: ubuntu-latest
             artifact: dcc-mcp-photoshop-linux
             binary: dist/binary/dcc-mcp-photoshop
+            binary_name: dcc-mcp-photoshop
           - os: macos-latest
             artifact: dcc-mcp-photoshop-macos
             binary: dist/binary/dcc-mcp-photoshop
+            binary_name: dcc-mcp-photoshop
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -147,19 +150,27 @@ jobs:
       - name: Smoke test — standalone binary
         shell: bash
         run: |
-          BINARY="${{ matrix.binary }}"
-          if [ ! -f "$BINARY" ]; then
-            echo "Binary not found: $BINARY"
+          cd dist/binary
+          if [ ! -f "${{ matrix.binary_name }}" ]; then
+            echo "Binary not found: ${{ matrix.binary_name }}"
             exit 1
           fi
-          "$BINARY" --version
-          "$BINARY" --help
+          "./${{ matrix.binary_name }}" --version
+          "./${{ matrix.binary_name }}" --help
 
-      - name: Upload binary artifact
+      - name: Package binary bundle (tar.gz)
+        shell: bash
+        run: |
+          mkdir -p dist/archive
+          cd dist/binary
+          tar czf "../archive/${{ matrix.artifact }}.tar.gz" .
+          echo "Created: $(ls -lh "../archive/${{ matrix.artifact }}.tar.gz")"
+
+      - name: Upload binary archive
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: ${{ matrix.binary }}
+          path: dist/archive/${{ matrix.artifact }}.tar.gz
 
   # ── Build wheel + sdist ──────────────────────────────────────────────────────
   build:
@@ -284,29 +295,29 @@ jobs:
           name: uxp-plugin
           path: dist/plugin/
 
-      - name: Download Windows binary
+      - name: Download Windows binary archive
         uses: actions/download-artifact@v4
         with:
           name: dcc-mcp-photoshop-windows
-          path: dist/binary/windows/
+          path: dist/bundle/
 
-      - name: Download Linux binary
+      - name: Download Linux binary archive
         uses: actions/download-artifact@v4
         with:
           name: dcc-mcp-photoshop-linux
-          path: dist/binary/linux/
+          path: dist/bundle/
 
-      - name: Download macOS binary
+      - name: Download macOS binary archive
         uses: actions/download-artifact@v4
         with:
           name: dcc-mcp-photoshop-macos
-          path: dist/binary/macos/
+          path: dist/bundle/
 
-      - name: Rename binaries with platform suffix
+      - name: Rename archives with platform prefix
         run: |
-          mv dist/binary/windows/dcc-mcp-photoshop.exe  dist/binary/dcc-mcp-photoshop-windows.exe  || true
-          mv dist/binary/linux/dcc-mcp-photoshop        dist/binary/dcc-mcp-photoshop-linux         || true
-          mv dist/binary/macos/dcc-mcp-photoshop        dist/binary/dcc-mcp-photoshop-macos         || true
+          mv dist/bundle/dcc-mcp-photoshop-windows.tar.gz  dist/dcc-mcp-photoshop-windows.tar.gz  || true
+          mv dist/bundle/dcc-mcp-photoshop-linux.tar.gz    dist/dcc-mcp-photoshop-linux.tar.gz    || true
+          mv dist/bundle/dcc-mcp-photoshop-macos.tar.gz    dist/dcc-mcp-photoshop-macos.tar.gz    || true
 
       - name: Attach all assets to GitHub Release
         uses: softprops/action-gh-release@v2
@@ -316,6 +327,3 @@ jobs:
             dist/*.whl
             dist/*.tar.gz
             dist/plugin/*.ccx
-            dist/binary/dcc-mcp-photoshop-*.exe
-            dist/binary/dcc-mcp-photoshop-linux
-            dist/binary/dcc-mcp-photoshop-macos

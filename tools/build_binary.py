@@ -37,7 +37,7 @@ def _check_pyoxidizer() -> None:
     """Verify PyOxidizer is installed and accessible."""
     try:
         subprocess.run(
-            [sys.executable, "-m", "pyoxidizer", "--version"],
+            ["pyoxidizer", "--version"],
             capture_output=True, check=True, text=True,
         )
     except (subprocess.CalledProcessError, FileNotFoundError):
@@ -72,6 +72,34 @@ def _find_binary(build_dir: Path) -> Path | None:
     return None
 
 
+def _copy_runtime_dlls(src_dir: Path, dst_dir: Path) -> None:
+    """Copy runtime DLLs (python*.dll, vcruntime*.dll) alongside the binary.
+
+    PyOxidizer shared builds on Windows place python3.dll, python*.dll, and
+    VC++ redist DLLs next to the binary.  Copy them so the binary can be run
+    from the output directory without requiring those paths in PATH.
+    """
+    if sys.platform != "win32":
+        return
+    for dll in src_dir.glob("*.dll"):
+        shutil.copy2(dll, dst_dir / dll.name)
+
+
+def _copy_lib_dir(src_dir: Path, dst_dir: Path) -> None:
+    """Copy the lib/ directory containing Python stdlib and site-packages.
+
+    PyOxidizer places all Python resources (stdlib, dependencies, our package)
+    into a lib/ subdirectory next to the binary.  The binary's sys.path is
+    configured to look at ``$ORIGIN/lib``.
+    """
+    src_lib = src_dir / "lib"
+    dst_lib = dst_dir / "lib"
+    if src_lib.is_dir():
+        if dst_lib.exists():
+            shutil.rmtree(dst_lib)
+        shutil.copytree(src_lib, dst_lib, ignore=shutil.ignore_patterns("__pycache__"))
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(
         description="Build the dcc-mcp-photoshop standalone binary using PyOxidizer",
@@ -102,7 +130,7 @@ def main() -> None:
     print()
 
     cmd = [
-        sys.executable, "-m", "pyoxidizer", "build",
+        "pyoxidizer", "build",
         "--path", str(PROJECT_ROOT),
     ]
 
@@ -140,9 +168,22 @@ def main() -> None:
     dest = output_dir / binary.name
     shutil.copy2(binary, dest)
 
+    # Copy runtime DLLs and Python stdlib/site-packages lib/ directory.
+    _copy_runtime_dlls(binary.parent, output_dir)
+    _copy_lib_dir(binary.parent, output_dir)
+
     size_mb = dest.stat().st_size / 1_048_576
     print(f"\nBuild complete!")
     print(f"  Binary: {dest}  ({size_mb:.1f} MB)")
+    if sys.platform == "win32":
+        dlls = list(output_dir.glob("*.dll"))
+        if dlls:
+            dll_size = sum(f.stat().st_size for f in dlls) / 1_048_576
+            print(f"  Runtime DLLs ({len(dlls)} files, {dll_size:.1f} MB total)")
+        lib_dir = output_dir / "lib"
+        if lib_dir.is_dir():
+            lib_size = sum(f.stat().st_size for f in lib_dir.rglob("*") if f.is_file()) / 1_048_576
+            print(f"  Python lib  : {lib_dir}  ({lib_size:.1f} MB)")
     print()
     print("Usage:")
     print(f"  {dest.name} --help")
