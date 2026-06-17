@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.1.23](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.22...v0.1.23) (2026-06-17)
+
+
+### Features
+
+* stability improvements toward Maya parity (PIP-1775) ([0d78bcb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0d78bcb07a0526c69f7cedaa37606f45b0e95c86))
+* stability improvements toward Maya parity (PIP-1775) ([63f2648](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/63f26482e3480fed2eaf15881e9b579fcde65188))
+* stability improvements toward Maya parity (PIP-1775) ([#60](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/60)) ([0d78bcb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0d78bcb07a0526c69f7cedaa37606f45b0e95c86))
+
 ## [0.1.22](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.21...v0.1.22) (2026-06-17)
 
 
