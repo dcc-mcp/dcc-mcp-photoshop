@@ -103,9 +103,22 @@ class PhotoshopMcpServer(DccServerBase):
         server_name: str = "photoshop-mcp",
         server_version: str = "0.2.0",
         gateway_port: int | None = None,
+        metrics_enabled: bool | None = None,
+        strict_skill_scan: bool | None = None,
+        enable_gateway_failover: bool | None = None,
     ) -> None:
         self._config = config or PhotoshopMcpConfig.from_env()
         self._startup_state = StartupState()
+
+        # Resolve env-based configuration
+        from dcc_mcp_photoshop._env import (  # noqa: PLC0415
+            resolve_enable_gateway_failover,
+            resolve_metrics_enabled,
+            resolve_strict_skill_scan,
+        )
+
+        self._strict_skill_scan = resolve_strict_skill_scan(strict_skill_scan)
+        self._enable_gateway_failover = resolve_enable_gateway_failover(enable_gateway_failover)
 
         options = DccServerOptions.from_env(
             dcc_name="photoshop",
@@ -116,6 +129,17 @@ class PhotoshopMcpServer(DccServerBase):
             gateway_port=gateway_port if gateway_port is not None else self._config.gateway_port,
         )
         super().__init__(options=options)
+
+        # Wire readiness probe for /v1/readyz
+        self._readiness = self._install_readiness()
+
+        # Wire context snapshot provider for gateway metadata
+        self._install_context_snapshot()
+
+        # Enable Prometheus metrics when requested
+        if resolve_metrics_enabled(metrics_enabled):
+            self._config.enable_prometheus = True
+            logger.info("[photoshop] Prometheus /metrics endpoint enabled")
 
     # ── broker health check ─────────────────────────────────────────────────
 
@@ -152,6 +176,60 @@ class PhotoshopMcpServer(DccServerBase):
 
     # ── action / skill registration ────────────────────────────────────────
 
+    def register_builtin_actions(
+        self,
+        extra_skill_paths: list[str] | None = None,
+        *,
+        strict_scan: bool | None = None,
+        include_bundled: bool = True,
+    ) -> PhotoshopMcpServer:
+        """Register built-in actions using the phase pipeline.
+
+        This replaces the previous eager ``register_builtin_actions`` with
+        a structured phase pipeline (PIP-689).  Each phase runs in order
+        and failures are collected into a report.
+
+        Args:
+            extra_skill_paths: Additional directories to scan.
+            strict_scan: Override env var for strict skill validation.
+            include_bundled: Whether to scan the bundled skills directory.
+
+        Returns:
+            ``self`` for fluent chaining.
+        """
+        from dcc_mcp_core._registration import RegistrationContext  # noqa: PLC0415
+
+        from dcc_mcp_photoshop._registration import (  # noqa: PLC0415
+            default_registration_phases,
+            run_registration_phases,
+        )
+
+        strict = strict_scan if strict_scan is not None else self._strict_skill_scan
+
+        ctx = RegistrationContext(
+            server=self,
+            extra_skill_paths=list(extra_skill_paths) if extra_skill_paths else [],
+            strict_scan=strict,
+            include_bundled=include_bundled,
+        )
+
+        phases = default_registration_phases()
+        report = run_registration_phases(phases, ctx)
+
+        logger.info(
+            "Registration pipeline: %d phase(s) succeeded, %d failed",
+            report.success_count,
+            report.failure_count,
+        )
+        for failure in report.failures:
+            logger.error(
+                "Registration phase '%s' failed: %s",
+                failure.phase_name,
+                failure.error,
+            )
+
+        return self
+
     def discover_builtin_skills(self, extra_skill_paths: list[str] | None = None) -> PhotoshopMcpServer:
         """Discover all built-in Photoshop skills (lazy loading mode).
 
@@ -170,19 +248,6 @@ class PhotoshopMcpServer(DccServerBase):
             "SkillCatalog discovered %d skill(s) — use load_skill to load them on-demand",
             count,
         )
-        return self
-
-    def register_builtin_actions(self, extra_skill_paths: list[str] | None = None) -> PhotoshopMcpServer:
-        """DEPRECATED: Discover and eagerly load all built-in skills.
-
-        .. deprecated:: 0.1.0
-            Use :meth:`discover_builtin_skills` for lazy loading instead.
-        """
-        logger.warning(
-            "register_builtin_actions is deprecated; use discover_builtin_skills() "
-            "for lazy loading, or switch to dcc-mcp-server.exe in gateway mode"
-        )
-        super().register_builtin_actions(extra_skill_paths=extra_skill_paths)
         return self
 
     # ── skill discovery helpers ────────────────────────────────────────────
@@ -227,11 +292,48 @@ class PhotoshopMcpServer(DccServerBase):
             "server_running": self.is_running,
             "server_url": self.mcp_url,
         }
+        # Add readiness status from the probe
+        if hasattr(self, "_readiness") and self._readiness is not None:
+            try:
+                d["readiness"] = self._readiness.report()
+            except Exception:
+                d["readiness"] = {"error": "readiness probe not available"}
         try:
             d["gateway_status"] = self.get_gateway_election_status()
         except Exception:
             d["gateway_status"] = {"error": "gateway election not available"}
         return d
+
+    # ── readiness / context snapshot ────────────────────────────────────────
+
+    def _install_readiness(self) -> Any:
+        """Install the readiness probe for /v1/readyz (best-effort).
+
+        Returns the binder on success, ``None`` on failure.
+        """
+        try:
+            from dcc_mcp_photoshop._readiness import install_readiness  # noqa: PLC0415
+
+            return install_readiness(self)
+        except ImportError:
+            logger.debug("Readiness probe not available (dcc-mcp-core too old)")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Readiness probe install failed: %s", exc)
+        return None
+
+    def _install_context_snapshot(self) -> None:
+        """Install the context snapshot provider for gateway metadata."""
+        try:
+            from dcc_mcp_photoshop.context_snapshot import (  # noqa: PLC0415
+                PhotoshopContextSnapshotProvider,
+            )
+
+            self._snapshot_provider_impl = PhotoshopContextSnapshotProvider()
+            logger.debug("Context snapshot provider installed")
+        except ImportError:
+            logger.debug("Context snapshot not available")
+        except Exception as exc:  # noqa: BLE001
+            logger.debug("Context snapshot install failed: %s", exc)
 
     # ── lifecycle ──────────────────────────────────────────────────────────
 
