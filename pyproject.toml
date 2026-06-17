@@ -12,7 +12,7 @@ license = { text = "MIT" }
 requires-python = ">=3.8"
 keywords = ["photoshop", "adobe", "mcp", "dcc", "ai", "llm", "model-context-protocol", "uxp"]
 classifiers = [
-    "Development Status :: 2 - Pre-Alpha",
+    "Development Status :: 3 - Alpha",
     "Intended Audience :: Developers",
     "License :: OSI Approved :: MIT License",
     "Programming Language :: Python :: 3",
