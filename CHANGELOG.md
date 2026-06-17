@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.22](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.21...v0.1.22) (2026-06-17)
+
+
+### Bug Fixes
+
+* **ci:** handle missing bridge/uxp-plugin in release workflow ([4036633](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/403663398c4cf121f19ac1d225d91c92d28fe795))
+
 ## [0.1.21](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.20...v0.1.21) (2026-06-16)
 
 
