@@ -35,6 +35,31 @@ Requirements:
 from __future__ import annotations
 
 from dcc_mcp_photoshop.__version__ import __version__
+from dcc_mcp_photoshop._env import (
+    ENV_ENABLE_GATEWAY_FAILOVER,
+    ENV_JOB_RECOVERY,
+    ENV_JOB_STORAGE,
+    ENV_METRICS,
+    ENV_STRICT_SKILL_SCAN,
+    resolve_enable_gateway_failover,
+    resolve_job_recovery,
+    resolve_job_storage,
+    resolve_metrics_enabled,
+    resolve_strict_skill_scan,
+)
+from dcc_mcp_photoshop._readiness import (
+    ReadinessBinder,
+    install_readiness,
+)
+from dcc_mcp_photoshop._registration import (
+    default_registration_phases,
+    run_registration_phases,
+)
+from dcc_mcp_photoshop._shutdown_safety import (
+    ProcessSentinel,
+    ShutdownCoordinator,
+    create_shutdown_coordinator,
+)
 from dcc_mcp_photoshop.api import (
     Photoshop,
     PhotoshopNotAvailableError,
@@ -56,6 +81,8 @@ from dcc_mcp_photoshop.api import (
 )
 from dcc_mcp_photoshop.bridge import PhotoshopBridge
 from dcc_mcp_photoshop.capabilities import PHOTOSHOP_CAPABILITIES_DICT
+from dcc_mcp_photoshop.capability_manifest import PhotoshopCapabilityManifestBuilder
+from dcc_mcp_photoshop.context_snapshot import PhotoshopContextSnapshotProvider
 from dcc_mcp_photoshop.server import (
     PhotoshopMcpServer,
     StartupState,
@@ -92,4 +119,25 @@ __all__ = [
     "PhotoshopNotAvailableError",
     "photoshop_capabilities",
     "PHOTOSHOP_CAPABILITIES_DICT",
+    # New stability modules
+    "PhotoshopContextSnapshotProvider",
+    "PhotoshopCapabilityManifestBuilder",
+    "ReadinessBinder",
+    "install_readiness",
+    "ProcessSentinel",
+    "ShutdownCoordinator",
+    "create_shutdown_coordinator",
+    "default_registration_phases",
+    "run_registration_phases",
+    # Env config
+    "ENV_JOB_RECOVERY",
+    "ENV_JOB_STORAGE",
+    "ENV_METRICS",
+    "ENV_STRICT_SKILL_SCAN",
+    "ENV_ENABLE_GATEWAY_FAILOVER",
+    "resolve_job_recovery",
+    "resolve_job_storage",
+    "resolve_metrics_enabled",
+    "resolve_strict_skill_scan",
+    "resolve_enable_gateway_failover",
 ]
