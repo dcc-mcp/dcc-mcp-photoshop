@@ -8,7 +8,7 @@ import pytest
 def test_import():
     import dcc_mcp_photoshop
 
-    assert dcc_mcp_photoshop.__version__ == "0.1.21"
+    assert dcc_mcp_photoshop.__version__ == "0.1.23"
 
 
 def test_api_imports():
