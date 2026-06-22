@@ -60,6 +60,7 @@ packages = ["src/dcc_mcp_photoshop"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
+pythonpath = ["src"]
 addopts = "-v --tb=short"
 asyncio_mode = "auto"
 
