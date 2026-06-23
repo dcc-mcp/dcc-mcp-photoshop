@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.24](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.23...v0.1.24) (2026-06-23)
+
+
+### Bug Fixes
+
+* pin Photoshop tests to source package ([#64](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/64)) ([98db3d7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/98db3d7db98a7416395430efe93b842815151d2c))
+
 ## [0.1.23](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.22...v0.1.23) (2026-06-17)
 
 
