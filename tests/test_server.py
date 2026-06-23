@@ -62,3 +62,50 @@ def test_bridge_call_raises_when_not_connected():
     # _connected=False, _loop=None — should raise BridgeConnectionError
     with pytest.raises(BridgeConnectionError):
         bridge.call("ps.test")
+
+
+def test_run_daemon_uses_photoshop_config_for_broker_url(monkeypatch):
+    import dcc_mcp_photoshop.server as server_mod
+
+    seen = {}
+
+    class FakeHandle:
+        pass
+
+    class FakeServer:
+        is_running = False
+
+        def __init__(self, *, config, port, server_name, gateway_port):
+            seen["config"] = config
+            seen["port"] = port
+            seen["server_name"] = server_name
+            seen["gateway_port"] = gateway_port
+            self.startup_state = server_mod.StartupState(stage="dispatch_ready")
+
+        def discover_builtin_skills(self, extra_skill_paths=None):
+            seen["extra_skill_paths"] = extra_skill_paths
+            return self
+
+        def start(self):
+            seen["started"] = True
+            return FakeHandle()
+
+    monkeypatch.setattr(server_mod, "_server_instance", None)
+    monkeypatch.setattr(server_mod, "PhotoshopMcpServer", FakeServer)
+
+    handle, state = server_mod.run_daemon(
+        port=18823,
+        server_name="photoshop-test",
+        broker_url="http://127.0.0.1:47392",
+        gateway_port=19839,
+        extra_skill_paths=["/tmp/photoshop-skills"],
+    )
+
+    assert isinstance(handle, FakeHandle)
+    assert state.stage == "dispatch_ready"
+    assert seen["config"].broker_url == "http://127.0.0.1:47392"
+    assert seen["port"] == 18823
+    assert seen["server_name"] == "photoshop-test"
+    assert seen["gateway_port"] == 19839
+    assert seen["extra_skill_paths"] == ["/tmp/photoshop-skills"]
+    assert seen["started"] is True
