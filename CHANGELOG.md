@@ -1,5 +1,100 @@
 # Changelog
 
+## [0.1.24](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.23...v0.1.24) (2026-06-23)
+
+
+### Features
+
+* add bilingual README (readme.md / readme_zh.md) following standard template ([3d6d0e2](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3d6d0e2e3779ecdeea78d739689a46db20c5be8f))
+* add configure_mcp_client tool to photoshop-setup skill ([f836cc4](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f836cc43a0aab96b4c51fd1f6c538e7ba51d548c))
+* add configure_mcp_client tool to photoshop-setup skill ([992a817](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/992a8179a51637322b0e18accafe799dcf5c15e4))
+* add daemon-first startup, failure state tracking, and bridge version validation ([38f0eb6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/38f0eb64a43361e27780d916abe2e329f8315d69))
+* add install_photoshop_connector.ps1 one-click installer + smoke check ([9df6aa7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/9df6aa76ef8f81e2882a47dc9a43e06381bfc220))
+* add photoshop-layers/image/text skills, exponential back-off reconnect, persistent log ([5c6eea3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5c6eea3fe4a1f1b593be7cdd95b28fd845605dd7))
+* add pre-commit hooks and vx.toml for vx prek workflow ([4d205c6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4d205c6ac558a90ff8cd38dd6ef4679078545a57))
+* add pre-commit hooks and vx.toml for vx prek workflow ([20586c9](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/20586c9c7d7cb6a1319a709b41ddb7e91df30bfa))
+* add upgrade/uninstall/rollback/version-check to install script ([0554dca](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0554dca4b053dcdcee813a6e5f7da91acff3c1cd))
+* create GitHub repo with CI/CD, bump dcc-mcp-core to &gt;=0.12.29, clean up server.py fallback code ([3f9e69a](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3f9e69afdb94e9280a62b45a7f25ec2d1ef3c3fd))
+* create photoshop-setup skill for agent-guided MCP setup ([b1a9a96](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b1a9a9640e0e02d2b6a50c577605173ce102ccd4))
+* create photoshop-setup skill for agent-guided MCP setup ([#26](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/26)) ([7851d61](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/7851d61c051b70c83d6a332627fc876c59d8d93b))
+* define Photoshop UXP WebSocket bridge protocol v0.1.0 ([6e6fb2b](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6e6fb2bc2bb3805038d460257df4d18be713ddb2))
+* define Photoshop UXP WebSocket bridge protocol v0.1.0 ([6799ebe](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6799ebee17ad2e9f38f9b7b92df8e11445eb9b09))
+* download dcc-mcp-server from dcc-mcp-core releases instead of committing binary ([0db0d53](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0db0d53806c358490f538b53075fa4c93e7adef0))
+* gateway daemon-first startup, failure tracking, bridge version validation ([0f012e2](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0f012e2c1c29ea97da5700cf5ad7a9622d1070df))
+* gateway daemon-first startup, failure tracking, bridge version validation ([#44](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/44)) ([0f012e2](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0f012e2c1c29ea97da5700cf5ad7a9622d1070df))
+* implement Photoshop MCP adapter with UXP WebSocket bridge ([bef0f78](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/bef0f782467f4071d6131285b15b5bee9ec27313))
+* initial placeholder for dcc-mcp-photoshop ([83b5d80](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/83b5d80a8206ec838a5d652ead55c4da234e8a26))
+* install_photoshop_connector.ps1 one-click installer + smoke check ([4b144fc](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4b144fc79d9abd9049b8442a788a3241cb2efa49))
+* migrate skills to adobepy facade ([#10](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/10)) ([6704c18](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6704c1841f43020fe9f5188664b8497c68537bc8))
+* PIP-673 adapter capabilities and code convergence ([74cd493](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/74cd4938315d3bb3fb0ee1697b27da47505e2fc4))
+* stability improvements toward Maya parity (PIP-1775) ([d562120](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d56212016522b5b05e8eb0200ca0ff2c638d724e))
+* stability improvements toward Maya parity (PIP-1775) ([fa0dfd8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/fa0dfd8086ca97a391be8aa47cdc005524a51173))
+* stability improvements toward Maya parity (PIP-1775) ([#60](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/60)) ([d562120](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d56212016522b5b05e8eb0200ca0ff2c638d724e))
+* switch packaging from PyInstaller to PyOxidizer ([f0a7f63](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f0a7f631561f2528a447770ddd2fec43ca118c9f))
+* upgrade to dcc-mcp-core 0.12.23 gateway mode with progressive skill loading ([1df9736](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/1df97365ddd205aa90b4390151840693f7c5f3fb))
+
+
+### Bug Fixes
+
+* adapt DccServerBase to core v0.18.14 DccServerOptions API ([9dd79ff](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/9dd79ffab6566103d9986d1fbf1090a7316be6e0))
+* add missing _hidden_vbs_launcher, _sidecar_launcher, _sidecar_stopper to pack_plugin.py ([12429fb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/12429fbffbb806057bd610771ee9358f11b43740))
+* add missing _write_bridge_url_to_config and _remove_bridge_config to api.py ([9ac1582](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/9ac1582867ceff55ab636e6f13808617dbe85f27))
+* add missing _write_bridge_url_to_config and _remove_bridge_config to api.py ([e3b83a7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e3b83a72cedf3c633696fc5f1e01248005cc5713))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([197e069](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/197e0696f4c71e71da2d0c3124077b6927f0f3b0))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([197e069](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/197e0696f4c71e71da2d0c3124077b6927f0f3b0))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([b0aae72](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b0aae72f1b3ab409ab2fe15660e7730f4da6c8e2))
+* add pyoxidizer installation in release build-binary job ([e743b0d](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e743b0de88f6f297502681019538be83131113f9))
+* add sidecar download and staging steps to CI build-uxp-plugin job ([31bfd19](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/31bfd197d1352f5413445c1d70cbdf95b877b889))
+* apply ruff format to bridge.py to fix CI lint ([327151c](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/327151cda20a456194b1be19f884428fab0636b6))
+* apply ruff format to test_agent_instruction_files.py ([a233860](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a2338605d1e6852dbbc421293e84fca34a415c90))
+* apply ruff formatting to conftest.py and test_protocol.py ([dccc761](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/dccc76167b29b567833e93de7cade96a7accfa1e))
+* apply ruff formatting to conftest.py and test_protocol.py ([6ed1a5f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6ed1a5f0d3d406d5b66f7cad800d314f8a1ecc47))
+* **ci:** handle missing bridge/uxp-plugin in release workflow ([c64fe21](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c64fe211dbaa1282a62e502df844e143a6893e8c))
+* **ci:** isolate workflow_dispatch from push concurrency in release workflow ([#12](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/12)) ([b482f06](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b482f065a0092f6b74eb3eb9842f98e826061dc2))
+* correct lint_skills.py path resolution (scripts/scripts double nesting), update cli.py ([958fb14](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/958fb148a476d9c45d746e5842022434e6a37eaa))
+* correct release-please README path to uppercase README.md ([b21ee68](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b21ee689b0077edd12411034521081309cb379a7))
+* correct skill count and remove broken references in README ([dbb7e83](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/dbb7e832c26c61ba9bb5610530710a5926672408))
+* implement BridgeRpcServer, add _posix_sidecar_launcher and pack lint ([4b4fd99](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4b4fd9912589c72c9c0090c92f09a767db978d2d))
+* remove hardcoded version URLs, add README to release-please extra-files ([0387c5d](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0387c5d70579446000b01e88f2070128ec2702f6))
+* remove pip install step from Quick Start — everything is bundled in .ccx ([ac446d7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/ac446d7d60c29d96adb4d49e77db19b5ab163fab))
+* remove pip install step from Quick Start — everything is bundled in .ccx ([b6d621b](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b6d621bb6e3ad44cd723f45186329ba5070cacff))
+* remove stale PhotoshopBridgePlugin imports from __init__.py ([a65ac35](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a65ac35aadda18b1fac8358350b7a0ab57f176c3))
+* remove unused pathlib.Path import to pass ruff F401 lint ([3969c2f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3969c2ffb4afc3241152f7884fb310d6ec9d8ce4))
+* remove unused pathlib.Path import to pass ruff F401 lint ([5ffc642](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5ffc642a2264465b065dc0cc857efdaba1bbfdab))
+* remove unused socketserver import, restore missing _update_manifest_version ([676213c](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/676213c986adf32c0a08d1388df8f98b1d0e3d44))
+* resolve ruff lint and format issues in photoshop-setup scripts ([43684df](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/43684dfcc204e14803173165ab0faf95b6335e03))
+* resolve ruff lint errors (F401, I001, B904) ([262d43f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/262d43fb6c6534c60b7e08cf5b26de8e437aaeeb))
+* resolve ruff lint errors (F401, I001, B904) ([74da278](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/74da278bfd1a2c180e15b7584a1f4b62b0b6abc5))
+* restore _hidden_vbs_launcher, _sidecar_launcher, _sidecar_stopper to pack_plugin.py ([75d3761](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/75d3761568c7e076a5370cabb75413cac499a98b))
+* restore sidecar helper functions to pack_plugin.py ([ee6bdea](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/ee6bdeaebb2481f2ff03418d7658febdfdedec24))
+* restrict release workflow builds to tag push only ([4a60114](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4a6011454cb24bf95d2d7b09e99c0889d36cbedd))
+* ruff format src/ tests/ ([a4f756f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a4f756f29b10cd871cb4a27e49b69a131c2fc4ca))
+* ruff import organization in test_agent_instruction_files.py ([578fb45](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/578fb454c173fa699fcf928478a8e1321ff4b479))
+* run ruff format on configure_mcp_client.py to pass CI lint ([b65a4b7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b65a4b7ca48b27de60330328e1c0c1af0cfd2abd))
+* run ruff format on configure_mcp_client.py to pass CI lint ([86e5260](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/86e5260ff56dc1457065856ddcadda444d2a1eaf))
+* standalone binary build for dcc-mcp-photoshop (PyOxidizer fixes) ([db108a0](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/db108a0ebcb7f47a1d81e538d24716bc33820e6d))
+* sync manifest.json version and add release version validation ([#50](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/50)) ([c2e7514](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c2e7514417a0c1e565b01cdca67670ac9f208529))
+* update capability tests for adobepy_broker migration ([d06b437](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d06b43778a9cfb8e382de300b418bb199bf77a60))
+* update version assertion 0.1.21 -&gt; 0.1.23 in test_import ([8b6499e](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/8b6499efa950310c88be3b8c94a2ff20bac032e8))
+* use concurrent.futures.TimeoutError for cross-version compat ([07bbae4](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/07bbae4144d81d79a93519c8f5c38d2cd181cac8))
+* use uppercase README filenames and unify MCP config to gateway URL ([41427d5](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/41427d5df951c8f5766cf6df4d5c76b9518337c0))
+
+
+### Code Refactoring
+
+* migrate PhotoshopMcpServer to extend DccServerBase (4-seam controller PIP-688) ([c36f85f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c36f85ff33a8d20d5adf3a44bb73a2c3feb11cda))
+
+
+### Documentation
+
+* add agent-facing docs and fix stale references ([5764eb3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5764eb35f3f2ff934729302ce9ebc3db15ead480))
+* add bilingual quick-start to README with plugin install and gateway config ([b77057d](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b77057dbd542e2c12cda13c61ff6fb9d109e21a5))
+* add bilingual quick-start to README with plugin install and gateway config ([78f79eb](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/78f79eb053377ea2b65f44bf543375328352160f))
+* add one-click installer docs and install/upgrade/uninstall/rollback examples ([872d764](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/872d7641c7135d9b920e7cf8fb55cf930c5ad377))
+* unify gateway URL to /mcp endpoint in README ([7ff4655](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/7ff4655092a873a7c23519f2f2d3a07b7a0f4884))
+* unify gateway URL to /mcp endpoint in README ([8fb515e](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/8fb515e92cae41adcd7d73361966bdff14000e42))
+* update README with comprehensive MCP installation and configuration guide ([e7e5dd0](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e7e5dd06ef230d9c43592fefb931655803d80cea))
+
 ## [0.1.23](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.22...v0.1.23) (2026-06-17)
 
 
