@@ -1,0 +1,131 @@
+# dcc-mcp-photoshop
+
+> Adobe Photoshop adapter for the DCC MCP ecosystem: bridges MCP tools to Photoshop via UXP WebSocket.
+
+## Quick Start
+
+```
+# Start embedded dev server (bridge + MCP in one process)
+dcc-mcp-photoshop --embedded
+
+# Or with external dcc-mcp-server (deployment):
+# 1) Start dcc-mcp-server pointing to this DCC
+dcc-mcp-server --dcc photoshop --mcp-port 8765 --skill-paths ./skills --no-bridge
+# 2) Start the bridge
+dcc-mcp-photoshop
+
+# MCP client connects to:
+#   http://127.0.0.1:9765/mcp        (gateway, auto-routes to photoshop)
+#   http://127.0.0.1:8765/mcp        (direct per-DCC port)
+```
+
+## Agent Workflow
+
+```
+1. search_skills("photoshop")     → discover photoshop-* skills
+2. load_skill("photoshop-setup")  → expose setup tools
+3. (optional) check_environment   → verify Photoshop + bridge status
+4. load_skill("photoshop-document") → expose document tools
+5. get_document_info              → inspect active doc
+6. list_layers                    → list all layers
+7. load_skill("photoshop-layers")  → expose layer tools
+8. create_layer / set_layer_opacity / ... → manipulate layers
+```
+
+## Available Tools by Skill
+
+### photoshop-setup
+| Tool | Description |
+|------|-------------|
+| `check_environment` | Check system prerequisites |
+| `install_package` | Install/upgrade dcc-mcp-photoshop via pip |
+| `setup_uxp_plugin` | Install .ccx plugin into Photoshop |
+| `start_server` | Start embedded server for dev |
+| `verify_connection` | End-to-end bridge connection check |
+| `configure_mcp_client` | Auto-write MCP client config |
+
+### photoshop-document
+| Tool | Description |
+|------|-------------|
+| `get_document_info` | Active document metadata |
+| `list_layers` | List layers (optional hidden filter) |
+
+### photoshop-image
+| Tool | Description |
+|------|-------------|
+| `create_document` | New document with dimensions/resolution |
+| `export_document` | Export as PNG/JPG/TIFF/PSD |
+| `save_document` | Save in-place |
+| `resize_canvas` | Change canvas size without resampling |
+| `resize_image` | Scale image (resamples content) |
+| `flatten_image` | Flatten to single layer |
+| `merge_visible_layers` | Merge visible layers |
+
+### photoshop-layers
+| Tool | Description |
+|------|-------------|
+| `create_layer` | Create pixel/group/adjustment layer |
+| `delete_layer` | Delete a named layer |
+| `duplicate_layer` | Duplicate a layer |
+| `rename_layer` | Rename a layer |
+| `set_layer_opacity` | Set opacity 0-100 |
+| `set_layer_visibility` | Show/hide a layer |
+| `set_layer_blend_mode` | Set blend mode (normal, multiply, etc.) |
+| `fill_layer` | Fill with solid color or transparent |
+
+### photoshop-text
+| Tool | Description |
+|------|-------------|
+| `create_text_layer` | Create text layer with full styling |
+| `update_text_layer` | Update text content or style |
+| `get_text_layer_info` | Read text properties |
+
+## CLI Options
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--embedded` | false | MCP server + bridge in one process (dev only) |
+| `--daemon` | false | Non-interactive background startup |
+| `--bridge-only` | true | Bridge-only mode (for use with dcc-mcp-server) |
+| `--mcp-port` | 8765 | MCP HTTP server port (embedded mode) |
+| `--ws-port` | 9001 | WebSocket bridge port for UXP plugin |
+| `--ws-host` | localhost | WebSocket bind host |
+| `--rpc-port` | 9100 | HTTP RPC server port |
+| `--gateway-port` | 9765 | Gateway competition port (embedded mode) |
+| `--server-name` | photoshop-mcp | Server name reported in MCP |
+| `--skill-paths` | [] | Extra skill directories |
+| `--no-builtins` | false | Skip built-in skills |
+| `--verbose/-v` | false | Enable debug logging |
+
+## Architecture
+
+The Python process (dcc-mcp-photoshop) runs a WebSocket server on port 9001. The UXP JavaScript plugin inside Photoshop connects to it as a WebSocket client — this direction is required because UXP supports WebSocket client mode only.
+
+```json
+{
+  "mcpServers": {
+    "photoshop": {
+      "url": "http://127.0.0.1:9765/mcp"
+    }
+  }
+}
+```
+
+## Protocol
+
+Bridge communication uses JSON-RPC 2.0 over WebSocket. See `docs/bridge-protocol.md` for full specification.
+
+## Dependencies
+
+- `dcc-mcp-core>=0.18.14,<1.0.0`
+- `websockets>=12.0`
+- Python >=3.8
+- Adobe Photoshop 2022+
+
+## Distribution
+
+- **PyPI**: `pip install dcc-mcp-photoshop`
+- **Standalone binary**: GitHub Releases (no Python needed)
+- **UXP .ccx plugin**: GitHub Releases
+
+See `docs/distribution.md` for full details.

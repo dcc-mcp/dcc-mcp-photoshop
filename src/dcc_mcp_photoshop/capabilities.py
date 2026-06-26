@@ -8,9 +8,9 @@ Key differences from embedded-Python DCCs (Maya, Blender):
 
 - ``has_embedded_python = False`` — Photoshop does not ship a Python interpreter;
   all automation runs via the UXP JavaScript API.
-- ``bridge_kind = "websocket"`` — Communication uses a JSON-RPC WebSocket bridge
-  provided by the ``bridge/uxp-plugin/`` UXP plugin.
-- ``bridge_endpoint = "ws://localhost:9001"`` — Python WebSocket server address (UXP plugin connects to Python, not vice versa).
+- ``bridge_kind = "adobepy_broker"`` — Communication uses the adobepy Rust broker
+  (port 47391) which proxies between Python SDK and the UXP bridge.
+- ``bridge_endpoint = "http://127.0.0.1:47391"`` — adobepy broker HTTP endpoint.
 
 Supported capability flags for Photoshop:
 
@@ -54,10 +54,10 @@ def photoshop_capabilities():
         snapshot=True,
         file_operations=True,
         has_embedded_python=False,
-        # Bridge mode: Python communicates via WebSocket JSON-RPC to UXP plugin
-        bridge_kind="websocket",
-        # Python is the WS server (port 9001); UXP plugin connects to it
-        bridge_endpoint="ws://localhost:9001",
+        # Bridge mode: Python communicates via adobepy Rust broker to UXP bridge
+        bridge_kind="adobepy_broker",
+        # adobepy broker HTTP endpoint (Python SDK connects here)
+        bridge_endpoint="http://127.0.0.1:47391",
     )
 
 
@@ -70,6 +70,6 @@ PHOTOSHOP_CAPABILITIES_DICT = {
     "snapshot": True,
     "file_operations": True,
     "has_embedded_python": False,
-    "bridge_kind": "websocket",
-    "bridge_endpoint": "ws://localhost:9001",
+    "bridge_kind": "adobepy_broker",
+    "bridge_endpoint": "http://127.0.0.1:47391",
 }

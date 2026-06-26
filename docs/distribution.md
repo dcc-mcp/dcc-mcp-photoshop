@@ -12,6 +12,7 @@ release-please based GitHub release workflow that produces all artifacts.
 | PyPI | `dcc-mcp-photoshop` wheel + sdist | Python 3.8+ | Server-side MCP setup |
 | GitHub Release | Standalone binary (Win/Linux/Mac) | None | Zero-Python deployment |
 | GitHub Release | UXP `.ccx` plugin | Photoshop 2022+ | In-Photoshop bridge |
+| Setup Skill | `photoshop-setup` (MCP skill) | Python 3.8+ | One-click guided install via AI agent |
 
 ### 1. PyPI (Python package)
 
@@ -46,7 +47,7 @@ No Python runtime required.
 
 ```bash
 # Download and run (example: Linux)
-curl -L https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/download/v0.2.0/dcc-mcp-photoshop-linux \
+curl -L https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/latest/download/dcc-mcp-photoshop-linux \
   -o dcc-mcp-photoshop
 chmod +x dcc-mcp-photoshop
 ./dcc-mcp-photoshop --help
@@ -71,13 +72,58 @@ server that the Python or binary bridge connects to.
 **Install manually (Windows):**
 ```powershell
 # Copy the .ccx to the system plugin directory
-copy dcc-mcp-photoshop-bridge-0.2.0.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
+copy dcc-mcp-photoshop-bridge-<version>.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
 ```
 
 **Install manually (macOS):**
 ```bash
-cp dcc-mcp-photoshop-bridge-0.2.0.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
+cp dcc-mcp-photoshop-bridge-<version>.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
 ```
+
+### 4. One-Click Installer (photoshop-setup skill)
+
+The `photoshop-setup` MCP skill provides a guided installation workflow
+driven by the AI agent. It is the recommended entry point for new users.
+
+**Load the skill:**
+```text
+load_skill("photoshop-setup")
+```
+
+**Available tools:**
+
+| Tool | Description |
+|------|-------------|
+| `check_environment` | Check system prerequisites |
+| `install_package` | Install/upgrade the Python package via pip |
+| `setup_uxp_plugin` | Install UXP .ccx plugin into Photoshop |
+| `start_server` | Start server in dev mode |
+| `verify_connection` | Verify bridge connection |
+| `configure_mcp_client` | Auto-configure MCP client configs |
+
+**Standard workflow:**
+
+```text
+check_environment → install_package → setup_uxp_plugin → configure_mcp_client → verify_connection
+```
+
+**Version pinning** — Install a specific version for compatibility:
+```text
+install_package(version="0.1.14")
+```
+
+**Upgrade** — Update to the latest PyPI release:
+```text
+install_package(upgrade=True)
+```
+
+**Rollback** — Revert to a previous version:
+```text
+install_package(version="0.1.13")
+```
+
+The skill lives in `src/dcc_mcp_photoshop/skills/photoshop-setup/` and
+ships with the Python package and standalone binary.
 
 ---
 
@@ -132,7 +178,7 @@ The following table shows which versions of each component work together:
 | Photoshop Plugin (.ccx) | dcc-mcp-photoshop | dcc-mcp-core | Sidecar Binary |
 |-------------------------|-------------------|--------------|----------------|
 | 0.1.x | 0.1.x | >=0.12.14,<1.0.0 | dcc-mcp-server >=0.12.14 |
-| 0.2.x | 0.2.x | >=0.18.2,<1.0.0 | dcc-mcp-server >=0.18.2 |
+| 0.2.x | 0.2.x | >=0.18.14,<1.0.0 | dcc-mcp-server >=0.18.14 |
 
 Version alignment rules:
 
@@ -178,9 +224,9 @@ replaces the release assets.
 ### Artifact set per release
 
 ```
-dcc-mcp-photoshop-0.2.0-py3-none-any.whl          # Python wheel
-dcc-mcp-photoshop-0.2.0.tar.gz                       # Python sdist
-dcc-mcp-photoshop-bridge-0.2.0.ccx                   # UXP plugin
+dcc-mcp-photoshop-<version>-py3-none-any.whl          # Python wheel
+dcc-mcp-photoshop-<version>.tar.gz                       # Python sdist
+dcc-mcp-photoshop-bridge-<version>.ccx                   # UXP plugin
 dcc-mcp-photoshop-windows.exe                        # Windows binary
 dcc-mcp-photoshop-linux                              # Linux binary
 dcc-mcp-photoshop-macos                              # macOS binary

@@ -122,3 +122,35 @@ tools:
     read_only: true
     destructive: false
     idempotent: true
+
+  - name: configure_mcp_client
+    description: "Configure MCP client (Claude Desktop, Cursor, VS Code) with the gateway URL — auto-writes config or prints manual steps."
+    source_file: scripts/configure_mcp_client.py
+    inputSchema:
+      type: object
+      properties:
+        client_type:
+          type: string
+          enum: [claude_desktop, cursor, vscode, all]
+          default: claude_desktop
+          description: |
+            Target MCP client to configure:
+            - claude_desktop: Write/update claude_desktop_config.json
+            - cursor: Print manual setup guide (Cursor requires UI input)
+            - vscode: Write/update VS Code settings.json
+            - all: Configure all detected clients
+        server_name:
+          type: string
+          default: photoshop
+          description: Server name shown in the MCP client configuration.
+        gateway_url:
+          type: string
+          default: "http://127.0.0.1:9765/mcp"
+          description: Gateway MCP endpoint URL.
+        overwrite:
+          type: boolean
+          default: false
+          description: Replace existing config instead of merging with it.
+    read_only: false
+    destructive: false
+    idempotent: true
