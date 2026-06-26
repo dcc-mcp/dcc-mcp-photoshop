@@ -143,7 +143,7 @@ jobs:
 
       - name: Start server briefly and verify it responds
         run: |
-          dcc-mcp-photoshop --port 0 --no-broker-check &
+          dcc-mcp-photoshop --mcp-port 0 &
           SERVER_PID=$!
           sleep 2
           kill $SERVER_PID 2>/dev/null || true
