@@ -8,7 +8,12 @@ import pytest
 def test_import():
     import dcc_mcp_photoshop
 
-    assert dcc_mcp_photoshop.__version__ == "0.1.24"
+    assert dcc_mcp_photoshop.__version__
+    # Verify semver format (major.minor.patch) — never pin exact version;
+    # release-please bumps trigger CI failures on hardcoded assertions.
+    parts = dcc_mcp_photoshop.__version__.split(".")
+    assert len(parts) == 3, f"Expected semver, got {dcc_mcp_photoshop.__version__}"
+    assert all(p.isdigit() for p in parts), f"Version parts must be numeric: {parts}"
 
 
 def test_api_imports():
