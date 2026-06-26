@@ -1,0 +1,27 @@
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: end-of-file-fixer
+      - id: trailing-whitespace
+      - id: check-added-large-files
+
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.11.0
+    hooks:
+      - id: ruff
+        args: ["check", "src/", "tests/"]
+      - id: ruff-format
+        args: ["--check", "src/", "tests/"]
+
+  - repo: local
+    hooks:
+      - id: lint-skills
+        name: Lint SKILL.md files
+        entry: python tools/lint_skills.py --error-only
+        language: python
+        additional_dependencies: [pyyaml]
+        pass_filenames: false
+        files: '^src/dcc_mcp_photoshop/skills/.*/SKILL\.md$'

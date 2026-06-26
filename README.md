@@ -1,82 +1,321 @@
 # dcc-mcp-photoshop
 
-[![PyPI](https://img.shields.io/pypi/v/dcc-mcp-photoshop)](https://pypi.org/project/dcc-mcp-photoshop/)
-[![Python 3.8+](https://img.shields.io/badge/python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![Status: Alpha](https://img.shields.io/badge/status-alpha-yellow)](https://github.com/dcc-mcp/dcc-mcp-photoshop)
-[![Release](https://img.shields.io/github/v/release/dcc-mcp/dcc-mcp-photoshop)](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases)
+Bring Adobe Photoshop to MCP-native AI agents.
 
-Adobe Photoshop adapter for the [DCC Model Context Protocol](https://github.com/dcc-mcp/dcc-mcp-core) ecosystem.
-Bridges AI agents (Claude Desktop, Cursor, GitHub Copilot) to Adobe Photoshop via a UXP WebSocket plugin.
+`dcc-mcp-photoshop` turns Photoshop into a standards-compliant **MCP Streamable HTTP** backend via the [adobepy](https://github.com/dcc-mcp/adobepy) Rust broker and UXP bridge. Agents can inspect documents, create and edit layers, apply text, filters, smart objects, selections, export images, and automate Photoshop workflows through typed tools instead of brittle ad-hoc scripts.
 
----
+The Python MCP server communicates with Photoshop through the adobepy Rust broker (port 47391), which proxies between the Python SDK and the UXP bridge running inside Photoshop.
+
+[![CI](https://github.com/dcc-mcp/dcc-mcp-photoshop/actions/workflows/ci.yml/badge.svg)](https://github.com/dcc-mcp/dcc-mcp-photoshop/actions/workflows/ci.yml)
+[![codecov](https://codecov.io/gh/dcc-mcp/dcc-mcp-photoshop/graph/badge.svg)](https://codecov.io/gh/dcc-mcp/dcc-mcp-photoshop)
+[![GitHub release](https://img.shields.io/github/v/release/dcc-mcp/dcc-mcp-photoshop?label=release)](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases)
+[![GitHub release date](https://img.shields.io/github/release-date/dcc-mcp/dcc-mcp-photoshop?label=released)](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases)
+[![Last commit](https://img.shields.io/github/last-commit/dcc-mcp/dcc-mcp-photoshop?label=last%20commit)](https://github.com/dcc-mcp/dcc-mcp-photoshop/commits/main/)
+[![Issues](https://img.shields.io/github/issues/dcc-mcp/dcc-mcp-photoshop?label=issues)](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues)
+[![Pull requests](https://img.shields.io/github/issues-pr/dcc-mcp/dcc-mcp-photoshop?label=PRs)](https://github.com/dcc-mcp/dcc-mcp-photoshop/pulls)
+[![PyPI](https://img.shields.io/pypi/v/dcc-mcp-photoshop?label=PyPI)](https://pypi.org/project/dcc-mcp-photoshop/)
+[![PyPI downloads](https://img.shields.io/pypi/dm/dcc-mcp-photoshop?label=downloads%2Fmonth)](https://pypistats.org/packages/dcc-mcp-photoshop)
+[![Downloads](https://static.pepy.tech/badge/dcc-mcp-photoshop)](https://pepy.tech/project/dcc-mcp-photoshop)
+[![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-photoshop?label=Python)](https://pypi.org/project/dcc-mcp-photoshop/)
+[![Photoshop](https://img.shields.io/badge/Photoshop-2022%2B-001E36)](https://www.adobe.com/products/photoshop.html)
+[![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-6f42c1)](https://modelcontextprotocol.io/)
+[![dcc-mcp-core](https://img.shields.io/badge/dcc--mcp--core-%3E%3D0.18.14-blue)](https://github.com/dcc-mcp/dcc-mcp-core)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+## Why Use It
+
+| What you get | Why it matters |
+|---|---|
+| **40+ typed Photoshop tools** across 8 bundled skill packages | Agents can call validated tools for document, layer, image, text, selection, filter, smart object, and script operations. |
+| **adobepy Rust broker** | High-performance local proxy between Python SDK and UXP bridge. |
+| **Sidecar isolation** | Python MCP server runs outside Photoshop's UI thread; adobepy broker handles all host communication. |
+| **Gateway compatible** | Works with `dcc-mcp-server` sidecar for multi-DCC deployments alongside Maya, Houdini, Blender, etc. |
+| **Multi-channel distribution** | Available as PyPI package, standalone binary (no Python runtime), or UXP `.ccx` plugin. |
+| **One-click setup** | The `photoshop-setup` skill automates environment checks, plugin installation, and MCP client configuration. |
+
+## Quick Start
+
+### Prerequisites
+
+1. **adobepy broker** — Install and start the Rust broker:
+   ```bash
+   cargo install adobepy-cli
+   adobepy broker
+   ```
+
+2. **adobepy UXP bridge** — Install in Photoshop:
+   ```bash
+   adobepy install-bridge photoshop
+   ```
+
+### 1. Install dcc-mcp-photoshop
+
+### 2. Configure your MCP client
+
+Point your MCP client to the **gateway URL**. The gateway auto-discovers which DCC (Photoshop, Maya, etc.) to route each tool call to, so you only need one endpoint:
+
+```json
+{
+  "mcpServers": {
+    "photoshop": {
+      "url": "http://127.0.0.1:9765/mcp"
+    }
+  }
+}
+```
+
+### 3. Smoke test
+
+```text
+Search for Photoshop tools, load the photoshop-document skill, and list layers in the current document.
+```
 
 ## Architecture
 
 ```
 AI Agent (Claude Desktop / Cursor / Copilot)
-    │  MCP Streamable HTTP (port 8765)
+    │  MCP Streamable HTTP (gateway port 9765)
     ▼
-PhotoshopMcpServer  [this package, Python]
-    │  WebSocket JSON-RPC (port 9001)
+dcc-mcp-server Gateway
+    │  auto-discovers DCC via capability index
     ▼
-UXP Plugin  [bridge/uxp-plugin/, JavaScript]
+PhotoshopMcpServer  [Python sidecar]
+    │  HTTP JSON-RPC (port 47391)
+    ▼
+adobepy Rust Broker  [adobepy broker]
+    │  WebSocket (port 47391)
+    ▼
+adobepy UXP Bridge  [bridges/uxp/photoshop/, TypeScript]
     │  Photoshop UXP API
     ▼
 Adobe Photoshop 2022+
 ```
 
 **Key architectural decisions:**
-- Python runs a **WebSocket server** on port 9001; the UXP plugin connects to it as a **WebSocket client** (UXP only supports WS client mode).
-- The MCP server (HTTP on port 8765) and the WebSocket bridge can run in the same process (embedded, dev only) or separately (gateway mode, recommended for deployment).
-- All Photoshop automation goes through the [adobepy](https://github.com/dcc-mcp/adobepy) facade layer, which abstracts over the WebSocket bridge.
+- The **adobepy Rust broker** (port 47391) is the central hub — Python SDK and UXP bridge both connect to it.
+- Python MCP server runs independently (port 8765); skill scripts use `adobe.photoshop.Photoshop()` facade to call the broker.
+- The adobepy UXP bridge (`bridges/uxp/photoshop/`) handles all Photoshop DOM operations with 60+ typed methods.
+- All Photoshop automation goes through the [adobepy](https://github.com/dcc-mcp/adobepy) facade layer, which abstracts over the broker.
 
-## Features
+## Tool Surface
 
-**Current (v0.1.x):**
-- ✅ UXP plugin (WebSocket client inside Photoshop) with exponential back-off reconnect
-- ✅ `PhotoshopBridge` WebSocket server (Python, port 9001) with JSON-RPC 2.0 protocol
-- ✅ 20+ Photoshop skills across 4 skill packages
-- ✅ Skill authoring helpers (`ps_success`, `ps_error`, `with_photoshop`)
-- ✅ `PhotoshopMcpServer` wrapping `dcc-mcp-core` (4-seam controller)
-- ✅ Standalone binary (no Python runtime required)
-- ✅ Cross-process RPC bridge support for gateway mode
-- ✅ Lazy skill loading via `load_skill` meta-tool
+Skills are **lazy-loaded**: only meta-tools are available initially. Use `load_skill` to expand:
 
-**Planned:**
-- [ ] Smart Object operations
-- [ ] Selection tools (marquee, magic wand, lasso)
-- [ ] Filter application (blur, sharpen, noise, etc.)
-- [ ] Color adjustments (levels, curves, hue/saturation)
-- [ ] Batch processing
-- [ ] Photoshop 2025+ UXP API compatibility
+```
+search_skills / dcc_capability_manifest
+  -> load_skill("photoshop-document")
+  -> list_layers(...)
+```
 
-## Requirements
+### photoshop-document
 
-- **Photoshop**: Adobe Photoshop 2022+ (UXP support required)
-- **Python** (pip path only): Python 3.8+
-- **Dependencies** (auto-installed with pip):
-  - `dcc-mcp-core >= 0.18.14, < 1.0.0`
-  - `adobepy >= 0.1.0`
-  - `websockets >= 12.0`
+Document information, listing, and lifecycle management.
 
-| Path | Photoshop Required? | Python Required? |
-|------|-------------------|-----------------|
-| pip install | Yes (UXP plugin) | Yes |
-| Standalone binary | Yes (UXP plugin) | No |
-| UXP .ccx plugin only | Yes | No (bridge binary only) |
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `get_document_info` | Get metadata about the active Photoshop document (name, size, resolution, color mode) | ✅ |
+| `list_documents` | List all currently open Photoshop documents with metadata | ✅ |
+| `list_layers` | List all layers in the active document. Set `include_hidden=false` to exclude hidden layers | ✅ |
+| `close_document` | Close a Photoshop document by ID or the active document | ❌ |
+
+### photoshop-image
+
+Document creation, export, canvas/image resize, flatten, and merge operations.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `create_document` | Create a new document with specified dimensions, resolution and color mode | ❌ |
+| `export_document` | Export the active document to PNG, JPG, TIFF, or PSD | ❌ |
+| `save_document` | Save the active document in its current format | ❌ |
+| `resize_canvas` | Resize canvas without scaling content | ❌ |
+| `resize_image` | Scale the image (resamples content) | ❌ |
+| `flatten_image` | Flatten all layers into a single background layer | ❌ |
+| `merge_visible_layers` | Merge all visible layers | ❌ |
+
+### photoshop-layers
+
+Full CRUD for layers plus visual property changes.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `create_layer` | Create a pixel, group, or adjustment layer | ❌ |
+| `delete_layer` | Delete a named layer | ❌ |
+| `duplicate_layer` | Duplicate a named layer | ❌ |
+| `rename_layer` | Rename a layer | ❌ |
+| `set_layer_opacity` | Set opacity (0-100) of a named layer | ❌ |
+| `set_layer_visibility` | Show or hide a named layer | ❌ |
+| `set_layer_blend_mode` | Set blend mode (normal, multiply, screen, overlay, etc., 27 modes) | ❌ |
+| `fill_layer` | Fill a layer with solid color (hex) or transparent | ❌ |
+
+### photoshop-text
+
+Text layer creation, editing, and inspection.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `create_text_layer` | Create a new text layer with content and styling (font, size, color, alignment) | ❌ |
+| `update_text_layer` | Update text content or style of an existing text layer | ❌ |
+| `get_text_layer_info` | Get text content and style properties of a text layer | ✅ |
+
+### photoshop-selection
+
+Selection creation, modification, and saving.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `get_selection` | Get current selection bounds (top, left, bottom, right) | ✅ |
+| `select_all` | Select the entire canvas | ❌ |
+| `deselect` | Deselect any active selection | ❌ |
+| `select_rectangle` | Create a rectangular selection (top, left, bottom, right in pixels) | ❌ |
+| `select_ellipse` | Create an elliptical selection | ❌ |
+| `inverse_selection` | Invert the current selection | ❌ |
+| `expand_selection` | Expand selection by N pixels | ❌ |
+| `contract_selection` | Contract selection by N pixels | ❌ |
+| `feather_selection` | Feather selection by N pixels | ❌ |
+| `save_selection` | Save selection as a named alpha channel | ❌ |
+
+### photoshop-filter
+
+Apply filters to layers.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `apply_gaussian_blur` | Apply Gaussian Blur (radius in pixels) | ❌ |
+| `apply_high_pass` | Apply High Pass filter (radius in pixels) | ❌ |
+| `apply_sharpen` | Apply Sharpen filter | ❌ |
+| `apply_smart_blur` | Apply Smart Blur (radius + threshold) | ❌ |
+| `apply_filter` | Generic filter by method name with arguments | ❌ |
+
+### photoshop-smart-object
+
+Smart Object operations for non-destructive editing.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `convert_to_smart_object` | Convert the active layer to a Smart Object | ❌ |
+| `new_smart_object_via_copy` | Create a new Smart Object by duplicating the active layer | ❌ |
+| `edit_smart_object_contents` | Open the Smart Object for editing | ❌ |
+| `replace_smart_object_contents` | Replace Smart Object contents with an external file | ❌ |
+
+### photoshop-script
+
+Execute scripts and actions for advanced automation.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `execute_script` | Execute arbitrary JavaScript/UXP code in Photoshop | ❌ |
+| `execute_action` | Execute a named Photoshop Action from an Action Set | ❌ |
+
+### photoshop-adjustment
+
+Channel operations and low-level batchPlay access.
+
+| Tool | Description | Read-only |
+|------|-------------|-----------|
+| `batch_play` | Execute raw ActionDescriptor batchPlay commands | ❌ |
+| `get_channels` | Get channel information for the active document | ✅ |
+| `add_channel` | Add a new alpha channel | ❌ |
+| `remove_channel` | Remove a named channel | ❌ |
+
+## Runtime Features
+
+| Feature | Surface |
+|---|---|
+| Capability manifest | `dcc_capability_manifest({"loaded_only": false})` returns a compact index of loaded and unloaded Photoshop skills. |
+| adobepy broker | Local Rust proxy (port 47391) with session management and timeout control. |
+| Persistent logging | Logs written to `~/.dcc-mcp/logs/` (configurable via `DCC_MCP_PHOTOSHOP_LOG_DIR`). |
+| Lazy skill loading | `load_skill` meta-tool expands the tool surface on demand. |
+
+## One-Click Installer
+
+The `photoshop-setup` skill provides a complete installer workflow that automates environment checks, package installation, UXP plugin setup, and MCP client configuration.
+
+```
+load_skill("photoshop-setup")
+```
+
+### Tools
+
+| Tool | Description |
+|------|-------------|
+| `check_environment` | Check system prerequisites (Python, pip, Photoshop) |
+| `install_package` | Install or upgrade dcc-mcp-photoshop via pip |
+| `setup_uxp_plugin` | Install UXP .ccx plugin into Photoshop |
+| `start_server` | Start server in dev mode for testing |
+| `verify_connection` | Verify bridge connection to Photoshop |
+| `configure_mcp_client` | Auto-configure MCP client configs for Claude Desktop, Cursor, VS Code |
+
+### Standard Install Flow
+
+```text
+check_environment → install_package → setup_uxp_plugin → configure_mcp_client → verify_connection
+```
+
+1. **check_environment** — Verifies Python, pip, and Photoshop are available.
+2. **install_package** — Installs `dcc-mcp-photoshop` and dependencies from PyPI.
+3. **setup_uxp_plugin** — Installs the `.ccx` plugin into Photoshop.
+4. **configure_mcp_client** — Sets up `mcpServers` entries for Claude Desktop, Cursor, and VS Code.
+5. **verify_connection** — Confirms the bridge is connected and Photoshop responds.
+
+### Installing a Specific Version
+
+Pin to a specific version for compatibility with your existing dcc-mcp-core deployment:
+
+```text
+install_package(version="0.1.14")
+```
+
+### Upgrading
+
+Upgrade `dcc-mcp-photoshop` and its dependencies to the latest version on PyPI:
+
+```text
+install_package(upgrade=True)
+```
+
+### Rolling Back
+
+Install a previous version to roll back from a regression. The UXP plugin version must match the Python package version:
+
+```text
+install_package(version="0.1.13")
+```
+
+### Uninstalling
+
+Remove the Python package via pip:
+
+```bash
+pip uninstall dcc-mcp-photoshop
+```
+
+Remove the UXP plugin from Creative Cloud Desktop → Plugins → Manage Plugins, or delete the `.ccx` from the UXP plugins directory:
+
+```powershell
+# Windows
+Remove-Item "$env:APPDATA\Adobe\UXP\Plugins\External\dcc-mcp-photoshop-bridge-*.ccx"
+```
+
+```bash
+# macOS
+rm ~/Library/Application\ Support/Adobe/UXP/Plugins/External/dcc-mcp-photoshop-bridge-*.ccx
+```
 
 ## Installation
 
-dcc-mcp-photoshop ships through **three distribution channels**. Choose the one that fits your environment.
-
-### 1. PyPI (Python package)
+### PyPI
 
 ```bash
 pip install dcc-mcp-photoshop
 ```
 
-Or via `uvx` (uv's pip interface):
+Install with sidecar dependencies (recommended for the default plugin gateway mode):
+
+```bash
+pip install "dcc-mcp-photoshop[sidecar]"
+```
+
+Or via `uvx`:
 
 ```bash
 uvx --with dcc-mcp-photoshop dcc-mcp-photoshop --embedded
@@ -90,29 +329,26 @@ cd dcc-mcp-photoshop
 pip install -e ".[dev]"
 ```
 
-### 2. Standalone binary
+### Standalone Binary
 
-Each [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases) includes platform-specific binaries built with PyInstaller. No Python runtime required.
+Each [GitHub Release](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases) includes platform-specific binaries built with PyOxidizer. No Python runtime required.
 
-| Platform | Binary name | Architecture |
-|----------|-------------|--------------|
-| Windows | `dcc-mcp-photoshop-windows.exe` | x86_64 |
-| Linux | `dcc-mcp-photoshop-linux` | x86_64 |
-| macOS | `dcc-mcp-photoshop-macos` | x86_64 / arm64 |
+| Platform | Binary name |
+|----------|-------------|
+| Windows | `dcc-mcp-photoshop-windows.exe` |
+| Linux | `dcc-mcp-photoshop-linux` |
+| macOS | `dcc-mcp-photoshop-macos` |
 
 ```bash
-# Download and run (example: Linux)
-curl -L https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/download/v0.1.6/dcc-mcp-photoshop-linux \
-  -o dcc-mcp-photoshop
+# Download the latest release binary (example: Linux)
+curl -LO https://github.com/dcc-mcp/dcc-mcp-photoshop/releases/latest/download/dcc-mcp-photoshop-linux
 chmod +x dcc-mcp-photoshop
 ./dcc-mcp-photoshop --help
 ```
 
-The binary includes built-in skills and all dependencies. It accepts the same flags as the Python entry point.
+### UXP .ccx Plugin
 
-### 3. UXP .ccx plugin
-
-Install the `.ccx` into Photoshop if you only need the UXP sidecar (bridge + MCP server):
+Install the `.ccx` into Photoshop if you only need the UXP sidecar:
 
 1. Download the `.ccx` from the [latest release assets](https://github.com/dcc-mcp/dcc-mcp-photoshop/releases)
 2. Open **Creative Cloud Desktop** → **Plugins** → **Manage Plugins**
@@ -120,29 +356,37 @@ Install the `.ccx` into Photoshop if you only need the UXP sidecar (bridge + MCP
 4. Select the downloaded `.ccx` file
 5. Restart Photoshop
 
-Manual install (Windows):
+Manual install:
+
 ```powershell
-copy dcc-mcp-photoshop-bridge-0.1.6.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
+# Windows
+copy dcc-mcp-photoshop-bridge-*.ccx "$env:APPDATA\Adobe\UXP\Plugins\External\"
 ```
 
-Manual install (macOS):
 ```bash
-cp dcc-mcp-photoshop-bridge-0.1.6.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
-```
-
-### Verify Installation
-
-```bash
-dcc-mcp-photoshop --version
+# macOS
+cp dcc-mcp-photoshop-bridge-*.ccx ~/Library/Application\ Support/Adobe/UXP/Plugins/External/
 ```
 
 ## Configuration
 
 ### MCP Client Configuration
 
-Add a `photoshop` server entry to your MCP client's configuration file.
+#### Claude Desktop
 
-#### Claude Desktop (`claude_desktop_config.json`)
+```json
+{
+  "mcpServers": {
+    "photoshop": {
+      "url": "http://127.0.0.1:9765/mcp"
+    }
+  }
+}
+```
+
+The gateway URL (`:9765`) is a unified facade that aggregates tools from all registered DCCs. On `tools/call`, the gateway auto-discovers the correct DCC instance via the capability index — no need to specify the DCC type in the URL.
+
+Embedded mode via command:
 
 ```json
 {
@@ -156,28 +400,14 @@ Add a `photoshop` server entry to your MCP client's configuration file.
 }
 ```
 
-For the **production gateway mode** (using `dcc-mcp-server.exe` externally):
-
-```json
-{
-  "mcpServers": {
-    "photoshop": {
-      "url": "http://127.0.0.1:8765/mcp"
-    }
-  }
-}
-```
-
-See [Gateway Mode](#gateway-mode-recommended-for-deployment) below for the full setup.
-
 #### Cursor
 
 In Cursor Settings → Features → MCP Servers:
 
 ```
 Name: photoshop
-Type: command
-Command: dcc-mcp-photoshop --embedded
+Type: url
+URL: http://127.0.0.1:9765/mcp
 ```
 
 #### VS Code (via MCP extension)
@@ -199,242 +429,27 @@ Command: dcc-mcp-photoshop --embedded
 
 | Variable | Description | Default |
 |----------|-------------|---------|
+| `ADOBEPY_BROKER_URL` | adobepy broker HTTP endpoint | `http://127.0.0.1:47391` |
+| `ADOBEPY_TOKEN` | Broker authentication token | `dev-token` |
+| `ADOBEPY_TARGET` | Broker target identifier | `default` |
+| `DCC_MCP_PHOTOSHOP_PORT` | MCP HTTP server port | `8765` |
+| `DCC_MCP_GATEWAY_PORT` | Gateway competition port | — |
+| `DCC_MCP_PHOTOSHOP_LOG_DIR` | Log directory | `~/.dcc-mcp/logs` |
+| `DCC_MCP_PHOTOSHOP_LOG_LEVEL` | Log level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
+| `DCC_MCP_PHOTOSHOP_TIMEOUT` | Operation timeout in seconds | `30.0` |
 | `DCC_MCP_REGISTRY_DIR` | Shared FileRegistry directory for gateway discovery | `~/.dcc-mcp/registry` |
 | `DCC_MCP_PHOTOSHOP_SKILL_PATHS` | Extra skill directories (colon-separated) | — |
 | `DCC_MCP_SKILL_PATHS` | Global extra skill directories | — |
-| `DCC_MCP_GATEWAY_PORT` | Gateway competition port | `9765` |
 
-## UXP Plugin Setup
+## Bridge Protocol
 
-The UXP plugin (`bridge/uxp-plugin/`) is the JavaScript component that runs inside Adobe Photoshop and provides the WebSocket bridge.
+The Python ↔ Photoshop communication goes through the adobepy Rust broker using the adobepy protocol (v0.2.0). The broker handles JSON-RPC 2.0 routing, session management, and timeout control.
 
-### How it works
-
-```
-┌───────────────────────────────────────────────────┐
-│  Python Process                                    │
-│  ┌─────────────────────────────────────────────┐   │
-│  │  PhotoshopBridge (WS Server :9001)           │   │
-│  └─────────────────────────────────────────────┘   │
-│           ▲ connects to                            │
-│           ║                                        │
-├───────────────────────────────────────────────────┤
-│  Adobe Photoshop                                   │
-│  ┌─────────────────────────────────────────────┐   │
-│  │  UXP Plugin (WS Client)                     │   │
-│  │  - index.js: all handlers                    │   │
-│  │  - manifest.json: plugin metadata            │   │
-│  │  - index.html: panel UI                      │   │
-│  └─────────────────────────────────────────────┘   │
-└───────────────────────────────────────────────────┘
-```
-
-### Installing from source (development)
-
-1. **Prepare the plugin directory**: The plugin lives at `bridge/uxp-plugin/` in this repository.
-2. **Load in Photoshop**:
-   - Open Photoshop
-   - Go to **Plugins** → **Development** → **Load Plugin...**
-   - Navigate to `bridge/uxp-plugin/` and select `manifest.json`
-3. The plugin appears in the Plugins panel as "dcc-mcp Bridge". Click **Enable** — the WebSocket client automatically connects to `ws://localhost:9001`.
-
-### Plugin features
-
-- **Exponential back-off reconnect**: 3s → 6s → 12s → ... → 60s maximum
-- **Persistent log file**: Written to UXP PluginData directory (`bridge.log`)
-- **Panel UI**: Shows connection status (Connected / Disconnected / Connecting) and recent log entries
-- **Manual connect/disconnect buttons** in the panel
-
-### Plugin manifest
-
-`bridge/uxp-plugin/manifest.json` declares:
-
-| Field | Value |
-|-------|-------|
-| Plugin ID | `com.dcc-mcp.photoshop-bridge` |
-| Name | `dcc-mcp Bridge` |
-| Host app | Photoshop (PS) |
-| Min version | Photoshop 2022 (22.0.0) |
-| Network permissions | All domains |
-| File system | Request access |
-
-## Quick Start
-
-### Embedded Mode (Development)
-
-Start the MCP HTTP server and WebSocket bridge in one process:
-
-```bash
-python -m dcc_mcp_photoshop --embedded
-```
-
-Or via the installed CLI:
-
-```bash
-dcc-mcp-photoshop --embedded
-```
-
-Output:
-```
-dcc-mcp-photoshop v0.1.6
-
-  [EMBEDDED MODE] MCP server + WebSocket bridge (dev only)
-  MCP server  : http://localhost:8765/mcp
-  WS bridge   : ws://localhost:9001
-  RPC endpoint: http://localhost:9100/rpc
-
-Waiting for Photoshop UXP plugin to connect...
-Press Ctrl+C to stop.
-
-[○] waiting for UXP plugin...
-```
-
-Once Photoshop is running with the UXP plugin, you will see:
-```
-[✓] CONNECTED — Untitled-1.psd
-```
-
-Your MCP client can now connect to `http://127.0.0.1:8765/mcp`.
-
-### Bridge-Only Mode (Default)
-
-Start only the WebSocket bridge (for use with `dcc-mcp-server.exe` externally):
-
-```bash
-dcc-mcp-photoshop
-```
-
-Output:
-```
-dcc-mcp-photoshop v0.1.6
-
-  [BRIDGE-ONLY MODE] Requires dcc-mcp-server.exe running separately
-  WS bridge   : ws://localhost:9001
-  RPC endpoint: http://localhost:9100/rpc
-
-MCP clients: http://127.0.0.1:8765/mcp (direct) or http://127.0.0.1:9765/mcp/dcc/photoshop (gateway)
-
-Waiting for Photoshop UXP plugin to connect...
-Press Ctrl+C to stop.
-```
-
-### Gateway Mode (Recommended for Deployment)
-
-This mode uses the standalone `dcc-mcp-server.exe` for the MCP server and `dcc-mcp-photoshop` as a lightweight bridge plugin.
-
-**Terminal 1** — Start the MCP server (Rust binary, no Python needed):
-```bash
-dcc-mcp-server.exe --dcc photoshop --mcp-port 8765 \
-  --skill-paths ./skills --no-bridge \
-  --gateway-port 9765 --registry-dir ~/.dcc-mcp/registry
-```
-
-**Terminal 2** — Start the bridge plugin (Python, connects to UXP):
-```bash
-python -m dcc_mcp_photoshop
-```
-
-**MCP clients** connect to:
-- `http://127.0.0.1:8765/mcp` — Direct, stable port
-- `http://127.0.0.1:9765/mcp/dcc/photoshop` — Gateway proxy (auto-detects DCC type)
-
-### Python API
-
-```python
-import dcc_mcp_photoshop
-
-handle = dcc_mcp_photoshop.start_server(
-    port=8765,
-    ws_port=9001,
-)
-
-print(f"MCP URL: {handle.mcp_url()}")
-
-# ... use with Claude Desktop, Cursor, etc.
-
-handle.shutdown()
-```
-
-### CLI Reference
-
-```
-dcc-mcp-photoshop [OPTIONS]
-
-Options:
-  --embedded          Embedded mode: MCP server + bridge in one process (dev only)
-  --mcp-port PORT     MCP HTTP server port (embedded mode; default: 8765)
-  --ws-port PORT      WebSocket bridge port for UXP plugin (default: 9001)
-  --ws-host HOST      WebSocket bind host (default: localhost)
-  --rpc-port PORT     HTTP RPC server port for cross-process bridge access (default: 9100)
-  --gateway-port PORT Gateway competition port (embedded mode; default: env or 9765)
-  --server-name NAME  Server name reported in MCP initialize (default: photoshop-mcp)
-  --skill-paths PATH  Extra skill directories
-  --no-builtins       Do not discover built-in skills
-  --verbose, -v       Enable debug logging
-  --version           Show version and exit
-```
-
-## Built-in Skills
-
-dcc-mcp-photoshop ships with **4 skill packages** containing **20+ tools** organized by domain.
-Skills are **lazy-loaded**: only meta-tools are available initially; use the MCP `load_skill` tool
-to load the skill package you need.
-
-### photoshop-document
-
-Document information and layer listing.
-
-| Tool | Description | Read-only | Inputs |
-|------|-------------|-----------|--------|
-| `get_document_info` | Get metadata about the active Photoshop document (name, size, resolution, color mode) | ✅ | _(none)_ |
-| `list_layers` | List all layers in the active document. Set `include_hidden=false` to exclude hidden layers | ✅ | `include_hidden` (bool, default: true) |
-
-### photoshop-image
-
-Document creation, export, canvas/image resize, flatten, and merge operations.
-
-| Tool | Description | Read-only | Inputs |
-|------|-------------|-----------|--------|
-| `create_document` | Create a new document with specified dimensions, resolution and color mode | ❌ | `name`, `width` (1920), `height` (1080), `resolution` (72), `color_mode` (rgb/cmyk/grayscale/lab), `bit_depth` (8/16/32), `fill` (white/black/transparent/background) |
-| `export_document` | Export the active document to PNG, JPG, TIFF, or PSD | ❌ | `path` (required), `format` (png/jpg/tiff/psd), `quality` (0-100, default 90) |
-| `save_document` | Save the active document in its current format | ❌ | _(none)_ |
-| `resize_canvas` | Resize canvas without scaling content | ❌ | `width` (required), `height` (required), `anchor` (center/top_left/etc.) |
-| `resize_image` | Scale the image (resamples content) | ❌ | `width` (required), `height` (required), `resample` (bicubic/bilinear/etc.), `constrain_proportions` |
-| `flatten_image` | Flatten all layers into a single background layer | ❌ *(destructive)* | _(none)_ |
-| `merge_visible_layers` | Merge all visible layers | ❌ *(destructive)* | _(none)_ |
-
-### photoshop-layers
-
-Full CRUD for layers plus visual property changes.
-
-| Tool | Description | Read-only | Inputs |
-|------|-------------|-----------|--------|
-| `create_layer` | Create a pixel, group, or adjustment layer | ❌ | `name` (default: "Layer"), `layer_type` (pixel/group/adjustment) |
-| `delete_layer` | Delete a named layer | ❌ *(destructive)* | `name` (required) |
-| `duplicate_layer` | Duplicate a named layer | ❌ | `name` (required), `new_name` (optional) |
-| `rename_layer` | Rename a layer | ❌ | `name` (required), `new_name` (required) |
-| `set_layer_opacity` | Set opacity (0-100) of a named layer | ❌ | `name` (required), `opacity` (0-100, required) |
-| `set_layer_visibility` | Show or hide a named layer | ❌ | `name` (required), `visible` (bool, required) |
-| `set_layer_blend_mode` | Set blend mode (normal, multiply, screen, overlay, etc.) | ❌ | `name` (required), `blend_mode` (required, 27 modes) |
-| `fill_layer` | Fill a layer with solid color (hex) or transparent | ❌ | `name` (required), `color` (hex, default: #ffffff), `opacity` (0-100) |
-
-### photoshop-text
-
-Text layer creation, editing, and inspection.
-
-| Tool | Description | Read-only | Inputs |
-|------|-------------|-----------|--------|
-| `create_text_layer` | Create a new text layer with content and styling | ❌ | `content` (required), `name`, `x` (100), `y` (100), `font` (ArialMT), `size` (48), `color` (#000000), `alignment` (left/center/right), `bold`, `italic` |
-| `update_text_layer` | Update text content or style of an existing text layer | ❌ | `name` (required), `content`, `font`, `size`, `color`, `alignment`, `bold`, `italic` |
-| `get_text_layer_info` | Get text content and style properties of a text layer | ✅ | `name` (required) |
+For protocol details, see the [adobepy protocol contract](https://github.com/dcc-mcp/adobepy/blob/main/contracts/adobepy_protocol_contract.json).
 
 ## Skill Authoring
 
-There are two approaches to authoring Photoshop skills:
-
-### New-style (adobepy facade, recommended)
-
-Use the `adobepy` facade layer and `adobe.dcc_mcp` result helpers:
+Skills use the [adobepy](https://github.com/dcc-mcp/adobepy) facade layer:
 
 ```python
 from adobe.dcc_mcp import action_result
@@ -446,7 +461,6 @@ from dcc_mcp_core.skill import skill_entry
 def list_layers(**kwargs) -> dict:
     """List all layers in the active Photoshop document."""
     app = Photoshop()
-
     return action_result(
         "Listed active Photoshop layers",
         lambda: {"layers": [layer.name for layer in app.activeLayers]},
@@ -460,89 +474,7 @@ def main(**kwargs):
 
 if __name__ == "__main__":
     from dcc_mcp_core.skill import run_main
-
     run_main(main)
-```
-
-### Legacy-style (direct bridge access, deprecated)
-
-Directly use the WebSocket bridge for backward compatibility:
-
-```python
-from dcc_mcp_core.skill import skill_entry
-from dcc_mcp_photoshop.api import get_bridge, with_photoshop, ps_success
-
-
-@skill_entry
-@with_photoshop
-def list_layers(**kwargs) -> dict:
-    """List all layers in a Photoshop document."""
-    bridge = get_bridge()
-    layers = bridge.call("ps.listLayers")
-    return ps_success(
-        f"Found {len(layers)} layer(s)",
-        layers=[layer["name"] for layer in layers],
-    )
-```
-
-### SKILL.md format
-
-Each skill package requires a `SKILL.md` file with YAML frontmatter:
-
-```yaml
----
-name: photoshop-document
-description: "Adobe Photoshop document management — query documents and layers"
-dcc: photoshop
-version: "0.1.0"
-tags: [photoshop, document, layers, adobe]
-license: "MIT"
-allowed-tools: ["Bash", "Read"]
-depends: []
-tools:
-  - name: get_document_info
-    description: "Get metadata about the active Photoshop document"
-    source_file: scripts/get_document_info.py
-    read_only: true
-    destructive: false
-    idempotent: true
-  - name: list_layers
-    description: "List all layers in the active document"
-    source_file: scripts/list_layers.py
-    read_only: true
-    destructive: false
-    idempotent: true
----
-```
-
-### tools.yaml format
-
-Tools can alternatively be declared in a `tools.yaml` file next to the `SKILL.md`:
-
-```yaml
-tools:
-  - name: my_tool
-    description: "Description of what this tool does"
-    source_file: scripts/my_tool.py
-    inputSchema:
-      type: object
-      properties:
-        param1:
-          type: string
-          description: Parameter description
-    read_only: false
-    destructive: false
-    idempotent: true
-```
-
-### Setting custom skill paths
-
-```bash
-# Environment variable (colon-separated on macOS/Linux, semicolon on Windows)
-export DCC_MCP_PHOTOSHOP_SKILL_PATHS=/path/to/my/skills
-
-# Or via CLI flag
-dcc-mcp-photoshop --embedded --skill-paths /path/to/my/skills
 ```
 
 ### Skill directory structure
@@ -551,201 +483,146 @@ dcc-mcp-photoshop --embedded --skill-paths /path/to/my/skills
 skills/
 ├── photoshop-document/
 │   ├── SKILL.md
-│   ├── tools.yaml
 │   └── scripts/
-│       ├── get_document_info.py
-│       └── list_layers.py
 ├── photoshop-image/
 │   ├── SKILL.md
-│   ├── tools.yaml
 │   └── scripts/
-│       ├── create_document.py
-│       ├── export_document.py
-│       ├── save_document.py
-│       ├── resize_canvas.py
-│       ├── resize_image.py
-│       ├── flatten_image.py
-│       └── merge_visible_layers.py
 ├── photoshop-layers/
 │   ├── SKILL.md
-│   ├── tools.yaml
 │   └── scripts/
-│       ├── create_layer.py
-│       ├── delete_layer.py
-│       ├── duplicate_layer.py
-│       ├── rename_layer.py
-│       ├── set_layer_opacity.py
-│       ├── set_layer_visibility.py
-│       ├── set_layer_blend_mode.py
-│       └── fill_layer.py
 ├── photoshop-text/
 │   ├── SKILL.md
-│   ├── tools.yaml
 │   └── scripts/
-│       ├── create_text_layer.py
-│       ├── update_text_layer.py
-│       └── get_text_layer_info.py
+├── photoshop-selection/
+│   ├── SKILL.md
+│   └── scripts/
+├── photoshop-filter/
+│   ├── SKILL.md
+│   └── scripts/
+├── photoshop-smart-object/
+│   ├── SKILL.md
+│   └── scripts/
+├── photoshop-script/
+│   ├── SKILL.md
+│   └── scripts/
+└── photoshop-adjustment/
+    ├── SKILL.md
+    └── scripts/
 ```
 
-## Bridge Protocol
+### Setting custom skill paths
 
-The Python ↔ UXP communication uses JSON-RPC 2.0 over a WebSocket connection. Python is the server (port 9001); the UXP plugin connects as a client.
-
-### Handshake
-
-On connection, the UXP plugin sends a `hello` message:
-
-```json
-{
-  "type": "hello",
-  "protocol": "photoshop-bridge",
-  "version": "0.1.0",
-  "client": "photoshop-uxp",
-  "reconnect": false
-}
+```bash
+export DCC_MCP_PHOTOSHOP_SKILL_PATHS=/path/to/my/skills
+dcc-mcp-photoshop --embedded --skill-paths /path/to/my/skills
 ```
 
-Python responds with `hello_ack`:
-
-```json
-{
-  "type": "hello_ack",
-  "protocol": "photoshop-bridge",
-  "version": "0.1.0"
-}
-```
-
-### RPC Request (Python → UXP)
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "method": "ps.listLayers",
-  "params": {"include_hidden": true}
-}
-```
-
-### RPC Response (UXP → Python)
-
-Success:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "result": [
-    {"name": "Background", "type": "pixel", "visible": true, "opacity": 100},
-    {"name": "Layer 1", "type": "pixel", "visible": true, "opacity": 100}
-  ]
-}
-```
-
-Error:
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "error": {
-    "code": -32603,
-    "message": "No active document",
-    "hint": "Open a document first"
-  }
-}
-```
-
-### Progress Notifications (UXP → Python)
-
-```json
-{
-  "jsonrpc": "2.0",
-  "id": 1,
-  "type": "progress",
-  "progress": {"current": 50, "total": 100, "message": "Exporting..."}
-}
-```
-
-### Disconnect
-
-```json
-{
-  "type": "disconnected",
-  "reason": "Server stopped"
-}
-```
-
-### Supported RPC Methods
-
-| Method | Description |
-|--------|-------------|
-| `ps.getDocumentInfo` | Get active document metadata |
-| `ps.listDocuments` | List all open documents |
-| `ps.createDocument` | Create a new document |
-| `ps.saveDocument` | Save the active document |
-| `ps.closeDocument` | Close a document |
-| `ps.exportDocument` | Export to PNG/JPG/TIFF/PSD |
-| `ps.resizeCanvas` | Resize canvas |
-| `ps.resizeImage` | Scale image (resample) |
-| `ps.flattenImage` | Flatten all layers |
-| `ps.mergeVisibleLayers` | Merge visible layers |
-| `ps.listLayers` | List layers |
-| `ps.createLayer` | Create a pixel/group/adjustment layer |
-| `ps.deleteLayer` | Delete a layer by name |
-| `ps.setLayerVisibility` | Show/hide a layer |
-| `ps.renameLayer` | Rename a layer |
-| `ps.setLayerOpacity` | Set layer opacity (0-100) |
-| `ps.duplicateLayer` | Duplicate a layer |
-| `ps.setLayerBlendMode` | Set blend mode |
-| `ps.fillLayer` | Fill with solid color |
-| `ps.createTextLayer` | Create a text layer |
-| `ps.updateTextLayer` | Update text content/style |
-| `ps.getTextLayerInfo` | Get text layer properties |
-| `ps.executeScript` | Execute JS expression (limited) |
-| `ps.executeAction` | Execute a Photoshop action |
-
-## Troubleshooting
-
-### UXP plugin does not connect
-
-1. Ensure Photoshop 2022+ is running
-2. Check the plugin is loaded: **Plugins** → **Development** → **Load Plugin...** → select `manifest.json`
-3. Verify the panel shows "Connected" status
-4. Check the bridge log file at `~/.dcc-mcp/logs/photoshop-bridge.log`
-
-### WebSocket connection refused
+## CLI Reference
 
 ```
-PhotoshopBridge could not connect to ws://localhost:9001 — skill calls will
-fail until the Photoshop UXP plugin is running
+dcc-mcp-photoshop [OPTIONS]
+
+Options:
+  --mcp-port PORT     MCP HTTP server port (default: 8765)
+  --broker-url URL    adobepy broker URL (default: http://127.0.0.1:47391)
+  --gateway-port PORT Gateway competition port
+  --server-name NAME  Server name in MCP initialize (default: photoshop-mcp)
+  --skill-paths PATH  Extra skill directories
+  --no-builtins       Do not discover built-in skills
+  --verbose, -v       Enable debug logging
+  --version           Show version and exit
 ```
 
-1. Start the Python bridge first: `dcc-mcp-photoshop --embedded`
-2. Then load the UXP plugin in Photoshop (or restart Photoshop with the plugin enabled)
-3. The UXP plugin auto-connects to `ws://localhost:9001`
+## Python API
 
-### No active document error
+```python
+import dcc_mcp_photoshop
 
-If skills return "No active document":
-1. Open a document in Photoshop (File → New or File → Open)
-2. Wait for the bridge status to show the document name
-3. Retry the skill call
+handle = dcc_mcp_photoshop.start_server(port=8765, broker_url="http://127.0.0.1:47391")
+print(f"MCP URL: {handle.mcp_url()}")
 
-### Firewall blocking ports
+# ... use with Claude Desktop, Cursor, etc.
 
-Default ports used:
-- `8765` — MCP HTTP server
-- `9001` — WebSocket bridge (Python ↔ UXP)
-- `9100` — HTTP RPC server
-- `9765` — Gateway competition port
+handle.shutdown()
+```
 
-Ensure these ports are not blocked by a firewall.
+## Ports
 
-### Skill not found
+| Port | Service | Description |
+|------|---------|-------------|
+| 47391 | adobepy broker | Rust broker HTTP/WS endpoint (Python SDK ↔ UXP bridge) |
+| 8765 | MCP HTTP server | MCP Streamable HTTP endpoint for AI agents |
+| 9765 | Gateway | Optional multi-DCC gateway proxy |
 
-If an expected tool is not available:
-1. Use the MCP `load_skill` meta-tool to load the skill package
-2. Or restart the server with `--no-builtins` omitted (default loads built-in skills)
+## Gateway Mode (Recommended for Deployment)
+
+This mode uses the standalone `dcc-mcp-server` for the MCP server with the adobepy broker as the Photoshop communication layer.
+
+**Terminal 1** — Start the adobepy broker:
+```bash
+adobepy broker
+```
+
+**Terminal 2** — Start the MCP server:
+```bash
+dcc-mcp-photoshop --broker-url http://127.0.0.1:47391
+```
+
+**MCP clients** connect to the gateway URL:
+- `http://127.0.0.1:9765/mcp` — Gateway proxy (recommended)
+- `http://127.0.0.1:8765/mcp` — Direct access
+
+## UXP Bridge Setup
+
+The UXP bridge is part of the adobepy project. To install:
+
+```bash
+adobepy install-bridge photoshop
+```
+
+This copies the bridge files to Photoshop's UXP plugins directory. Restart Photoshop to load the bridge.
+
+For development, load from source:
+1. Open Photoshop
+2. Go to **Plugins** → **Development** → **Load Plugin...**
+3. Navigate to adobepy's `bridges/uxp/photoshop/` and select `manifest.json`
+
+### Bridge manifest
+
+The bridge manifest is at `bridges/uxp/photoshop/manifest.json` in the adobepy repository:
+
+| Field | Value |
+|-------|-------|
+| Plugin ID | `com.adobepy.bridge.photoshop` |
+| Name | `Adobe Python Bridge` |
+| Host app | Photoshop (PS), min version 25.0.0 |
+| Network permissions | All domains (required for WebSocket to broker) |
+| Local file system | Request (user consent per operation) |
+
+## Development
+
+```bash
+git clone https://github.com/dcc-mcp/dcc-mcp-photoshop.git
+cd dcc-mcp-photoshop
+pip install -e ".[dev]"
+pytest tests/
+```
+
+## Requirements
+
+- **Photoshop**: Adobe Photoshop 2022+ (UXP support required)
+- **Python** (pip path only): Python 3.8+
+- **Dependencies** (auto-installed with pip):
+  - `dcc-mcp-core >= 0.18.14, < 1.0.0`
+  - `adobepy >= 0.1.0`
+  - `websockets >= 12.0`
+- **Build** (to build standalone binary from source): Python 3.8+, [Rust toolchain](https://rustup.rs/), and PyOxidizer (`pip install pyoxidizer`)
+
+| Path | Photoshop Required? | Python Required? |
+|------|-------------------|-----------------|
+| pip install | Yes (UXP plugin) | Yes |
+| Standalone binary | Yes (UXP plugin) | No |
+| UXP .ccx plugin only | Yes | No (bridge binary only) |
 
 ## Version Compatibility
 
@@ -767,34 +644,64 @@ Release artifacts per version:
 ## Roadmap
 
 ### v0.1.0 — Foundation ✅
-- ✅ Package structure and API design
-- ✅ PhotoshopBridge WebSocket client scaffold
-- ✅ Skill authoring helpers
-- ✅ UXP plugin architecture design
+- Package structure and API design
+- PhotoshopBridge WebSocket client scaffold
+- Skill authoring helpers
 
-### v0.2.0 — UXP Plugin + Bridge ✅
-- ✅ UXP plugin WebSocket client (JavaScript)
-- ✅ Python bridge WebSocket server
-- ✅ JSON-RPC 2.0 protocol implementation
-- ✅ Release distribution (pip, binary, .ccx)
-- ✅ 20+ Photoshop skills
-- ✅ Cross-process RPC bridge
+### v0.2.0 — adobepy Integration ✅
+- adobepy Rust broker integration (port 47391)
+- Python SDK facade (adobe.photoshop)
+- 40+ Photoshop skills across 8 packages
+- Selection, filter, smart object, script, adjustment tools
+- UXP code convergence (removed old bridge/uxp-plugin/)
+- Configuration externalization (config.py)
 
 ### v0.3.0 — Skills & Polish (next)
-- [ ] Smart Object support
-- [ ] Selection tools (marquee, magic wand)
-- [ ] Filter application (blur, sharpen, etc.)
-- [ ] Color adjustments (levels, curves, hue/saturation)
-- [ ] Batch processing
+- Color adjustments (levels, curves, hue/saturation)
+- Layer styles and effects
+- Batch processing workflows
+- Performance optimizations
 
 ### v1.0.0 — Production Ready
-- [ ] Photoshop 2025+ UXP API compatibility
-- [ ] Performance optimizations
-- [ ] Authentication and security hardening
+- Photoshop 2025+ UXP API compatibility
+- Authentication and security hardening
+- E2E test coverage
+
+## Troubleshooting
+
+### Broker not reachable
+
+```
+adobepy broker not reachable at http://127.0.0.1:47391
+```
+
+1. Start the broker: `adobepy broker`
+2. Verify the broker is running: `curl http://127.0.0.1:47391/v1/capabilities`
+3. Check the `ADOBEPY_BROKER_URL` environment variable matches the broker endpoint
+
+### UXP bridge not connecting
+
+1. Ensure Photoshop 2024+ (min version 25.0.0) is running
+2. Run `adobepy install-bridge photoshop` and restart Photoshop
+3. Check the bridge is loaded: **Plugins** → **Adobe Python Bridge**
+
+### No active document error
+
+If skills return "No active document":
+1. Open a document in Photoshop (File → New or File → Open)
+2. Retry the skill call
+
+### Default ports used
+
+| Port | Service |
+|------|---------|
+| 47391 | adobepy Rust broker |
+| 8765 | MCP HTTP server |
+| 9765 | Gateway competition port |
 
 ## Contributing
 
-This project is especially looking for contributors with:
+Contributions are especially welcome from those with:
 - Adobe UXP / ExtendScript experience
 - Photoshop automation knowledge
 - WebSocket and JSON-RPC protocol experience

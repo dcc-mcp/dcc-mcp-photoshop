@@ -199,13 +199,13 @@ class TestCapabilities:
         from dcc_mcp_photoshop.api import photoshop_capabilities
 
         caps = photoshop_capabilities()
-        assert caps.bridge_kind == "websocket"
+        assert caps.bridge_kind == "adobepy_broker"
 
     def test_photoshop_capabilities_bridge_endpoint(self):
         from dcc_mcp_photoshop.api import photoshop_capabilities
 
         caps = photoshop_capabilities()
-        assert "9001" in caps.bridge_endpoint
+        assert "47391" in caps.bridge_endpoint
 
     def test_photoshop_capabilities_feature_flags(self):
         from dcc_mcp_photoshop.api import photoshop_capabilities

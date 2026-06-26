@@ -32,7 +32,9 @@ Legacy compat (deprecated — still works)::
 from __future__ import annotations
 
 import functools
+import json
 import logging
+import os
 from typing import Any, Callable, Dict, List, Optional, TypeVar
 
 logger = logging.getLogger(__name__)
@@ -47,6 +49,38 @@ _bridge = None
 # so that child processes (e.g. skill scripts running under dcc-mcp-server)
 # can discover the bridge via os.environ or dcc_mcp_photoshop.api.get_bridge().
 BRIDGE_URL_ENV_VAR = "DCC_MCP_PHOTOSHOP_BRIDGE_URL"
+
+_BRIDGE_CONFIG_PATH = os.path.expanduser("~/.dcc-mcp/bridge-photoshop.json")
+
+
+def _write_bridge_url_to_config(rpc_url: str) -> None:
+    """Write the RPC endpoint URL to the bridge config file.
+
+    Skill scripts running inside ``dcc-mcp-server.exe`` read this file
+    to discover the bridge's RPC endpoint for cross-process access.
+    """
+    config = {}
+    if os.path.isfile(_BRIDGE_CONFIG_PATH):
+        try:
+            with open(_BRIDGE_CONFIG_PATH) as f:
+                config = json.load(f)
+        except (json.JSONDecodeError, OSError):
+            pass
+    config["dcc_type"] = "photoshop"
+    config["bridge_url"] = rpc_url
+    os.makedirs(os.path.dirname(_BRIDGE_CONFIG_PATH), exist_ok=True)
+    with open(_BRIDGE_CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2, ensure_ascii=False)
+
+
+def _remove_bridge_config() -> None:
+    """Remove the bridge config file."""
+    try:
+        os.remove(_BRIDGE_CONFIG_PATH)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        logger.debug("Failed to remove bridge config: %s", _BRIDGE_CONFIG_PATH)
 
 
 # ---------------------------------------------------------------------------
