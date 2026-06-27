@@ -1,5 +1,53 @@
 # Changelog
 
+## [0.1.25](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.24...v0.1.25) (2026-06-27)
+
+
+### Features
+
+* add photoshop-layers/image/text skills, exponential back-off reconnect, persistent log ([5c6eea3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5c6eea3fe4a1f1b593be7cdd95b28fd845605dd7))
+* create GitHub repo with CI/CD, bump dcc-mcp-core to &gt;=0.12.29, clean up server.py fallback code ([3f9e69a](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3f9e69afdb94e9280a62b45a7f25ec2d1ef3c3fd))
+* create photoshop-setup skill for agent-guided MCP setup ([b1a9a96](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b1a9a9640e0e02d2b6a50c577605173ce102ccd4))
+* create photoshop-setup skill for agent-guided MCP setup ([#26](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/26)) ([7851d61](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/7851d61c051b70c83d6a332627fc876c59d8d93b))
+* define Photoshop UXP WebSocket bridge protocol v0.1.0 ([6e6fb2b](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6e6fb2bc2bb3805038d460257df4d18be713ddb2))
+* define Photoshop UXP WebSocket bridge protocol v0.1.0 ([6799ebe](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6799ebee17ad2e9f38f9b7b92df8e11445eb9b09))
+* download dcc-mcp-server from dcc-mcp-core releases instead of committing binary ([0db0d53](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0db0d53806c358490f538b53075fa4c93e7adef0))
+* implement Photoshop MCP adapter with UXP WebSocket bridge ([bef0f78](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/bef0f782467f4071d6131285b15b5bee9ec27313))
+* initial placeholder for dcc-mcp-photoshop ([83b5d80](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/83b5d80a8206ec838a5d652ead55c4da234e8a26))
+* migrate skills to adobepy facade ([#10](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/10)) ([6704c18](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6704c1841f43020fe9f5188664b8497c68537bc8))
+* upgrade to dcc-mcp-core 0.12.23 gateway mode with progressive skill loading ([1df9736](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/1df97365ddd205aa90b4390151840693f7c5f3fb))
+
+
+### Bug Fixes
+
+* adapt DccServerBase to core v0.18.14 DccServerOptions API ([9dd79ff](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/9dd79ffab6566103d9986d1fbf1090a7316be6e0))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([197e069](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/197e0696f4c71e71da2d0c3124077b6927f0f3b0))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([197e069](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/197e0696f4c71e71da2d0c3124077b6927f0f3b0))
+* add missing BRIDGE_URL_ENV_VAR constant to api module ([b0aae72](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b0aae72f1b3ab409ab2fe15660e7730f4da6c8e2))
+* apply ruff format to test_agent_instruction_files.py ([a233860](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a2338605d1e6852dbbc421293e84fca34a415c90))
+* apply ruff formatting to conftest.py and test_protocol.py ([dccc761](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/dccc76167b29b567833e93de7cade96a7accfa1e))
+* apply ruff formatting to conftest.py and test_protocol.py ([6ed1a5f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6ed1a5f0d3d406d5b66f7cad800d314f8a1ecc47))
+* **ci:** isolate workflow_dispatch from push concurrency in release workflow ([#12](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/12)) ([b482f06](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b482f065a0092f6b74eb3eb9842f98e826061dc2))
+* correct lint_skills.py path resolution (scripts/scripts double nesting), update cli.py ([958fb14](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/958fb148a476d9c45d746e5842022434e6a37eaa))
+* correct skill count and remove broken references in README ([dbb7e83](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/dbb7e832c26c61ba9bb5610530710a5926672408))
+* recover main from v0.1.24 ([58a4a29](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/58a4a29b3d144b9f173c561b289d273482eff462))
+* replace hardcoded version assertion with dynamic semver check ([a40ccf5](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a40ccf5d8da93b81120bf94266c9c242bc59a63e))
+* resolve ruff lint and format issues in photoshop-setup scripts ([43684df](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/43684dfcc204e14803173165ab0faf95b6335e03))
+* resolve ruff lint errors (F401, I001, B904) ([262d43f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/262d43fb6c6534c60b7e08cf5b26de8e437aaeeb))
+* resolve ruff lint errors (F401, I001, B904) ([74da278](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/74da278bfd1a2c180e15b7584a1f4b62b0b6abc5))
+* ruff import organization in test_agent_instruction_files.py ([578fb45](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/578fb454c173fa699fcf928478a8e1321ff4b479))
+* use concurrent.futures.TimeoutError for cross-version compat ([07bbae4](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/07bbae4144d81d79a93519c8f5c38d2cd181cac8))
+
+
+### Code Refactoring
+
+* migrate PhotoshopMcpServer to extend DccServerBase (4-seam controller PIP-688) ([c36f85f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c36f85ff33a8d20d5adf3a44bb73a2c3feb11cda))
+
+
+### Documentation
+
+* update README with comprehensive MCP installation and configuration guide ([e7e5dd0](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/e7e5dd06ef230d9c43592fefb931655803d80cea))
+
 ## [0.1.24](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.23...v0.1.24) (2026-06-23)
 
 
