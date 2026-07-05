@@ -107,7 +107,7 @@ class PhotoshopMcpServer(DccServerBase):
         strict_skill_scan: bool | None = None,
         enable_gateway_failover: bool | None = None,
     ) -> None:
-        self._config = config or PhotoshopMcpConfig.from_env()
+        self._adapter_config = config or PhotoshopMcpConfig.from_env()
         self._startup_state = StartupState()
 
         # Resolve env-based configuration
@@ -123,10 +123,10 @@ class PhotoshopMcpServer(DccServerBase):
         options = DccServerOptions.from_env(
             dcc_name="photoshop",
             builtin_skills_dir=_BUILTIN_SKILLS_DIR,
-            port=port if port is not None else self._config.mcp_port,
+            port=port if port is not None else self._adapter_config.mcp_port,
             server_name=server_name,
             server_version=server_version,
-            gateway_port=gateway_port if gateway_port is not None else self._config.gateway_port,
+            gateway_port=gateway_port if gateway_port is not None else self._adapter_config.gateway_port,
         )
         super().__init__(options=options)
 
@@ -150,27 +150,27 @@ class PhotoshopMcpServer(DccServerBase):
             from adobe.core.client import BrokerClient  # noqa: PLC0415
 
             client = BrokerClient(
-                broker_url=self._config.broker_url,
-                token=self._config.broker_token,
-                timeout=self._config.timeout,
+                broker_url=self._adapter_config.broker_url,
+                token=self._adapter_config.broker_token,
+                timeout=self._adapter_config.timeout,
             )
             caps = client.capabilities()
             self._startup_state.stage = "broker_ready"
             logger.info(
                 "adobepy broker available at %s (target=%s)",
-                self._config.broker_url,
-                caps.get("target", self._config.broker_target),
+                self._adapter_config.broker_url,
+                caps.get("target", self._adapter_config.broker_target),
             )
         except Exception as exc:
             self._startup_state.set_failed(
                 "broker_check",
-                f"adobepy broker not reachable at {self._config.broker_url}: {exc}. "
+                f"adobepy broker not reachable at {self._adapter_config.broker_url}: {exc}. "
                 "Start the broker with 'adobepy broker' and ensure the UXP bridge is loaded.",
             )
             logger.warning(
                 "adobepy broker not reachable at %s: %s — "
                 "skill calls will fail until the broker and UXP bridge are running",
-                self._config.broker_url,
+                self._adapter_config.broker_url,
                 exc,
             )
 
