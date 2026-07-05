@@ -26,7 +26,7 @@ classifiers = [
 
 dependencies = [
     "adobepy>=0.1.0",
-    "dcc-mcp-core>=0.18.34,<1.0.0",
+    "dcc-mcp-core>=0.19.8,<1.0.0",
     "websockets>=12.0",
 ]
 
