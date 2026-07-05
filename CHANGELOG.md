@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.26](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.25...v0.1.26) (2026-07-05)
+
+
+### Bug Fixes
+
+* bump dcc-mcp-core to &gt;=0.19.8 and avoid config name collision ([db5390b](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/db5390ba51fd4382304326120c099f536076f5c2))
+
 ## [0.1.25](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.24...v0.1.25) (2026-06-27)
 
 
