@@ -19,7 +19,7 @@ The Python MCP server communicates with Photoshop through the adobepy Rust broke
 [![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-photoshop?label=Python)](https://pypi.org/project/dcc-mcp-photoshop/)
 [![Photoshop](https://img.shields.io/badge/Photoshop-2022%2B-001E36)](https://www.adobe.com/products/photoshop.html)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-6f42c1)](https://modelcontextprotocol.io/)
-[![dcc-mcp-core](https://img.shields.io/badge/dcc--mcp--core-%3E%3D0.18.14-blue)](https://github.com/dcc-mcp/dcc-mcp-core)
+[![dcc-mcp-core](https://img.shields.io/badge/dcc--mcp--core-%3E%3D0.19.17-blue)](https://github.com/dcc-mcp/dcc-mcp-core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Why Use It
@@ -613,7 +613,7 @@ pytest tests/
 - **Photoshop**: Adobe Photoshop 2022+ (UXP support required)
 - **Python** (pip path only): Python 3.8+
 - **Dependencies** (auto-installed with pip):
-  - `dcc-mcp-core >= 0.18.14, < 1.0.0`
+  - `dcc-mcp-core >= 0.19.17, < 1.0.0`
   - `adobepy >= 0.1.0`
   - `websockets >= 12.0`
 - **Build** (to build standalone binary from source): Python 3.8+, [Rust toolchain](https://rustup.rs/), and PyOxidizer (`pip install pyoxidizer`)
@@ -628,7 +628,8 @@ pytest tests/
 
 | dcc-mcp-photoshop | dcc-mcp-core | UXP Plugin | Sidecar Binary |
 |-------------------|-------------|------------|----------------|
-| 0.1.x | >=0.12.14,<1.0.0 | 0.1.x | dcc-mcp-server >=0.12.14 |
+| current main | >=0.19.17,<1.0.0 | 0.1.x | dcc-mcp-server >=0.19.17 |
+| 0.1.0-0.1.26 | >=0.12.14,<1.0.0 | 0.1.x | dcc-mcp-server >=0.12.14 |
 | 0.2.x (planned) | >=0.18.2,<1.0.0 | 0.2.x | dcc-mcp-server >=0.18.2 |
 
 ## Distribution

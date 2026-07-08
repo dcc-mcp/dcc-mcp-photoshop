@@ -117,7 +117,7 @@ Bridge communication uses JSON-RPC 2.0 over WebSocket. See `docs/bridge-protocol
 
 ## Dependencies
 
-- `dcc-mcp-core>=0.18.14,<1.0.0`
+- `dcc-mcp-core>=0.19.17,<1.0.0`
 - `websockets>=12.0`
 - Python >=3.8
 - Adobe Photoshop 2022+

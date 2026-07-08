@@ -177,7 +177,8 @@ The following table shows which versions of each component work together:
 
 | Photoshop Plugin (.ccx) | dcc-mcp-photoshop | dcc-mcp-core | Sidecar Binary |
 |-------------------------|-------------------|--------------|----------------|
-| 0.1.x | 0.1.x | >=0.12.14,<1.0.0 | dcc-mcp-server >=0.12.14 |
+| current main | current main | >=0.19.17,<1.0.0 | dcc-mcp-server >=0.19.17 |
+| 0.1.x through 0.1.26 | 0.1.x through 0.1.26 | >=0.12.14,<1.0.0 | dcc-mcp-server >=0.12.14 |
 | 0.2.x | 0.2.x | >=0.18.14,<1.0.0 | dcc-mcp-server >=0.18.14 |
 
 Version alignment rules:
