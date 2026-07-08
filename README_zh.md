@@ -384,7 +384,7 @@ pytest tests/
 - **Photoshop**：Adobe Photoshop 2022+（需要 UXP 支持）
 - **Python**（pip 安装方式）：Python 3.8+
 - **依赖**（pip 自动安装）：
-  - `dcc-mcp-core >= 0.18.14, < 1.0.0`
+  - `dcc-mcp-core >= 0.19.17, < 1.0.0`
   - `adobepy >= 0.1.0`
   - `websockets >= 12.0`
 
@@ -392,7 +392,8 @@ pytest tests/
 
 | dcc-mcp-photoshop | dcc-mcp-core | UXP 插件 | Sidecar 二进制 |
 |-------------------|-------------|----------|----------------|
-| 0.1.x | >=0.12.14,<1.0.0 | 0.1.x | dcc-mcp-server >=0.12.14 |
+| current main | >=0.19.17,<1.0.0 | 0.1.x | dcc-mcp-server >=0.19.17 |
+| 0.1.0-0.1.26 | >=0.12.14,<1.0.0 | 0.1.x | dcc-mcp-server >=0.12.14 |
 | 0.2.x（计划中） | >=0.18.2,<1.0.0 | 0.2.x | dcc-mcp-server >=0.18.2 |
 
 ## 常见问题
