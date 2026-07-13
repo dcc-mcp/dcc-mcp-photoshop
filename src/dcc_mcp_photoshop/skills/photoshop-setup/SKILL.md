@@ -1,6 +1,6 @@
 ---
 name: photoshop-setup
-description: "Adobe Photoshop MCP setup — install, configure, and verify the dcc-mcp-photoshop bridge, UXP plugin, and server connection"
+description: "Adobe Photoshop MCP setup — stage and load the adobepy UXP bridge, configure clients, and verify the full server connection"
 dcc: photoshop
 version: "0.1.0"
 tags: [photoshop, setup, install, configure, bridge, uxp, adobe]
@@ -10,7 +10,7 @@ allowed-tools: ["Bash", "Read", "Write"]
 depends: []
 tools:
   - name: check_environment
-    description: "Check system prerequisites: Python version, pip, installed packages, Photoshop and UXP plugin status."
+    description: "Check Python, installed packages, Photoshop, and adobepy broker health."
     source_file: scripts/check_environment.py
     read_only: true
     destructive: false
@@ -22,19 +22,19 @@ tools:
     destructive: false
     idempotent: true
   - name: setup_uxp_plugin
-    description: "Install the UXP .ccx plugin into Photoshop — download, install via Creative Cloud or manual copy."
+    description: "Stage the adobepy UXP bridge and report the explicit Adobe host-loading step."
     source_file: scripts/setup_uxp_plugin.py
     read_only: false
     destructive: false
     idempotent: true
   - name: start_server
-    description: "Start the dcc-mcp-photoshop server in embedded mode for development and testing."
+    description: "Start the dcc-mcp-photoshop adapter after verifying the adobepy broker."
     source_file: scripts/start_server.py
     read_only: false
     destructive: false
     idempotent: false
   - name: verify_connection
-    description: "Verify the full bridge connection: Photoshop UXP plugin reachable, server responding, skills discoverable."
+    description: "Verify MCP transport, broker health, a bridge session, and a real Photoshop host call."
     source_file: scripts/verify_connection.py
     read_only: true
     destructive: false
@@ -58,22 +58,22 @@ installation, configuration, and verification flow.
 |---------|-------------------|-----------------|
 | **pip** | `pip install dcc-mcp-photoshop` | Yes |
 | **Standalone binary** | GitHub Releases — platform-specific binary | No |
-| **UXP .ccx plugin** | GitHub Releases — install into Photoshop | No |
+| **adobepy bridge** | `adobepy install-bridge photoshop --dest <dir>` | No |
 
 ## Workflow
 
 1. **check_environment** — Inspect the current system state
-2. **install_package** — Install dcc-mcp-photoshop via pip (or skip if using .ccx sidecar)
-3. **setup_uxp_plugin** — Install the UXP .ccx plugin in Photoshop
-4. **start_server** — Launch the MCP server (embedded mode for dev)
+2. **install_package** — Install dcc-mcp-photoshop via pip
+3. **setup_uxp_plugin** — Stage the adobepy UXP bridge, then load it with Adobe UXP Developer Tool
+4. **start_server** — Launch the broker-backed MCP adapter
 5. **verify_connection** — Confirm everything is working
 6. **configure_mcp_client** — Auto-configure Claude Desktop / Cursor / VS Code with the gateway URL
 
 ## Tools
 
-- `check_environment` — Python / pip / installed packages / Photoshop process / UXP port
+- `check_environment` — Python / pip / installed packages / Photoshop process / adobepy broker
 - `install_package` — pip install dcc-mcp-photoshop
-- `setup_uxp_plugin` — Download and install the .ccx plugin
-- `start_server` — Start embedded MCP server + bridge (dev mode)
+- `setup_uxp_plugin` — Generate bridge files without falsely claiming Adobe loaded them
+- `start_server` — Start the MCP adapter after the adobepy broker is ready
 - `verify_connection` — End-to-end connection check
 - `configure_mcp_client` — Write MCP client config for Claude Desktop / Cursor / VS Code

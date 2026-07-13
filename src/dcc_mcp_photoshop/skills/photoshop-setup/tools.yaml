@@ -1,6 +1,6 @@
 tools:
   - name: check_environment
-    description: "Check system prerequisites: Python version, pip, installed packages, Photoshop and UXP plugin status."
+    description: "Check Python, installed packages, Photoshop, and adobepy broker health."
     source_file: scripts/check_environment.py
     inputSchema:
       type: object
@@ -40,33 +40,33 @@ tools:
     idempotent: true
 
   - name: setup_uxp_plugin
-    description: "Install the UXP .ccx plugin into Photoshop — download, install via Creative Cloud or manual copy."
+    description: "Stage the adobepy UXP bridge for explicit loading with Adobe UXP Developer Tool."
     source_file: scripts/setup_uxp_plugin.py
     inputSchema:
       type: object
       properties:
-        version:
+        bridge_dir:
           type: string
           default: ""
-          description: Plugin version to install (e.g. 0.2.0); empty means latest.
+          description: Destination directory for the generated bridge files.
+        adobepy_executable:
+          type: string
+          default: ""
+          description: Optional path to the adobepy CLI; empty resolves it from PATH.
         method:
           type: string
           enum: [auto, guide]
           default: auto
           description: |
             Installation method:
-            - auto: Attempt automatic install (download + copy)
-            - guide: Print step-by-step instructions only
-        ccx_path:
-          type: string
-          default: ""
-          description: Local path to a pre-downloaded .ccx file.
+            - auto: Generate bridge files with adobepy
+            - guide: Print staging and UXP Developer Tool loading steps only
     read_only: false
     destructive: false
     idempotent: true
 
   - name: start_server
-    description: "Start the dcc-mcp-photoshop server in embedded mode for development and testing."
+    description: "Start the dcc-mcp-photoshop adapter after verifying the adobepy broker."
     source_file: scripts/start_server.py
     inputSchema:
       type: object
@@ -77,42 +77,34 @@ tools:
           minimum: 1024
           maximum: 65535
           description: MCP HTTP server port.
-        ws_port:
+        broker_url:
+          type: string
+          default: "http://127.0.0.1:47391"
+          description: adobepy broker HTTP endpoint.
+        gateway_port:
           type: integer
-          default: 9001
+          default: 9765
           minimum: 1024
           maximum: 65535
-          description: WebSocket port for UXP plugin connection.
-        rpc_port:
-          type: integer
-          default: 9100
-          minimum: 1024
-          maximum: 65535
-          description: RPC port for bridge access.
-        timeout:
-          type: integer
-          default: 30
-          minimum: 5
-          maximum: 300
-          description: Seconds to wait for UXP plugin connection before reporting status.
+          description: Gateway competition port.
     read_only: false
     destructive: false
     idempotent: false
 
   - name: verify_connection
-    description: "Verify the full bridge connection: Photoshop UXP plugin reachable, server responding, skills discoverable."
+    description: "Verify MCP transport, broker health, a connected bridge session, and a real Photoshop host call."
     source_file: scripts/verify_connection.py
     inputSchema:
       type: object
       properties:
-        mcp_port:
-          type: integer
-          default: 8765
-          description: MCP HTTP server port to check.
-        ws_port:
-          type: integer
-          default: 9001
-          description: WebSocket port to check for UXP plugin.
+        mcp_url:
+          type: string
+          default: "http://127.0.0.1:9765/mcp"
+          description: MCP gateway or direct adapter endpoint.
+        broker_url:
+          type: string
+          default: "http://127.0.0.1:47391"
+          description: adobepy broker HTTP endpoint.
         timeout:
           type: integer
           default: 10

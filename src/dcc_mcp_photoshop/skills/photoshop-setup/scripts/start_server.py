@@ -1,142 +1,54 @@
-"""Start the dcc-mcp-photoshop MCP server in embedded mode."""
+"""Start the adobepy-backed Photoshop MCP server."""
 
 from __future__ import annotations
 
-import logging
-import os
-import socket
-import time
-
 from dcc_mcp_core.skill import skill_entry
 
-logger = logging.getLogger(__name__)
-
-
-def _port_in_use(host: str, port: int) -> bool:
-    """Check if a port is already in use."""
-    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
-        result = sock.connect_ex((host, port))
-        return result == 0
+from dcc_mcp_photoshop.runtime_probe import probe_broker
+from dcc_mcp_photoshop.server import get_server
+from dcc_mcp_photoshop.server import start_server as start_adapter
 
 
 @skill_entry
 def start_server(
     mcp_port: int = 8765,
-    ws_port: int = 9001,
-    rpc_port: int = 9100,
-    timeout: int = 30,
+    broker_url: str = "http://127.0.0.1:47391",
+    gateway_port: int = 9765,
     **kwargs,
 ) -> dict:
-    """Start the dcc-mcp-photoshop server in embedded mode for testing.
-
-    Args:
-        mcp_port: MCP HTTP server port.
-        ws_port: WebSocket port for UXP plugin connection.
-        rpc_port: RPC port for bridge access.
-        timeout: Seconds to wait for UXP plugin connection.
-
-    Returns:
-        dict: Server start result with status and connection info.
-    """
-    # Check if ports are already in use
-    ports_in_use = {}
-    for name, port in [("MCP", mcp_port), ("WebSocket", ws_port), ("RPC", rpc_port)]:
-        ports_in_use[name] = _port_in_use("127.0.0.1", port)
-
-    if ports_in_use["MCP"] and not ports_in_use["WebSocket"]:
+    """Start the adapter only after its broker dependency is ready."""
+    broker = probe_broker(broker_url, timeout=3)
+    if not broker["ok"]:
         return {
             "success": False,
-            "summary": "MCP port already in use but WebSocket is free — dcc-mcp-server may already be running",
-            "details": {
-                "ports": {
-                    "mcp_port": mcp_port,
-                    "ws_port": ws_port,
-                    "rpc_port": rpc_port,
-                },
-                "ports_in_use": ports_in_use,
-            },
-            "prompt": (
-                "If dcc-mcp-server is already running externally, use "
-                "dcc-mcp-photoshop (bridge-only mode) instead, or stop "
-                "the existing server first."
-            ),
+            "summary": "adobepy broker is not ready; Photoshop MCP server was not started",
+            "details": {"broker": broker},
+            "prompt": "Start adobepy broker, then retry start_server.",
         }
 
-    if ports_in_use["WebSocket"]:
-        return {
-            "success": True,
-            "summary": "Server already appears to be running on these ports",
-            "details": {
-                "ports": {
-                    "mcp_port": mcp_port,
-                    "ws_port": ws_port,
-                    "rpc_port": rpc_port,
-                },
-                "ports_in_use": ports_in_use,
-            },
-            "prompt": "Run verify_connection to confirm the bridge is working.",
-        }
-
-    # Try to start the embedded server
     try:
-        import dcc_mcp_photoshop  # noqa: PLC0415
-
-        handle = dcc_mcp_photoshop.start_server(
+        handle = start_adapter(
             port=mcp_port,
-            ws_port=ws_port,
-            rpc_port=rpc_port,
+            broker_url=broker_url,
+            gateway_port=gateway_port,
             register_builtins=True,
-            extra_skill_paths=os.environ.get("DCC_MCP_PHOTOSHOP_SKILL_PATHS", "").split(os.pathsep) or None,
         )
-
-        mcp_url = handle.mcp_url() if hasattr(handle, "mcp_url") else f"http://127.0.0.1:{mcp_port}/mcp"
-
-        # Wait for UXP plugin connection
-        connected = False
-        for _ in range(timeout):
-            if _port_in_use("127.0.0.1", ws_port):
-                connected = True
-                break
-            try:
-                from dcc_mcp_photoshop.api import is_photoshop_available  # noqa: PLC0415
-
-                if is_photoshop_available():
-                    connected = True
-                    break
-            except Exception:
-                pass
-            time.sleep(1)
-
+        diagnostics = get_server().diagnostics()
+        ready = bool(diagnostics.get("dispatch_ready"))
         return {
-            "success": True,
-            "summary": f"MCP server started at {mcp_url}",
-            "details": {
-                "mcp_url": mcp_url,
-                "ports": {
-                    "mcp_port": mcp_port,
-                    "ws_port": ws_port,
-                    "rpc_port": rpc_port,
-                },
-                "uxp_plugin_connected": connected,
-                "wait_seconds": timeout,
-            },
-            "prompt": (
-                f"Server is running. Connect your MCP client to {mcp_url}. Run verify_connection for a full check."
-            ),
+            "success": ready,
+            "summary": "Photoshop MCP server is dispatch ready"
+            if ready
+            else "Photoshop MCP server started but is not ready",
+            "details": {"mcp_url": handle.mcp_url(), "broker": broker, "diagnostics": diagnostics},
+            "prompt": "Run verify_connection to check the complete gateway-to-Photoshop chain.",
         }
-    except Exception as exc:
+    except Exception as exc:  # noqa: BLE001 - return actionable skill output
         return {
             "success": False,
-            "summary": f"Failed to start server: {exc}",
-            "details": {
-                "error": str(exc),
-                "ports": {
-                    "mcp_port": mcp_port,
-                    "ws_port": ws_port,
-                    "rpc_port": rpc_port,
-                },
-            },
-            "prompt": ("Check the installation with check_environment, ensure dcc-mcp-core is installed, and retry."),
+            "summary": "Failed to start Photoshop MCP server",
+            "details": {"broker": broker, "error": str(exc)},
+            "prompt": "Check port ownership and dcc-mcp-core compatibility, then retry.",
         }
 
 
