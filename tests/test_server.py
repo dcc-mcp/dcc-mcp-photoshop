@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -103,10 +104,12 @@ def test_export_skill_subprocess_pythonpath_prepends_and_deduplicates(monkeypatc
     from dcc_mcp_photoshop.server import _export_skill_subprocess_pythonpath
 
     monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["existing", "runtime"]))
+    monkeypatch.delenv("DCC_MCP_PYTHON_EXECUTABLE", raising=False)
 
     _export_skill_subprocess_pythonpath(["runtime", "dependency"])
 
     assert os.environ["PYTHONPATH"].split(os.pathsep) == ["runtime", "dependency", "existing"]
+    assert os.environ["DCC_MCP_PYTHON_EXECUTABLE"] == sys.executable
 
 
 def test_skill_runtime_roots_prioritize_active_core_before_adobe(monkeypatch):

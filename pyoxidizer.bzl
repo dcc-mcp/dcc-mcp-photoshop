@@ -30,8 +30,9 @@ def make_exe():
     # Set module search path so the interpreter can find installed packages.
     python_config.module_search_paths = ["$ORIGIN/lib"]
 
-    # Run dcc_mcp_photoshop.cli as __main__ when the binary starts.
-    python_config.run_module = "dcc_mcp_photoshop.cli"
+    # Run the adapter CLI normally, while allowing the same embedded Python
+    # executable to dispatch core-managed skill scripts as child processes.
+    python_config.run_module = "dcc_mcp_photoshop._standalone_entry"
 
     # Don't let CPython's arg parser intercept --help/--version.
     # Our CLI argparse handles all args after Python is fully initialized.

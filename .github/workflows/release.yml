@@ -157,6 +157,10 @@ jobs:
           fi
           "./${{ matrix.binary_name }}" --version
           "./${{ matrix.binary_name }}" --help
+          printf '%s' '{"message":"standalone"}' | \
+            "./${{ matrix.binary_name }}" \
+            "$GITHUB_WORKSPACE/tools/standalone_skill_smoke.py" \
+            --message standalone
 
       - name: Package binary bundle (tar.gz)
         shell: bash
