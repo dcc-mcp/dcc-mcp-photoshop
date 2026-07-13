@@ -60,12 +60,15 @@ def _create_document(
     )
     if not isinstance(result, dict) or result.get("id") is None:
         raise RuntimeError(f"Photoshop did not create the document: {result!r}")
+    document = app.activeDocument
+    if document is None:
+        raise RuntimeError("Photoshop created a document but did not expose it as active")
     return {
-        "document_id": result["id"],
-        "document_name": result.get("name", name),
-        "width": result.get("width", width),
-        "height": result.get("height", height),
-        "resolution": result.get("resolution", resolution),
+        "document_id": document.id or result["id"],
+        "document_name": document.name or result.get("name", name),
+        "width": document.width,
+        "height": document.height,
+        "resolution": document.resolution,
         "color_mode": color_mode,
     }
 

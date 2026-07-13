@@ -321,6 +321,15 @@ class FakeClient:
     _last_set_paragraph_style: dict[str, Any] | None = None
     _active_layer_id = 102
     _active_layer_kind = "pixel"
+    _active_document: dict[str, Any] = {
+        "id": 1,
+        "name": "Untitled-1.psd",
+        "width": 1920,
+        "height": 1080,
+        "resolution": 72.0,
+        "mode": "RGBColor",
+        "typename": "Document",
+    }
 
     def __init__(
         self,
@@ -338,15 +347,7 @@ class FakeClient:
         args = list(args or [])
 
         if namespace == "document" and method == "getActive":
-            return {
-                "id": 1,
-                "name": "Untitled-1.psd",
-                "width": 1920,
-                "height": 1080,
-                "resolution": 72.0,
-                "mode": "RGBColor",
-                "typename": "Document",
-            }
+            return dict(FakeClient._active_document)
 
         if namespace == "document" and method == "getLayers":
             return [
@@ -527,11 +528,23 @@ class FakeClient:
             call_args = args[1] if len(args) > 1 else []
             if path == ["app", "documents", "add"]:
                 options = call_args[0] if call_args else {}
-                return {
+                FakeClient._active_document = {
                     "id": 2,
                     "name": options.get("name", "Untitled"),
                     "width": options.get("width", 1920),
                     "height": options.get("height", 1080),
+                    "resolution": options.get("resolution", 72.0),
+                    "mode": options.get("mode", "RGBColorMode"),
+                    "typename": "Document",
+                }
+                # The generic DOM return can contain constructor defaults even
+                # though Photoshop created the requested canvas. Consumers must
+                # read the active document after creation.
+                return {
+                    "id": 2,
+                    "name": options.get("name", "Untitled"),
+                    "width": 1920,
+                    "height": 1080,
                     "resolution": options.get("resolution", 72.0),
                     "typename": "Document",
                 }
@@ -584,5 +597,14 @@ def fake_broker_client(monkeypatch):
     FakeClient._last_set_paragraph_style = None
     FakeClient._active_layer_id = 102
     FakeClient._active_layer_kind = "pixel"
+    FakeClient._active_document = {
+        "id": 1,
+        "name": "Untitled-1.psd",
+        "width": 1920,
+        "height": 1080,
+        "resolution": 72.0,
+        "mode": "RGBColor",
+        "typename": "Document",
+    }
 
     yield FakeClient
