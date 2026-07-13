@@ -24,6 +24,7 @@ import dataclasses
 import importlib.util
 import logging
 import os
+import sys
 import threading
 from pathlib import Path
 from typing import Any, Iterable, Optional
@@ -58,6 +59,7 @@ def _skill_runtime_roots() -> list[str]:
 
 def _export_skill_subprocess_pythonpath(package_roots: Iterable[str] | None = None) -> None:
     """Prepend adapter dependency roots for core-managed skill subprocesses."""
+    os.environ.setdefault("DCC_MCP_PYTHON_EXECUTABLE", sys.executable)
     candidates = list(_skill_runtime_roots() if package_roots is None else package_roots)
     candidates.extend(filter(None, os.environ.get("PYTHONPATH", "").split(os.pathsep)))
     merged: list[str] = []
