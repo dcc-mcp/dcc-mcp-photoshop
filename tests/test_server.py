@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 
@@ -67,3 +69,30 @@ def test_bridge_call_raises_when_not_connected():
     # _connected=False, _loop=None — should raise BridgeConnectionError
     with pytest.raises(BridgeConnectionError):
         bridge.call("ps.test")
+
+
+def test_check_broker_accepts_capability_session_list(monkeypatch):
+    from adobe.core import client as client_module
+
+    from dcc_mcp_photoshop.server import PhotoshopMcpServer, StartupState
+
+    class FakeBrokerClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def capabilities(self):
+            return [{"target": "photoshop-uxp", "capabilities": {"host": "photoshop"}}]
+
+    monkeypatch.setattr(client_module, "BrokerClient", FakeBrokerClient)
+    server = object.__new__(PhotoshopMcpServer)
+    server._adapter_config = SimpleNamespace(
+        broker_url="http://127.0.0.1:47391",
+        broker_token="dev-token",
+        broker_target="default",
+        timeout=1.0,
+    )
+    server._startup_state = StartupState()
+
+    server._check_broker()
+
+    assert server._startup_state.stage == "broker_ready"

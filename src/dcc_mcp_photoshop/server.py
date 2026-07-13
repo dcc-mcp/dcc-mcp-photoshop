@@ -37,6 +37,18 @@ logger = logging.getLogger(__name__)
 _BUILTIN_SKILLS_DIR = Path(__file__).parent / "skills"
 
 
+def _resolve_broker_target(capabilities: Any, fallback: str) -> str:
+    """Read the broker target from current or legacy capability payloads."""
+    if isinstance(capabilities, dict):
+        target = capabilities.get("target")
+        return str(target) if target else fallback
+    if isinstance(capabilities, list):
+        for session in capabilities:
+            if isinstance(session, dict) and session.get("target"):
+                return str(session["target"])
+    return fallback
+
+
 # ---------------------------------------------------------------------------
 # Startup state — tracks failure stage for diagnostics
 # ---------------------------------------------------------------------------
@@ -159,7 +171,7 @@ class PhotoshopMcpServer(DccServerBase):
             logger.info(
                 "adobepy broker available at %s (target=%s)",
                 self._adapter_config.broker_url,
-                caps.get("target", self._adapter_config.broker_target),
+                _resolve_broker_target(caps, self._adapter_config.broker_target),
             )
         except Exception as exc:
             self._startup_state.set_failed(
