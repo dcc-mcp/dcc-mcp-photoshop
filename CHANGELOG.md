@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.27](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.26...v0.1.27) (2026-07-13)
+
+
+### Bug Fixes
+
+* align Photoshop setup with adobepy ([#76](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/76)) ([a69a923](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a69a9230d8e8cf8b1fa22bad559a2b8c2cf8cab2))
+* bundle current dcc-mcp core train ([4d99076](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/4d99076aa997c2f5d30f7979ab6da9fdc7e6cf39))
+
 ## [0.1.26](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.25...v0.1.26) (2026-07-05)
 
 
