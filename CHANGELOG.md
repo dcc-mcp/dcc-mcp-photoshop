@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.30](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.29...v0.1.30) (2026-07-13)
+
+
+### Bug Fixes
+
+* enforce one Photoshop sidecar ([2f7bf98](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2f7bf98737cf5a71ca173ee2b7f4b7f7889305a7))
+
 ## [0.1.29](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.28...v0.1.29) (2026-07-13)
 
 
