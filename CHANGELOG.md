@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.31](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.30...v0.1.31) (2026-07-13)
+
+
+### Bug Fixes
+
+* report created Photoshop document state ([0509e49](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0509e495a99cb87349606be1753335737aa69d80))
+* report created Photoshop document state ([08d2146](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/08d21460d21e5fef558a32c37bed7188be575823))
+
 ## [0.1.30](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.29...v0.1.30) (2026-07-13)
 
 
