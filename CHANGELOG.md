@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.29](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.28...v0.1.29) (2026-07-13)
+
+
+### Bug Fixes
+
+* run standalone Photoshop skills with embedded Python ([#79](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/79)) ([fa499f0](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/fa499f0b239cd458ab19d242c87b89aaae00e23d))
+
 ## [0.1.28](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.27...v0.1.28) (2026-07-13)
 
 
