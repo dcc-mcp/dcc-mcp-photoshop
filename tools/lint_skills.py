@@ -86,7 +86,7 @@ def _parse_frontmatter(text: str) -> Tuple[Optional[Dict], str]:
         return None, text
 
     yaml_text = rest[:end]
-    body = rest[end + 4:]
+    body = rest[end + 4 :]
 
     try:
         metadata = yaml.safe_load(yaml_text)
@@ -125,7 +125,7 @@ def _lint_skill(skill_dir: Path, project_root: Path) -> List[LintIssue]:
         return issues
 
     # ── R004: Required fields ─────────────────────────────────────────────
-    for field_name in ("name", "description", "version"):
+    for field_name in ("name", "description"):
         if not meta.get(field_name):
             issues.append(
                 LintIssue(skill_name, rel(skill_md), "ERROR", "R004", f"Missing required field: '{field_name}'")
@@ -138,27 +138,41 @@ def _lint_skill(skill_dir: Path, project_root: Path) -> List[LintIssue]:
             LintIssue(skill_name, rel(skill_md), "ERROR", "R005", f"'name' must match [a-z0-9-], got: {meta_name!r}")
         )
 
+    metadata = meta.get("metadata", {})
+    dcc_metadata = metadata.get("dcc-mcp", {}) if isinstance(metadata, dict) else {}
+    if not isinstance(dcc_metadata, dict):
+        dcc_metadata = {}
+
     # ── R006: version must be semver-ish ──────────────────────────────────
-    version = str(meta.get("version", ""))
+    version_value = dcc_metadata.get("version")
+    version = str(version_value) if version_value is not None else ""
+    if not version_value:
+        issues.append(LintIssue(skill_name, rel(skill_md), "ERROR", "R004", "Missing metadata.dcc-mcp.version"))
     if version and not SEMVER_RE.match(version):
         issues.append(
             LintIssue(skill_name, rel(skill_md), "WARNING", "R006", f"'version' should be semver, got: {version!r}")
         )
 
     # ── R007: dcc must be 'photoshop' ────────────────────────────────────
-    dcc = meta.get("dcc", "")
+    dcc = dcc_metadata.get("dcc", "")
     if dcc and dcc not in VALID_DCC_VALUES:
         issues.append(
             LintIssue(
-                skill_name, rel(skill_md), "ERROR", "R007",
-                f"'dcc' must be one of {sorted(VALID_DCC_VALUES)}, got: {dcc!r}"
+                skill_name,
+                rel(skill_md),
+                "ERROR",
+                "R007",
+                f"'dcc' must be one of {sorted(VALID_DCC_VALUES)}, got: {dcc!r}",
             )
         )
     if dcc and dcc != PROJECT_DCC:
         issues.append(
             LintIssue(
-                skill_name, rel(skill_md), "WARNING", "R008",
-                f"'dcc' should be '{PROJECT_DCC}' for this project, got: {dcc!r}"
+                skill_name,
+                rel(skill_md),
+                "WARNING",
+                "R008",
+                f"'dcc' should be '{PROJECT_DCC}' for this project, got: {dcc!r}",
             )
         )
 
@@ -178,16 +192,16 @@ def _lint_skill(skill_dir: Path, project_root: Path) -> List[LintIssue]:
             script_path = skill_dir / source
             if not script_path.exists():
                 issues.append(
-                    LintIssue(
-                        skill_name, rel(skill_md), "ERROR", "R010",
-                        f"Tool source file not found: {source}"
-                    )
+                    LintIssue(skill_name, rel(skill_md), "ERROR", "R010", f"Tool source file not found: {source}")
                 )
             elif script_path.suffix not in SUPPORTED_SCRIPT_EXTENSIONS:
                 issues.append(
                     LintIssue(
-                        skill_name, rel(skill_md), "WARNING", "R011",
-                        f"Unexpected script extension {script_path.suffix!r} for {source}"
+                        skill_name,
+                        rel(skill_md),
+                        "WARNING",
+                        "R011",
+                        f"Unexpected script extension {script_path.suffix!r} for {source}",
                     )
                 )
 

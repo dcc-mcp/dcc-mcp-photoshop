@@ -9,6 +9,16 @@ import yaml
 SKILLS_ROOT = Path(__file__).parents[1] / "src" / "dcc_mcp_photoshop" / "skills"
 
 
+def test_bundled_skill_frontmatter_uses_spec_metadata():
+    for skill_file in sorted(SKILLS_ROOT.glob("*/SKILL.md")):
+        _, frontmatter, _ = skill_file.read_text(encoding="utf-8").split("---", 2)
+        payload = yaml.safe_load(frontmatter)
+        assert "version" not in payload
+        dcc_metadata = payload["metadata"]["dcc-mcp"]
+        assert dcc_metadata["dcc"] == "photoshop"
+        assert dcc_metadata["version"]
+
+
 def test_bundled_tools_have_static_input_schemas():
     for tools_file in sorted(SKILLS_ROOT.glob("*/tools.yaml")):
         payload = yaml.safe_load(tools_file.read_text(encoding="utf-8"))
