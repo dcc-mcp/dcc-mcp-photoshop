@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import importlib.metadata
+import os
 import platform
-import socket
 import subprocess
 import sys
 
 from dcc_mcp_core.skill import skill_entry
+
+from dcc_mcp_photoshop.runtime_probe import probe_broker
 
 
 def _get_python_version() -> str:
@@ -31,21 +33,12 @@ def _check_pip() -> bool:
 def _get_installed_packages() -> dict[str, str]:
     """Return dict of relevant installed packages and their versions."""
     packages = {}
-    for name in ("dcc-mcp-photoshop", "dcc-mcp-core", "websockets"):
+    for name in ("dcc-mcp-photoshop", "dcc-mcp-core", "adobepy"):
         try:
             packages[name] = importlib.metadata.version(name)
         except importlib.metadata.PackageNotFoundError:
             packages[name] = None
     return packages
-
-
-def _check_port(host: str, port: int) -> bool:
-    """Check if a port is listening."""
-    try:
-        with socket.create_connection((host, port), timeout=2):
-            return True
-    except (socket.timeout, ConnectionRefusedError, OSError):
-        return False
 
 
 def _check_photoshop_process() -> bool:
@@ -94,7 +87,8 @@ def check_environment(verbose: bool = False, **kwargs) -> dict:
     pip_available = _check_pip()
     packages = _get_installed_packages()
     photoshop_running = _check_photoshop_process()
-    uxp_port_open = _check_port("127.0.0.1", 9001)
+    broker_url = os.environ.get("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391")
+    broker = probe_broker(broker_url, timeout=2)
 
     # Parse Python version check
     major, minor, *_ = (int(v) for v in python_version.split("."))
@@ -117,8 +111,8 @@ def check_environment(verbose: bool = False, **kwargs) -> dict:
     else:
         summary_parts.append("Photoshop not detected")
 
-    if uxp_port_open:
-        summary_parts.append("UXP port 9001 open")
+    if broker["ok"]:
+        summary_parts.append(f"adobepy broker ready ({broker['sessions']} sessions)")
 
     result = {
         "python": {
@@ -132,10 +126,7 @@ def check_environment(verbose: bool = False, **kwargs) -> dict:
             "running": photoshop_running,
             "platform": platform.system(),
         },
-        "uxp_plugin": {
-            "port_open": uxp_port_open,
-            "port": 9001,
-        },
+        "adobepy_broker": broker,
         "system": {
             "platform": platform.system(),
             "release": platform.release(),
@@ -157,10 +148,13 @@ def check_environment(verbose: bool = False, **kwargs) -> dict:
             [
                 python_ok,
                 pip_available or packages.get("dcc-mcp-photoshop"),
+                broker["ok"],
             ]
         ),
         "details": result,
-        "prompt": ("Use install_package to install dcc-mcp-photoshop, or setup_uxp_plugin to install the UXP plugin."),
+        "prompt": (
+            "Use setup_uxp_plugin to stage the bridge, load it with UXP Developer Tool, then verify_connection."
+        ),
     }
 
 

@@ -13,10 +13,8 @@ Prerequisites:
   - Rust toolchain (install from https://rustup.rs/)
   - PyOxidizer (``pip install pyoxidizer``)
 
-The resulting binary can be:
-  - Distributed with the Photoshop UXP plugin (.ccx)
-  - Run directly by users: ./dcc-mcp-photoshop  or  dcc-mcp-photoshop.exe
-  - Auto-launched by the UXP plugin on startup
+The resulting binary runs as the adapter process beside the independently
+distributed adobepy broker and bridge.
 """
 
 from __future__ import annotations
@@ -187,7 +185,7 @@ def main() -> None:
     print()
     print("Usage:")
     print(f"  {dest.name} --help")
-    print(f"  {dest.name}                  # default ports (MCP:8765, WS:9001)")
+    print(f"  {dest.name}                  # default MCP port 8765; broker 127.0.0.1:47391")
     print(f"  {dest.name} --mcp-port 9000  # custom ports")
 
 

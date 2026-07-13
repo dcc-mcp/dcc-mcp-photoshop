@@ -227,9 +227,9 @@ def ps_from_exception(
 
 _PS_NOT_AVAILABLE_MSG = "Photoshop not available"
 _PS_NOT_AVAILABLE_SOLUTIONS = [
-    "Install the dcc-mcp UXP plugin from bridge/uxp-plugin/",
+    "Generate the adobepy Photoshop bridge and load it with Adobe UXP Developer Tool",
     "Start Photoshop before launching the MCP server",
-    "Check that the WebSocket port (default: 3000) is not blocked by a firewall",
+    "Check that the adobepy broker is reachable and reports a Photoshop bridge session",
     "Call start_server() to initialise the bridge connection",
 ]
 

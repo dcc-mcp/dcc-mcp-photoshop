@@ -209,64 +209,6 @@ jobs:
           name: dist
           path: dist/
 
-  # ── Build UXP plugin .ccx ───────────────────────────────────────────────────
-  build-uxp-plugin:
-    needs: [decide, validate-release-version]
-    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          ref: ${{ needs.decide.outputs.tag_name }}
-
-      - name: Check if bridge/uxp-plugin exists
-        id: check
-        run: |
-          if [ -d "bridge/uxp-plugin" ] && [ -f "bridge/uxp-plugin/manifest.json" ]; then
-            echo "exists=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "exists=false" >> "$GITHUB_OUTPUT"
-            echo "bridge/uxp-plugin directory not found — skipping UXP plugin build"
-          fi
-
-      - name: Set up Python 3.12
-        if: steps.check.outputs.exists == 'true'
-        uses: actions/setup-python@v6
-        with:
-          python-version: "3.12"
-
-      - name: Install dcc-mcp-core (for version detection)
-        if: steps.check.outputs.exists == 'true'
-        run: pip install dcc-mcp-core
-
-      - name: Download dcc-mcp-server Windows binary from dcc-mcp-core release
-        if: steps.check.outputs.exists == 'true'
-        run: python tools/download_dcc_mcp_server.py --platform windows
-
-      - name: Stage sidecar into UXP plugin tree
-        if: steps.check.outputs.exists == 'true'
-        run: python tools/stage_plugin_sidecar.py
-
-      - name: Pack UXP plugin (.ccx)
-        if: steps.check.outputs.exists == 'true'
-        run: |
-          python tools/pack_plugin.py --version "${{ needs.decide.outputs.version }}" --output dist/plugin
-        shell: bash
-
-      - name: Verify .ccx file was created
-        if: steps.check.outputs.exists == 'true'
-        shell: bash
-        run: |
-          ls -la dist/plugin/
-          test -n "$(find dist/plugin/ -name '*.ccx' -print -quit)"
-
-      - name: Upload plugin artifact
-        if: steps.check.outputs.exists == 'true'
-        uses: actions/upload-artifact@v4
-        with:
-          name: uxp-plugin
-          path: dist/plugin/*.ccx
-
   # ── Publish to PyPI (tag push only, not on manual rebuild) ───────────────────
   publish:
     needs: [decide, validate-release-version, build]
@@ -291,9 +233,9 @@ jobs:
           verbose: true
           print-hash: true
 
-  # ── Attach wheels + plugin + binaries to GitHub Release ─────────────────────
+  # ── Attach wheels + binaries to GitHub Release ──────────────────────────────
   attach-release-assets:
-    needs: [decide, validate-release-version, build-uxp-plugin, build-binary]
+    needs: [decide, validate-release-version, build-binary]
     if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
     runs-on: ubuntu-latest
     permissions:
@@ -305,13 +247,6 @@ jobs:
         with:
           name: dist
           path: dist/
-
-      - name: Download UXP plugin artifact
-        uses: actions/download-artifact@v4
-        continue-on-error: true
-        with:
-          name: uxp-plugin
-          path: dist/plugin/
 
       - name: Download Windows binary archive
         uses: actions/download-artifact@v4
@@ -344,5 +279,4 @@ jobs:
           files: |
             dist/*.whl
             dist/*.tar.gz
-            dist/plugin/*.ccx
           fail_on_unmatched_files: false

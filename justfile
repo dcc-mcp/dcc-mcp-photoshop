@@ -3,8 +3,6 @@
 #
 # Quick reference:
 #   just              — list all available commands
-#   just pack-plugin  — build the .ccx UXP plugin
-#   just install-plugin — install plugin to Photoshop (Windows/macOS)
 #   just test         — run Python tests
 #   just lint         — run ruff checks
 #   just lint-skills  — lint SKILL.md files
@@ -16,41 +14,6 @@ set windows-shell := ["cmd.exe", "/c"]
 # Default: list all commands
 default:
     @just --list
-
-# ── Plugin packaging ──────────────────────────────────────────────────────────
-
-# Pack the UXP plugin into a .ccx archive (output: dist/plugin/)
-pack-plugin:
-    python tools/pack_plugin.py
-
-# Pack with a specific version
-pack-plugin-version version:
-    python tools/pack_plugin.py --version {{version}}
-
-# Pack and open the output directory
-pack-plugin-open: pack-plugin
-    {{ if os() == "windows" { "explorer dist\\plugin" } else if os() == "macos" { "open dist/plugin" } else { "xdg-open dist/plugin" } }}
-
-# ── Plugin installation ───────────────────────────────────────────────────────
-
-# Install the UXP plugin for development via junction (Windows) or symlink (macOS)
-# Windows path: %APPDATA%\Adobe\UXP\Plugins\External\com.dcc-mcp.photoshop-bridge
-# macOS path:   ~/Library/Application Support/Adobe/UXP/Plugins/External/com.dcc-mcp.photoshop-bridge
-install-plugin-dev:
-    @echo "Installing UXP plugin for development..."
-    python tools/install_plugin_dev.py
-    @echo "Done. Restart Photoshop to load the plugin."
-
-# Copy the packed .ccx to the system plugin install directory
-# (requires Creative Cloud Desktop App to be running)
-install-plugin: pack-plugin
-    {{ if os() == "windows" { \
-        "python -c \"import pathlib, shutil, glob; files=glob.glob('dist/plugin/*.ccx'); f=files[0] if files else None; dst=pathlib.Path(input('Install path: ')); print(f'Copy {f} -> {dst}'); shutil.copy(f, dst)\" " \
-    } else if os() == "macos" { \
-        "python -c \"import pathlib, shutil, glob; files=glob.glob('dist/plugin/*.ccx'); f=files[0] if files else None; print(f'CCX file: {f}'); print('To install: open dist/plugin/ and double-click the .ccx file')\" " \
-    } else { \
-        "echo 'Linux is not supported by Adobe Photoshop'" \
-    } }}
 
 # ── Development ───────────────────────────────────────────────────────────────
 
@@ -106,8 +69,8 @@ build-binary:
 build-binary-dir:
     python tools/build_binary.py --onedir
 
-# Build everything: Python wheel + UXP plugin + standalone binary
-build-all: build pack-plugin build-binary
+# Build everything owned by this repository
+build-all: build build-binary
     @echo "Build complete — see dist/"
 
 # ── Run server ────────────────────────────────────────────────────────────────
@@ -115,13 +78,13 @@ build-all: build pack-plugin build-binary
 # Python executable — override with: just python="python3.12" serve
 python := "uv run python"
 
-# Start the MCP + WebSocket bridge server (dev mode, uses installed package)
+# Start the broker-backed MCP adapter
 serve:
     {{python}} -m dcc_mcp_photoshop
 
 # Start with custom ports
-serve-ports mcp_port="8765" ws_port="9001":
-    {{python}} -m dcc_mcp_photoshop --mcp-port {{mcp_port}} --ws-port {{ws_port}}
+serve-ports mcp_port="8765" gateway_port="9765":
+    {{python}} -m dcc_mcp_photoshop --mcp-port {{mcp_port}} --gateway-port {{gateway_port}}
 
 # Clean all build artifacts
 clean:

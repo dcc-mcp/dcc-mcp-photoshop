@@ -1,131 +1,72 @@
 # dcc-mcp-photoshop
 
-> Adobe Photoshop adapter for the DCC MCP ecosystem: bridges MCP tools to Photoshop via UXP WebSocket.
+> Photoshop MCP adapter backed by the adobepy broker and UXP bridge.
 
-## Quick Start
-
-```
-# Start embedded dev server (bridge + MCP in one process)
-dcc-mcp-photoshop --embedded
-
-# Or with external dcc-mcp-server (deployment):
-# 1) Start dcc-mcp-server pointing to this DCC
-dcc-mcp-server --dcc photoshop --mcp-port 8765 --skill-paths ./skills --no-bridge
-# 2) Start the bridge
-dcc-mcp-photoshop
-
-# MCP client connects to:
-#   http://127.0.0.1:9765/mcp        (gateway, auto-routes to photoshop)
-#   http://127.0.0.1:8765/mcp        (direct per-DCC port)
-```
-
-## Agent Workflow
+## Runtime chain
 
 ```
-1. search_skills("photoshop")     → discover photoshop-* skills
-2. load_skill("photoshop-setup")  → expose setup tools
-3. (optional) check_environment   → verify Photoshop + bridge status
-4. load_skill("photoshop-document") → expose document tools
-5. get_document_info              → inspect active doc
-6. list_layers                    → list all layers
-7. load_skill("photoshop-layers")  → expose layer tools
-8. create_layer / set_layer_opacity / ... → manipulate layers
+MCP client -> dcc-mcp gateway (:9765) -> Photoshop adapter
+           -> adobepy broker (:47391) -> loaded UXP bridge -> Photoshop
 ```
 
-## Available Tools by Skill
+## Quick start
 
-### photoshop-setup
-| Tool | Description |
-|------|-------------|
-| `check_environment` | Check system prerequisites |
-| `install_package` | Install/upgrade dcc-mcp-photoshop via pip |
-| `setup_uxp_plugin` | Install .ccx plugin into Photoshop |
-| `start_server` | Start embedded server for dev |
-| `verify_connection` | End-to-end bridge connection check |
-| `configure_mcp_client` | Auto-write MCP client config |
+```powershell
+# 1. Start the broker from an adobepy release bundle.
+adobepy broker
 
-### photoshop-document
-| Tool | Description |
-|------|-------------|
-| `get_document_info` | Active document metadata |
-| `list_layers` | List layers (optional hidden filter) |
+# 2. Generate the bridge files.
+adobepy install-bridge photoshop --dest ./adobepy-photoshop-bridge
 
-### photoshop-image
-| Tool | Description |
-|------|-------------|
-| `create_document` | New document with dimensions/resolution |
-| `export_document` | Export as PNG/JPG/TIFF/PSD |
-| `save_document` | Save in-place |
-| `resize_canvas` | Change canvas size without resampling |
-| `resize_image` | Scale image (resamples content) |
-| `flatten_image` | Flatten to single layer |
-| `merge_visible_layers` | Merge visible layers |
+# 3. Enable Photoshop Developer Mode. In Adobe UXP Developer Tool, add
+#    ./adobepy-photoshop-bridge/manifest.json and click Load.
 
-### photoshop-layers
-| Tool | Description |
-|------|-------------|
-| `create_layer` | Create pixel/group/adjustment layer |
-| `delete_layer` | Delete a named layer |
-| `duplicate_layer` | Duplicate a layer |
-| `rename_layer` | Rename a layer |
-| `set_layer_opacity` | Set opacity 0-100 |
-| `set_layer_visibility` | Show/hide a layer |
-| `set_layer_blend_mode` | Set blend mode (normal, multiply, etc.) |
-| `fill_layer` | Fill with solid color or transparent |
+# 4. Start the adapter.
+dcc-mcp-photoshop --mcp-port 8765 --gateway-port 9765
+```
 
-### photoshop-text
-| Tool | Description |
-|------|-------------|
-| `create_text_layer` | Create text layer with full styling |
-| `update_text_layer` | Update text content or style |
-| `get_text_layer_info` | Read text properties |
+The broker health endpoint must report at least one session before Photoshop
+tools can work. A listening port alone is not sufficient; run a typed host tool
+such as `get_document_info` as the final health check.
 
-## CLI Options
+## Agent workflow
+
+```
+search_skills("photoshop")
+load_skill("photoshop-setup")
+verify_connection
+load_skill("photoshop-document")
+get_document_info
+load_skill("photoshop-layers")
+create_layer / set_layer_opacity / ...
+```
+
+## CLI options
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--embedded` | false | MCP server + bridge in one process (dev only) |
-| `--daemon` | false | Non-interactive background startup |
-| `--bridge-only` | true | Bridge-only mode (for use with dcc-mcp-server) |
-| `--mcp-port` | 8765 | MCP HTTP server port (embedded mode) |
-| `--ws-port` | 9001 | WebSocket bridge port for UXP plugin |
-| `--ws-host` | localhost | WebSocket bind host |
-| `--rpc-port` | 9100 | HTTP RPC server port |
-| `--gateway-port` | 9765 | Gateway competition port (embedded mode) |
-| `--server-name` | photoshop-mcp | Server name reported in MCP |
+| `--mcp-port` | 8765 | Direct MCP HTTP port |
+| `--broker-url` | http://127.0.0.1:47391 | adobepy broker endpoint |
+| `--gateway-port` | disabled unless configured | Gateway competition port |
+| `--server-name` | photoshop-mcp | MCP server name |
 | `--skill-paths` | [] | Extra skill directories |
 | `--no-builtins` | false | Skip built-in skills |
 | `--verbose/-v` | false | Enable debug logging |
 
-## Architecture
+## Built-in skills
 
-The Python process (dcc-mcp-photoshop) runs a WebSocket server on port 9001. The UXP JavaScript plugin inside Photoshop connects to it as a WebSocket client — this direction is required because UXP supports WebSocket client mode only.
+- `photoshop-setup`: stage the bridge, start the adapter, configure clients,
+  and verify MCP + broker + bridge + real host execution.
+- `photoshop-document`: inspect the active document and layers.
+- `photoshop-image`: create, save, resize, flatten, merge, and export.
+- `photoshop-layers`: create, delete, duplicate, rename, fill, show, and style layers.
+- `photoshop-text`: create, update, and inspect text layers.
 
-```json
-{
-  "mcpServers": {
-    "photoshop": {
-      "url": "http://127.0.0.1:9765/mcp"
-    }
-  }
-}
-```
-
-## Protocol
-
-Bridge communication uses JSON-RPC 2.0 over WebSocket. See `docs/bridge-protocol.md` for full specification.
-
-## Dependencies
+## Dependencies and distribution
 
 - `dcc-mcp-core>=0.19.17,<1.0.0`
-- `websockets>=12.0`
+- `adobepy>=0.1.0`
 - Python >=3.8
-- Adobe Photoshop 2022+
-
-## Distribution
-
-- **PyPI**: `pip install dcc-mcp-photoshop`
-- **Standalone binary**: GitHub Releases (no Python needed)
-- **UXP .ccx plugin**: GitHub Releases
-
-See `docs/distribution.md` for full details.
+- Photoshop 2025+ for the current adobepy bridge manifest
+- Adapter: PyPI or standalone binary from dcc-mcp-photoshop releases
+- Broker and UXP bridge template: adobepy release bundle
