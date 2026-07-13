@@ -25,7 +25,12 @@ from __future__ import annotations
 import argparse
 import logging
 import signal
+import sys
 import time
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from dcc_mcp_photoshop.config import PhotoshopMcpConfig
 
 logger = logging.getLogger(__name__)
 
@@ -123,18 +128,7 @@ def _get_version() -> str:
         return "0.0.0"
 
 
-def main(argv: list[str] | None = None) -> None:
-    parser = _build_parser()
-    args = parser.parse_args(argv)
-
-    from dcc_mcp_photoshop.config import PhotoshopMcpConfig  # noqa: PLC0415
-
-    config = PhotoshopMcpConfig.from_env()
-    if args.broker_url:
-        config.broker_url = args.broker_url
-
-    _setup_logging(args.verbose, config.log_level)
-
+def _run_server(args: argparse.Namespace, config: PhotoshopMcpConfig) -> None:
     print(f"dcc-mcp-photoshop v{_get_version()}")
     print(f"  MCP server  : http://127.0.0.1:{args.mcp_port}/mcp")
     print(f"  Broker      : {config.broker_url}")
@@ -144,7 +138,6 @@ def main(argv: list[str] | None = None) -> None:
 
     import dcc_mcp_photoshop.server as _server_mod  # noqa: PLC0415
 
-    # Handle Ctrl+C gracefully
     stop = [False]
 
     def _on_signal(*_):
@@ -181,6 +174,31 @@ def main(argv: list[str] | None = None) -> None:
         logger.info("Shutting down...")
         _server_mod.stop_server()
         print("Server stopped.")
+
+
+def main(argv: list[str] | None = None) -> None:
+    parser = _build_parser()
+    args = parser.parse_args(argv)
+
+    from dcc_mcp_photoshop.config import PhotoshopMcpConfig  # noqa: PLC0415
+
+    config = PhotoshopMcpConfig.from_env()
+    if args.broker_url:
+        config.broker_url = args.broker_url
+
+    _setup_logging(args.verbose, config.log_level)
+
+    from dcc_mcp_photoshop._single_instance import (  # noqa: PLC0415
+        AlreadyRunningError,
+        SingleInstanceLease,
+    )
+
+    try:
+        with SingleInstanceLease():
+            _run_server(args, config)
+    except AlreadyRunningError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        raise SystemExit(1) from exc
 
 
 if __name__ == "__main__":
