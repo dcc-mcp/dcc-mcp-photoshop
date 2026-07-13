@@ -1,0 +1,50 @@
+tools:
+- name: convert_to_smart_object
+  description: Convert the active layer to a Smart Object
+  source_file: scripts/convert_to_smart_object.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: new_smart_object_via_copy
+  description: Create a new Smart Object by duplicating the active layer
+  source_file: scripts/new_smart_object_via_copy.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: edit_smart_object_contents
+  description: Open the Smart Object in a new document for editing
+  source_file: scripts/edit_smart_object_contents.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties: {}
+    additionalProperties: false
+- name: replace_smart_object_contents
+  description: Replace Smart Object contents with an external file
+  source_file: scripts/replace_smart_object_contents.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      path:
+        type: string
+        description: Path to the replacement file (e.g. ``"C:/images/new.psd"``).
+    additionalProperties: false
+    required:
+    - path

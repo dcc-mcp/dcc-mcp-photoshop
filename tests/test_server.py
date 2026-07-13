@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from types import SimpleNamespace
 
 import pytest
@@ -96,3 +97,29 @@ def test_check_broker_accepts_capability_session_list(monkeypatch):
     server._check_broker()
 
     assert server._startup_state.stage == "broker_ready"
+
+
+def test_export_skill_subprocess_pythonpath_prepends_and_deduplicates(monkeypatch):
+    from dcc_mcp_photoshop.server import _export_skill_subprocess_pythonpath
+
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["existing", "runtime"]))
+
+    _export_skill_subprocess_pythonpath(["runtime", "dependency"])
+
+    assert os.environ["PYTHONPATH"].split(os.pathsep) == ["runtime", "dependency", "existing"]
+
+
+def test_skill_runtime_roots_prioritize_active_core_before_adobe(monkeypatch):
+    from dcc_mcp_photoshop import server as server_module
+
+    discovered = []
+
+    def fake_find_spec(package_name):
+        discovered.append(package_name)
+        return SimpleNamespace(submodule_search_locations=[f"C:/{package_name}"], origin=None)
+
+    monkeypatch.setattr(server_module.importlib.util, "find_spec", fake_find_spec)
+
+    server_module._skill_runtime_roots()
+
+    assert discovered == ["dcc_mcp_photoshop", "dcc_mcp_core", "adobe"]

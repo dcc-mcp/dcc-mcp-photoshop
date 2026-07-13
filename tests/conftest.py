@@ -319,6 +319,8 @@ class FakeClient:
         "paragraphStyle": {"alignment": "left", "justification": "left"},
     }
     _last_set_paragraph_style: dict[str, Any] | None = None
+    _active_layer_id = 102
+    _active_layer_kind = "pixel"
 
     def __init__(
         self,
@@ -466,7 +468,13 @@ class FakeClient:
             return [{"ok": True, "id": 999, "name": "New Layer"}]
 
         if namespace == "layer" and method == "getActive":
-            return {"id": 102, "name": "Layer 1", "kind": "pixel", "visible": True, "opacity": 75}
+            return {
+                "id": FakeClient._active_layer_id,
+                "name": "MyText" if FakeClient._active_layer_kind == "text" else "Layer 1",
+                "kind": FakeClient._active_layer_kind,
+                "visible": True,
+                "opacity": 100 if FakeClient._active_layer_kind == "text" else 75,
+            }
 
         if namespace == "text" and method == "getActive":
             return {
@@ -476,7 +484,7 @@ class FakeClient:
 
         if namespace == "text" and method == "getByLayerId":
             layer_id = args[0] if args else 0
-            if layer_id == 200:
+            if layer_id in {200, 998}:
                 return {
                     "layerId": 200,
                     **self._text_state,
@@ -515,6 +523,28 @@ class FakeClient:
             return {}
 
         if namespace == "raw" and method == "callPath":
+            path = args[0] if args else []
+            call_args = args[1] if len(args) > 1 else []
+            if path == ["app", "documents", "add"]:
+                options = call_args[0] if call_args else {}
+                return {
+                    "id": 2,
+                    "name": options.get("name", "Untitled"),
+                    "width": options.get("width", 1920),
+                    "height": options.get("height", 1080),
+                    "resolution": options.get("resolution", 72.0),
+                    "typename": "Document",
+                }
+            if path == ["app", "activeDocument", "createTextLayer"]:
+                options = call_args[0] if call_args else {}
+                FakeClient._active_layer_id = 998
+                FakeClient._active_layer_kind = "text"
+                return {
+                    "id": 998,
+                    "name": options.get("name") or options.get("contents", "Text")[:20],
+                    "kind": "text",
+                    "typename": "Layer",
+                }
             return {}
 
         return {"ok": True}
@@ -552,5 +582,7 @@ def fake_broker_client(monkeypatch):
         "paragraphStyle": {"alignment": "left", "justification": "left"},
     }
     FakeClient._last_set_paragraph_style = None
+    FakeClient._active_layer_id = 102
+    FakeClient._active_layer_kind = "pixel"
 
     yield FakeClient

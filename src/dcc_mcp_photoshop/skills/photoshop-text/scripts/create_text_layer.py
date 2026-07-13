@@ -62,46 +62,39 @@ def _create_text(
     italic: bool,
 ) -> dict:
     r, g, b = _hex_to_rgb(hex_color)
-    alignment_map = {"left": "left", "center": "center", "right": "right"}
-
-    result = app.batch_play(
-        [
-            {
-                "_obj": "make",
-                "_target": [{"_ref": "textLayer"}],
-                "name": name,
-                "using": {
-                    "_obj": "textLayer",
-                    "textKey": content,
-                    "fontName": font_name,
-                    "fontSize": {"_unit": "pointsUnit", "_value": font_size},
-                    "color": {"_obj": "RGBColor", "red": r, "green": g, "blue": b},
-                    "alignment": {"_enum": "alignmentType", "_value": alignment_map.get(alignment, "left")},
-                    "fontCaps": {"_enum": "fontCaps", "_value": "normal"},
-                    "syntheticBold": bold,
-                    "syntheticItalic": italic,
-                    "position": {
-                        "_obj": "paint",
-                        "horizontal": {"_unit": "pixelsUnit", "_value": x},
-                        "vertical": {"_unit": "pixelsUnit", "_value": y},
-                    },
-                },
-            }
-        ],
+    result = app.dom.app.activeDocument.createTextLayer(
+        {
+            "name": name,
+            "contents": content,
+            "fontName": font_name,
+            "fontSize": font_size,
+            "position": {"x": x, "y": y},
+        },
         modal=True,
         command_name="Create text layer",
     )
+    if not isinstance(result, dict) or result.get("id") is None:
+        raise RuntimeError(f"Photoshop did not create the text layer: {result!r}")
 
-    if isinstance(result, list) and result:
-        layer_info = result[0]
-    elif isinstance(result, dict):
-        layer_info = result
-    else:
-        layer_info = {}
+    text_item = app.activeLayer.text_item
+    text_item.set_character_style(
+        {
+            "font": font_name,
+            "size": font_size,
+            "fauxBold": bold,
+            "fauxItalic": italic,
+            "color": {"rgb": {"red": r, "green": g, "blue": b}},
+        },
+        command_name="Style text layer",
+    )
+    text_item.set_paragraph_style(
+        {"justification": alignment if alignment in {"left", "center", "right"} else "left"},
+        command_name="Align text layer",
+    )
 
     return {
-        "layer_id": layer_info.get("id"),
-        "layer_name": layer_info.get("name", name),
+        "layer_id": result["id"],
+        "layer_name": name,
         "content": content,
         "font": font_name,
         "size": font_size,

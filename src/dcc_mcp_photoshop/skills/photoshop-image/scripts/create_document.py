@@ -45,34 +45,27 @@ def create_document(
 def _create_document(
     app: Photoshop, name: str, width: int, height: int, resolution: float, color_mode: str, bit_depth: int, fill: str
 ) -> dict:
-    result = app.batch_play(
-        [
-            {
-                "_obj": "make",
-                "_target": [{"_ref": "document"}],
-                "using": {
-                    "_obj": "document",
-                    "name": name,
-                    "width": {"_unit": "pixelsUnit", "_value": width},
-                    "height": {"_unit": "pixelsUnit", "_value": height},
-                    "resolution": {"_unit": "densityUnit", "_value": resolution},
-                    "mode": _map_color_mode(color_mode),
-                    "depth": bit_depth,
-                    "fill": _map_fill(fill),
-                },
-            }
-        ],
+    result = app.dom.app.documents.add(
+        {
+            "name": name,
+            "width": width,
+            "height": height,
+            "resolution": resolution,
+            "mode": _map_color_mode(color_mode),
+            "depth": bit_depth,
+            "fill": _map_fill(fill),
+        },
         modal=True,
         command_name="Create document",
     )
-
-    doc = app.activeDocument
+    if not isinstance(result, dict) or result.get("id") is None:
+        raise RuntimeError(f"Photoshop did not create the document: {result!r}")
     return {
-        "document_id": doc.id if doc else result.get("id") if isinstance(result, dict) else None,
-        "document_name": doc.name if doc else name,
-        "width": width,
-        "height": height,
-        "resolution": resolution,
+        "document_id": result["id"],
+        "document_name": result.get("name", name),
+        "width": result.get("width", width),
+        "height": result.get("height", height),
+        "resolution": result.get("resolution", resolution),
         "color_mode": color_mode,
     }
 

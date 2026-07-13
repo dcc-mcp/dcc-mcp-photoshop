@@ -21,10 +21,12 @@ Configuration::
 from __future__ import annotations
 
 import dataclasses
+import importlib.util
 import logging
+import os
 import threading
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, Iterable, Optional
 
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core.server_base import DccServerBase
@@ -35,6 +37,39 @@ logger = logging.getLogger(__name__)
 
 # Built-in skills directory shipped with this package
 _BUILTIN_SKILLS_DIR = Path(__file__).parent / "skills"
+
+
+def _skill_runtime_roots() -> list[str]:
+    """Return import roots required by standalone Photoshop skill scripts."""
+    roots: list[str] = []
+    for package_name in ("dcc_mcp_photoshop", "dcc_mcp_core", "adobe"):
+        spec = importlib.util.find_spec(package_name)
+        if spec is None:
+            continue
+        if spec.submodule_search_locations:
+            package_dir = Path(next(iter(spec.submodule_search_locations)))
+        elif spec.origin:
+            package_dir = Path(spec.origin).parent
+        else:
+            continue
+        roots.append(str(package_dir.resolve().parent))
+    return roots
+
+
+def _export_skill_subprocess_pythonpath(package_roots: Iterable[str] | None = None) -> None:
+    """Prepend adapter dependency roots for core-managed skill subprocesses."""
+    candidates = list(_skill_runtime_roots() if package_roots is None else package_roots)
+    candidates.extend(filter(None, os.environ.get("PYTHONPATH", "").split(os.pathsep)))
+    merged: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        normalized = os.path.normcase(os.path.abspath(candidate))
+        if normalized in seen:
+            continue
+        seen.add(normalized)
+        merged.append(candidate)
+    if merged:
+        os.environ["PYTHONPATH"] = os.pathsep.join(merged)
 
 
 def _resolve_broker_target(capabilities: Any, fallback: str) -> str:
@@ -121,6 +156,7 @@ class PhotoshopMcpServer(DccServerBase):
     ) -> None:
         self._adapter_config = config or PhotoshopMcpConfig.from_env()
         self._startup_state = StartupState()
+        _export_skill_subprocess_pythonpath()
 
         # Resolve env-based configuration
         from dcc_mcp_photoshop._env import (  # noqa: PLC0415
