@@ -1,0 +1,127 @@
+tools:
+- name: create_text_layer
+  description: Create a new text layer in the active document with specified content and styling.
+  source_file: scripts/create_text_layer.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      content:
+        type: string
+        description: The text string to display.
+      name:
+        type: string
+        description: Layer name; defaults to first 20 chars of content.
+        default: ''
+      x:
+        type: number
+        description: Horizontal position of the text anchor in pixels (default 100).
+        default: 100.0
+      y:
+        type: number
+        description: Vertical position of the text anchor in pixels (default 100).
+        default: 100.0
+      font:
+        type: string
+        description: PostScript font name (default ``"ArialMT"``).
+        default: ArialMT
+      size:
+        type: number
+        description: Font size in points (default 48).
+        default: 48.0
+      color:
+        type: string
+        description: Text color as hex string (default ``"#000000"`` — black).
+        default: '#000000'
+      alignment:
+        type: string
+        description: '``"left"`` (default), ``"center"``, or ``"right"``.'
+        default: left
+      bold:
+        type: boolean
+        description: Bold style (default ``False``).
+        default: false
+      italic:
+        type: boolean
+        description: Italic style (default ``False``).
+        default: false
+    additionalProperties: false
+    required:
+    - content
+- name: update_text_layer
+  description: Update the text content or style of an existing text layer.
+  source_file: scripts/update_text_layer.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact name of the text layer to update.
+      content:
+        type:
+        - string
+        - 'null'
+        description: New text string (optional).
+        default: null
+      font:
+        type:
+        - string
+        - 'null'
+        description: New PostScript font name (optional).
+        default: null
+      size:
+        type:
+        - number
+        - 'null'
+        description: New font size in points (optional).
+        default: null
+      color:
+        type:
+        - string
+        - 'null'
+        description: New text color as hex string (optional).
+        default: null
+      alignment:
+        type:
+        - string
+        - 'null'
+        description: New alignment — ``"left"``, ``"center"``, ``"right"`` (optional).
+        default: null
+      bold:
+        type:
+        - boolean
+        - 'null'
+        description: Bold style override (optional).
+        default: null
+      italic:
+        type:
+        - boolean
+        - 'null'
+        description: Italic style override (optional).
+        default: null
+    additionalProperties: false
+    required:
+    - name
+- name: get_text_layer_info
+  description: Get the text content and style properties of a text layer.
+  source_file: scripts/get_text_layer_info.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      name:
+        type: string
+        description: Exact name of the text layer.
+    additionalProperties: false
+    required:
+    - name

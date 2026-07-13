@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import os
+from types import SimpleNamespace
+
 import pytest
 
 
@@ -67,3 +70,56 @@ def test_bridge_call_raises_when_not_connected():
     # _connected=False, _loop=None — should raise BridgeConnectionError
     with pytest.raises(BridgeConnectionError):
         bridge.call("ps.test")
+
+
+def test_check_broker_accepts_capability_session_list(monkeypatch):
+    from adobe.core import client as client_module
+
+    from dcc_mcp_photoshop.server import PhotoshopMcpServer, StartupState
+
+    class FakeBrokerClient:
+        def __init__(self, **_kwargs):
+            pass
+
+        def capabilities(self):
+            return [{"target": "photoshop-uxp", "capabilities": {"host": "photoshop"}}]
+
+    monkeypatch.setattr(client_module, "BrokerClient", FakeBrokerClient)
+    server = object.__new__(PhotoshopMcpServer)
+    server._adapter_config = SimpleNamespace(
+        broker_url="http://127.0.0.1:47391",
+        broker_token="dev-token",
+        broker_target="default",
+        timeout=1.0,
+    )
+    server._startup_state = StartupState()
+
+    server._check_broker()
+
+    assert server._startup_state.stage == "broker_ready"
+
+
+def test_export_skill_subprocess_pythonpath_prepends_and_deduplicates(monkeypatch):
+    from dcc_mcp_photoshop.server import _export_skill_subprocess_pythonpath
+
+    monkeypatch.setenv("PYTHONPATH", os.pathsep.join(["existing", "runtime"]))
+
+    _export_skill_subprocess_pythonpath(["runtime", "dependency"])
+
+    assert os.environ["PYTHONPATH"].split(os.pathsep) == ["runtime", "dependency", "existing"]
+
+
+def test_skill_runtime_roots_prioritize_active_core_before_adobe(monkeypatch):
+    from dcc_mcp_photoshop import server as server_module
+
+    discovered = []
+
+    def fake_find_spec(package_name):
+        discovered.append(package_name)
+        return SimpleNamespace(submodule_search_locations=[f"C:/{package_name}"], origin=None)
+
+    monkeypatch.setattr(server_module.importlib.util, "find_spec", fake_find_spec)
+
+    server_module._skill_runtime_roots()
+
+    assert discovered == ["dcc_mcp_photoshop", "dcc_mcp_core", "adobe"]
