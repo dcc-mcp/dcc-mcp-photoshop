@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.28](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.27...v0.1.28) (2026-07-13)
+
+
+### Bug Fixes
+
+* restore typed Photoshop skill execution ([#77](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/77)) ([a7868f5](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a7868f51105c19ffd260ef0386ad5a01aacb0739))
+
 ## [0.1.27](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.26...v0.1.27) (2026-07-13)
 
 
