@@ -40,7 +40,7 @@ def _do_apply(app: Photoshop, method: str, **kwargs) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     filter_func = getattr(layer.filters, method, None)
     if filter_func is None:
         return {"error": f"Unknown filter method: {method}"}

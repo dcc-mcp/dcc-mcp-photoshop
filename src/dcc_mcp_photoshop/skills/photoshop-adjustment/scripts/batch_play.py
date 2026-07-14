@@ -23,7 +23,7 @@ def batch_play(
 
     Args:
         descriptors: List of ActionDescriptor dicts to execute.
-        options: Optional dict with playback options (e.g. timeout).
+        options: Optional UXP batchPlay options dictionary.
         **kwargs: Additional keyword arguments (reserved).
 
     Returns:
@@ -43,11 +43,7 @@ def _do_batch_play(
     descriptors: list[dict[str, Any]],
     options: dict[str, Any] | None,
 ) -> dict:
-    result = app.batch_play(
-        descriptors,
-        modal=True,
-        **(options or {}),
-    )
+    result = app.batch_play(descriptors, options, modal=True)
 
     return {
         "descriptor_count": len(descriptors),

@@ -28,7 +28,7 @@ def _do_apply(app: Photoshop) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     layer.filters.apply_sharpen()
 
     return {"filter": "sharpen"}

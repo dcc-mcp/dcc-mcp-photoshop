@@ -39,7 +39,7 @@ def _do_apply(app: Photoshop, radius: float, threshold: float) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     layer.filters.apply_smart_blur(radius, threshold)
 
     return {"filter": "smart_blur", "radius": radius, "threshold": threshold}

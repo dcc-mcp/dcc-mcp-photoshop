@@ -37,16 +37,17 @@ def _fetch_channels(app: Photoshop) -> dict:
     active_channels = []
     component_channels = []
 
-    for ch in channels:
+    for index, ch in enumerate(channels):
+        kind = str(ch.kind or "unknown")
         ch_info = {
             "name": ch.name,
-            "kind": str(ch.kind),
+            "kind": kind,
             "visible": ch.visible,
             "opacity": ch.opacity,
-            "index": ch.index,
+            "index": index,
         }
 
-        if ch.kind == 0:
+        if "component" in kind.lower():
             component_channels.append(ch_info)
         else:
             active_channels.append(ch_info)

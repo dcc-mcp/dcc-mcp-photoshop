@@ -33,6 +33,7 @@ from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core.server_base import DccServerBase
 
 from dcc_mcp_photoshop.config import PhotoshopMcpConfig
+from dcc_mcp_photoshop.runtime_probe import probe_broker
 
 logger = logging.getLogger(__name__)
 
@@ -158,6 +159,8 @@ class PhotoshopMcpServer(DccServerBase):
     ) -> None:
         self._adapter_config = config or PhotoshopMcpConfig.from_env()
         self._startup_state = StartupState()
+        self._bridge_ready = False
+        self._bridge_watchdog = None
         _export_skill_subprocess_pythonpath()
 
         # Resolve env-based configuration
@@ -194,35 +197,64 @@ class PhotoshopMcpServer(DccServerBase):
     # ── broker health check ─────────────────────────────────────────────────
 
     def _check_broker(self) -> None:
-        """Verify adobepy broker is reachable (best-effort; warns on failure)."""
+        """Set readiness from broker health and connected bridge sessions."""
         self._startup_state.stage = "broker_checking"
-        try:
-            from adobe.core.client import BrokerClient  # noqa: PLC0415
+        payload = probe_broker(
+            self._adapter_config.broker_url,
+            self._adapter_config.timeout,
+        )
+        self._apply_bridge_state(
+            bool(payload.get("ok") and int(payload.get("sessions", 0)) > 0),
+            payload,
+        )
 
-            client = BrokerClient(
-                broker_url=self._adapter_config.broker_url,
-                token=self._adapter_config.broker_token,
-                timeout=self._adapter_config.timeout,
-            )
-            caps = client.capabilities()
-            self._startup_state.stage = "broker_ready"
+    def _apply_bridge_state(self, ready: bool, payload: dict[str, Any]) -> None:
+        """Apply one observed bridge state to readiness and diagnostics."""
+        self._bridge_ready = bool(ready)
+        try:
+            server_running = bool(self.is_running)
+        except AttributeError:
+            server_running = False
+        if hasattr(self, "_readiness") and self._readiness is not None:
+            self._readiness.mark_dcc_ready(self._bridge_ready)
+
+        if self._bridge_ready:
+            self._startup_state.stage = "dispatch_ready" if server_running else "broker_ready"
+            self._startup_state.failure_stage = ""
+            self._startup_state.recommended_next_action = ""
             logger.info(
-                "adobepy broker available at %s (target=%s)",
+                "Photoshop UXP bridge ready at %s (%s session(s))",
                 self._adapter_config.broker_url,
-                _resolve_broker_target(caps, self._adapter_config.broker_target),
+                payload.get("sessions", 0),
             )
-        except Exception as exc:
-            self._startup_state.set_failed(
-                "broker_check",
-                f"adobepy broker not reachable at {self._adapter_config.broker_url}: {exc}. "
-                "Start the broker with 'adobepy broker' and ensure the UXP bridge is loaded.",
+        else:
+            self._startup_state.stage = "bridge_waiting"
+            self._startup_state.failure_stage = "bridge_session"
+            self._startup_state.recommended_next_action = (
+                "Start Photoshop and load the adobepy UXP bridge; the adapter will reconnect automatically."
             )
             logger.warning(
-                "adobepy broker not reachable at %s: %s — "
-                "skill calls will fail until the broker and UXP bridge are running",
+                "Photoshop bridge unavailable at %s (broker_ok=%s, sessions=%s)",
                 self._adapter_config.broker_url,
-                exc,
+                payload.get("ok", False),
+                payload.get("sessions", 0),
             )
+        if server_running:
+            self._push_diagnostics()
+
+    def _start_bridge_watchdog(self) -> None:
+        """Start dynamic bridge readiness monitoring once per server."""
+        from dcc_mcp_photoshop._bridge_watchdog import BridgeSessionWatchdog  # noqa: PLC0415
+
+        if self._bridge_watchdog is None:
+            poll_interval = float(os.environ.get("DCC_MCP_PHOTOSHOP_BRIDGE_POLL_SECS", "2"))
+            self._bridge_watchdog = BridgeSessionWatchdog(
+                broker_url=self._adapter_config.broker_url,
+                timeout=min(float(self._adapter_config.timeout), 5.0),
+                poll_interval=poll_interval,
+                on_state_change=self._apply_bridge_state,
+            )
+        self._bridge_watchdog.start()
 
     # ── action / skill registration ────────────────────────────────────────
 
@@ -333,12 +365,11 @@ class PhotoshopMcpServer(DccServerBase):
         - ``gateway_status`` — gateway election status from ``DccServerBase``
         """
         d = {
-            "dispatch_ready": self._startup_state.stage == "dispatch_ready",
+            "dispatch_ready": bool(self.is_running and self._bridge_ready),
             "startup_stage": self._startup_state.stage,
             "failure_stage": self._startup_state.failure_stage,
             "recommended_next_action": self._startup_state.recommended_next_action,
-            "broker_ready": self._startup_state.stage == "broker_ready"
-            or self._startup_state.stage in ("skills_discovering", "dispatch_ready"),
+            "broker_ready": self._bridge_ready,
             "server_running": self.is_running,
             "server_url": self.mcp_url,
         }
@@ -399,17 +430,17 @@ class PhotoshopMcpServer(DccServerBase):
 
     def start(self, *, install_atexit_hook: bool = True) -> Any:
         """Start the MCP HTTP server and verify broker connectivity."""
-        self._push_diagnostics()
         self._check_broker()
-        self._push_diagnostics()
-        if self._startup_state.stage != "failed":
+        if self._bridge_ready:
             self._startup_state.stage = "skills_discovering"
-        self._push_diagnostics()
         try:
             handle = super().start(install_atexit_hook=install_atexit_hook)
-            if self._startup_state.stage != "failed":
+            if self._bridge_ready:
                 self._startup_state.stage = "dispatch_ready"
+            else:
+                self._startup_state.stage = "bridge_waiting"
             self._push_diagnostics()
+            self._start_bridge_watchdog()
             return handle
         except Exception as exc:
             self._startup_state.set_failed(
@@ -421,6 +452,8 @@ class PhotoshopMcpServer(DccServerBase):
 
     def stop(self) -> None:
         """Gracefully stop the MCP HTTP server."""
+        if self._bridge_watchdog is not None:
+            self._bridge_watchdog.stop()
         super().stop()
 
 
