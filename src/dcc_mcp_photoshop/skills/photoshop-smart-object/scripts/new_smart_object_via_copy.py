@@ -28,7 +28,7 @@ def _new_smart_object_via_copy(app: Photoshop) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     if layer is None:
         return {"error": "No active layer"}
 

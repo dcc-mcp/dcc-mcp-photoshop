@@ -1,6 +1,6 @@
 ---
 name: photoshop-script
-description: Execute JavaScript scripts and Photoshop Actions
+description: Execute named Photoshop Actions
 license: MIT
 allowed-tools:
 - Bash
@@ -12,18 +12,15 @@ metadata:
     layer: domain
     tags:
     - photoshop
-    - script
     - action
     - batchplay
-    - javascript
-    search-hint: execute script, execute action, batch play, run javascript, photoshop
+    search-hint: execute Photoshop action, action set, batch play, photoshop
     tools: tools.yaml
 ---
 # photoshop-script
 
-Execute JavaScript scripts and Photoshop Actions via the adobepy broker.
+Execute named Photoshop Actions via the adobepy broker.
 
 ## Tools
 
-- `execute_script` — Run arbitrary JavaScript/UXP code in Photoshop
 - `execute_action` — Execute a named Photoshop Action from an Action Set
