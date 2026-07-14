@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.33](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.32...v0.1.33) (2026-07-14)
+
+
+### Bug Fixes
+
+* align Photoshop skill capabilities ([77a2434](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/77a24347488d448a4a541ae2e0244a92c346278c))
+
 ## [0.1.32](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.31...v0.1.32) (2026-07-14)
 
 
