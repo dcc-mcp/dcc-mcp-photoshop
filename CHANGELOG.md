@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.32](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.31...v0.1.32) (2026-07-14)
+
+
+### Bug Fixes
+
+* harden Photoshop runtime contracts ([f11d717](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f11d7170caf73601a7ad51dae56d93a443945b1f))
+
 ## [0.1.31](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.30...v0.1.31) (2026-07-13)
 
 
