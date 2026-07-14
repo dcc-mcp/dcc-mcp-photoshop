@@ -5,14 +5,14 @@ from __future__ import annotations
 import logging
 import threading
 from collections.abc import Callable
-from typing import Any
+from typing import Any, Dict
 
 from dcc_mcp_photoshop.runtime_probe import probe_broker
 
 logger = logging.getLogger(__name__)
 
-BridgeProbe = Callable[[str, float], dict[str, Any]]
-BridgeStateCallback = Callable[[bool, dict[str, Any]], None]
+BridgeProbe = Callable[[str, float], Dict[str, Any]]
+BridgeStateCallback = Callable[[bool, Dict[str, Any]], None]
 
 
 class BridgeSessionWatchdog:
