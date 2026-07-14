@@ -103,3 +103,13 @@ jobs:
           sleep 2
           kill $SERVER_PID 2>/dev/null || true
         continue-on-error: true
+
+  ci-gate:
+    name: CI Gate
+    if: always()
+    needs: [test, lint, lint-skills, cli-smoke]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Require all CI jobs to pass
+        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.cli-smoke.result != 'success'
+        run: exit 1
