@@ -8,7 +8,8 @@ from __future__ import annotations
 
 import importlib.util
 from pathlib import Path
-from types import ModuleType
+from types import ModuleType, SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -17,6 +18,8 @@ _DOCUMENT_SCRIPTS = _SKILLS_ROOT / "photoshop-document" / "scripts"
 _LAYERS_SCRIPTS = _SKILLS_ROOT / "photoshop-layers" / "scripts"
 _IMAGE_SCRIPTS = _SKILLS_ROOT / "photoshop-image" / "scripts"
 _TEXT_SCRIPTS = _SKILLS_ROOT / "photoshop-text" / "scripts"
+_ADJUSTMENT_SCRIPTS = _SKILLS_ROOT / "photoshop-adjustment" / "scripts"
+_FILTER_SCRIPTS = _SKILLS_ROOT / "photoshop-filter" / "scripts"
 
 
 def _load_script(scripts_dir: Path, name: str) -> ModuleType:
@@ -170,6 +173,79 @@ class TestLayerSkills:
         result = mod.fill_layer(name="Layer 1", color="#ff0000")
         assert result["success"] is True
         assert result["context"]["color"] == "#ff0000"
+
+
+class TestAdjustmentSkills:
+    def test_batch_play_forwards_uxp_options_as_options_object(self):
+        mod = _load_script(_ADJUSTMENT_SCRIPTS, "batch_play.py")
+        app = Mock()
+        app.batch_play.return_value = [{"_obj": "placeEvent"}]
+        descriptors = [{"_obj": "placeEvent"}]
+        options = {"modalBehavior": "execute"}
+
+        result = mod._do_batch_play(app, descriptors, options)
+
+        app.batch_play.assert_called_once_with(descriptors, options, modal=True)
+        assert result == {
+            "descriptor_count": 1,
+            "result": [{"_obj": "placeEvent"}],
+        }
+
+    def test_get_channels_handles_component_channels_without_index(self):
+        mod = _load_script(_ADJUSTMENT_SCRIPTS, "get_channels.py")
+        app = Mock()
+        app.activeDocument.channels = [
+            SimpleNamespace(
+                name="Alpha 1",
+                kind="maskedArea",
+                visible=True,
+                opacity=50,
+            ),
+            SimpleNamespace(
+                name="Red",
+                kind="component",
+                visible=True,
+                opacity=None,
+            ),
+        ]
+
+        result = mod._fetch_channels(app)
+
+        assert result["active_channels"][0]["index"] == 0
+        assert result["component_channels"][0] == {
+            "name": "Red",
+            "kind": "component",
+            "visible": True,
+            "opacity": None,
+            "index": 1,
+        }
+
+
+class TestFilterSkills:
+    @pytest.mark.parametrize(
+        ("script", "arguments", "method", "expected"),
+        [
+            ("apply_gaussian_blur.py", (2.0,), "apply_gaussian_blur", (2.0,)),
+            ("apply_high_pass.py", (3.0,), "apply_high_pass", (3.0,)),
+            ("apply_sharpen.py", (), "apply_sharpen", ()),
+            ("apply_smart_blur.py", (4.0, 8.0), "apply_smart_blur", (4.0, 8.0)),
+        ],
+    )
+    def test_filter_uses_photoshop_active_layer(
+        self,
+        script,
+        arguments,
+        method,
+        expected,
+    ):
+        mod = _load_script(_FILTER_SCRIPTS, script)
+        app = Mock()
+        app.activeDocument = Mock()
+        layer = app.activeLayer
+
+        mod._do_apply(app, *arguments)
+
+        getattr(layer.filters, method).assert_called_once_with(*expected)
 
 
 # ---------------------------------------------------------------------------

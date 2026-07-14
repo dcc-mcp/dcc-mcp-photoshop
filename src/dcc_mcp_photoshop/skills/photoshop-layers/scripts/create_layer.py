@@ -6,6 +6,8 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop._layer_operations import rename_layer_by_id
+
 
 @skill_entry
 def create_layer(
@@ -45,16 +47,14 @@ def _create_layer(app: Photoshop, name: str, layer_type: str) -> dict:
             command_name="Create layer",
         )
 
-    if isinstance(result, list) and result:
-        layer_info = result[0]
-    elif isinstance(result, dict):
-        layer_info = result
-    else:
-        layer_info = {}
+    layer = app.activeLayer
+    if layer is None or layer.id is None:
+        raise RuntimeError(f"Photoshop did not create the layer: {result!r}")
+    rename_layer_by_id(app, layer.id, name)
 
     return {
-        "layer_id": layer_info.get("id"),
-        "layer_name": layer_info.get("name", name),
+        "layer_id": layer.id,
+        "layer_name": name,
         "layer_type": layer_type,
     }
 

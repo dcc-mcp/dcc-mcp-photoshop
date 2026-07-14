@@ -34,7 +34,7 @@ def _do_apply(app: Photoshop, radius: float) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     layer.filters.apply_gaussian_blur(radius)
 
     return {"filter": "gaussian_blur", "radius": radius}

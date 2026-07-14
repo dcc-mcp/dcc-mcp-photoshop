@@ -18,7 +18,7 @@ tools:
         type:
         - object
         - 'null'
-        description: 'Optional dict with playback options (e.g. timeout). **kwargs: Additional keyword arguments (reserved).'
+        description: Optional UXP batchPlay options object (for example, modalBehavior).
         default: null
     additionalProperties: false
     required:

@@ -33,8 +33,9 @@ class ReadinessBinder:
     - ``process`` — the HTTP server process is alive
     - ``dispatcher`` — the inline executor is ready (always true for Photoshop)
 
-    Unlike Maya, Photoshop does not have a separate main-thread dispatcher,
-    so the ``dcc`` bit is flipped optimistically when the broker check passes.
+    Unlike Maya, Photoshop does not have a separate main-thread dispatcher.
+    The routing bits are ready immediately, but the ``dcc`` bit remains red
+    until the broker reports a live Photoshop UXP bridge session.
 
     Usage (called once from ``PhotoshopMcpServer.__init__``)::
 
@@ -84,8 +85,8 @@ class ReadinessBinder:
         1. Create a core ``AdapterReadinessBinder`` that publishes
            the shared probe to the inner Rust ``McpHttpServer`` via
            ``set_readiness_probe``.
-        2. Mark all bits green — Photoshop uses inline execution, so
-           there is no separate dispatcher thread to wait on.
+        2. Mark inline routing ready while leaving the DCC bit red. The bridge
+           watchdog flips that final bit from observed broker session state.
         """
         if self.bound_server is server:
             return True
@@ -101,10 +102,14 @@ class ReadinessBinder:
             main_thread_executor_ready=True,
         )
 
-        # Mark dcc ready — the inline executor handles everything
-        self._adapter_binder.mark_inline_ready()
+        self._adapter_binder.mark_dispatcher_ready(
+            True,
+            host_execution_bridge_ready=True,
+            main_thread_executor_ready=True,
+            dcc_ready=False,
+        )
 
-        logger.info("[photoshop] readiness: all-green (inline executor)")
+        logger.info("[photoshop] readiness: routing-ready, waiting for UXP bridge")
         return True
 
     def mark_dcc_ready(self, value: bool = True) -> None:

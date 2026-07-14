@@ -6,6 +6,8 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop._layer_operations import rename_layer_by_id
+
 
 @skill_entry
 def create_text_layer(
@@ -76,6 +78,7 @@ def _create_text(
     if not isinstance(result, dict) or result.get("id") is None:
         raise RuntimeError(f"Photoshop did not create the text layer: {result!r}")
 
+    rename_layer_by_id(app, result["id"], name)
     text_item = app.activeLayer.text_item
     text_item.set_character_style(
         {

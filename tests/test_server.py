@@ -73,19 +73,11 @@ def test_bridge_call_raises_when_not_connected():
         bridge.call("ps.test")
 
 
-def test_check_broker_accepts_capability_session_list(monkeypatch):
-    from adobe.core import client as client_module
-
+def test_check_broker_requires_connected_bridge_session(monkeypatch):
+    from dcc_mcp_photoshop import server as server_module
     from dcc_mcp_photoshop.server import PhotoshopMcpServer, StartupState
 
-    class FakeBrokerClient:
-        def __init__(self, **_kwargs):
-            pass
-
-        def capabilities(self):
-            return [{"target": "photoshop-uxp", "capabilities": {"host": "photoshop"}}]
-
-    monkeypatch.setattr(client_module, "BrokerClient", FakeBrokerClient)
+    monkeypatch.setattr(server_module, "probe_broker", lambda *_args: {"ok": True, "sessions": 0})
     server = object.__new__(PhotoshopMcpServer)
     server._adapter_config = SimpleNamespace(
         broker_url="http://127.0.0.1:47391",
@@ -94,10 +86,76 @@ def test_check_broker_accepts_capability_session_list(monkeypatch):
         timeout=1.0,
     )
     server._startup_state = StartupState()
+    server._bridge_ready = True
+    server._readiness = SimpleNamespace(mark_dcc_ready=lambda value: None)
+    server._push_diagnostics = lambda: None
+
+    server._check_broker()
+
+    assert server._startup_state.stage == "bridge_waiting"
+    assert server._startup_state.failure_stage == "bridge_session"
+    assert server._bridge_ready is False
+
+
+def test_check_broker_marks_connected_bridge_ready(monkeypatch):
+    from dcc_mcp_photoshop import server as server_module
+    from dcc_mcp_photoshop.server import PhotoshopMcpServer, StartupState
+
+    monkeypatch.setattr(server_module, "probe_broker", lambda *_args: {"ok": True, "sessions": 1})
+    server = object.__new__(PhotoshopMcpServer)
+    server._adapter_config = SimpleNamespace(
+        broker_url="http://127.0.0.1:47391",
+        timeout=1.0,
+    )
+    server._startup_state = StartupState()
+    server._bridge_ready = False
+    server._readiness = SimpleNamespace(mark_dcc_ready=lambda value: None)
+    server._push_diagnostics = lambda: None
 
     server._check_broker()
 
     assert server._startup_state.stage == "broker_ready"
+    assert server._bridge_ready is True
+
+
+def test_readiness_waits_for_live_photoshop_bridge():
+    from dcc_mcp_photoshop._readiness import ReadinessBinder
+
+    class FakeServer:
+        def set_readiness_probe(self, probe):
+            self.probe = probe
+
+    binder = ReadinessBinder()
+    binder.bind(FakeServer())
+
+    assert binder.is_ready() is False
+    binder.mark_dcc_ready(True)
+    assert binder.is_ready() is True
+
+
+def test_bridge_watchdog_publishes_only_state_transitions():
+    from dcc_mcp_photoshop._bridge_watchdog import BridgeSessionWatchdog
+
+    payloads = iter(
+        [
+            {"ok": True, "sessions": 0},
+            {"ok": True, "sessions": 0},
+            {"ok": True, "sessions": 1},
+        ]
+    )
+    transitions = []
+    watchdog = BridgeSessionWatchdog(
+        broker_url="http://127.0.0.1:47391",
+        timeout=1.0,
+        poll_interval=1.0,
+        on_state_change=lambda ready, payload: transitions.append((ready, payload["sessions"])),
+        probe=lambda *_args: next(payloads),
+    )
+
+    assert watchdog.sample() is False
+    assert watchdog.sample() is False
+    assert watchdog.sample() is True
+    assert transitions == [(False, 0), (True, 1)]
 
 
 def test_export_skill_subprocess_pythonpath_prepends_and_deduplicates(monkeypatch):
