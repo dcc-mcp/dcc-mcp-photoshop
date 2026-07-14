@@ -31,7 +31,7 @@ def _replace_smart_object_contents(app: Photoshop, path: str) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     if layer is None:
         return {"error": "No active layer"}
 

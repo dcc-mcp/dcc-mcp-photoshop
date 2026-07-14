@@ -201,11 +201,10 @@ Smart Object operations for non-destructive editing.
 
 ### photoshop-script
 
-Execute scripts and actions for advanced automation.
+Execute named Photoshop Actions for advanced automation.
 
 | Tool | Description | Read-only |
 |------|-------------|-----------|
-| `execute_script` | Execute arbitrary JavaScript/UXP code in Photoshop | ❌ |
 | `execute_action` | Execute a named Photoshop Action from an Action Set | ❌ |
 
 ### photoshop-adjustment

@@ -28,7 +28,7 @@ def _convert_to_smart_object(app: Photoshop) -> dict:
     if doc is None:
         return {"error": "No active document"}
 
-    layer = doc.activeLayer
+    layer = app.activeLayer
     if layer is None:
         return {"error": "No active layer"}
 
