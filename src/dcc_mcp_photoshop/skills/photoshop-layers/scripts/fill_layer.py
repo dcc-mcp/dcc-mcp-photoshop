@@ -58,7 +58,7 @@ def _fill_layer(app: Photoshop, name: str, color: str, opacity: float) -> dict:
                 },
                 "opacity": {"_unit": "percentUnit", "_value": opacity},
                 "mode": {"_enum": "blendMode", "_value": "normal"},
-            }
+            },
         ],
         modal=True,
         command_name="Fill layer",
@@ -69,6 +69,8 @@ def _fill_layer(app: Photoshop, name: str, color: str, opacity: float) -> dict:
         "opacity": opacity,
         "filled": True,
     }
+
+
 def main(**kwargs) -> dict:
     return fill_layer(**kwargs)
 
