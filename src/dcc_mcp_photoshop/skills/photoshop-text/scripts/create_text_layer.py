@@ -6,6 +6,7 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop._color import solid_color_payload
 from dcc_mcp_photoshop._layer_operations import rename_layer_by_id
 
 
@@ -63,7 +64,6 @@ def _create_text(
     bold: bool,
     italic: bool,
 ) -> dict:
-    r, g, b = _hex_to_rgb(hex_color)
     result = app.dom.app.activeDocument.createTextLayer(
         {
             "name": name,
@@ -86,7 +86,7 @@ def _create_text(
             "size": font_size,
             "fauxBold": bold,
             "fauxItalic": italic,
-            "color": {"rgb": {"red": r, "green": g, "blue": b}},
+            "color": solid_color_payload(hex_color),
         },
         command_name="Style text layer",
     )
@@ -103,15 +103,6 @@ def _create_text(
         "size": font_size,
         "color": hex_color,
     }
-
-
-def _hex_to_rgb(hex_color: str) -> tuple:
-    hex_color = hex_color.lstrip("#")
-    if len(hex_color) == 3:
-        hex_color = "".join(c * 2 for c in hex_color)
-    return (int(hex_color[0:2], 16), int(hex_color[2:4], 16), int(hex_color[4:6], 16))
-
-
 def main(**kwargs) -> dict:
     return create_text_layer(**kwargs)
 

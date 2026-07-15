@@ -45,6 +45,9 @@ def create_document(
 def _create_document(
     app: Photoshop, name: str, width: int, height: int, resolution: float, color_mode: str, bit_depth: int, fill: str
 ) -> dict:
+    # The UXP DOM creates the requested canvas correctly, but the generic
+    # bridge can serialize the previous document (or null) as the method's
+    # return value.  The active document is the authoritative postcondition.
     result = app.dom.app.documents.add(
         {
             "name": name,
@@ -58,19 +61,24 @@ def _create_document(
         modal=True,
         command_name="Create document",
     )
-    if not isinstance(result, dict) or result.get("id") is None:
-        raise RuntimeError(f"Photoshop did not create the document: {result!r}")
     document = app.activeDocument
     if document is None:
-        raise RuntimeError("Photoshop created a document but did not expose it as active")
+        raise RuntimeError(f"Photoshop did not expose the created document as active: {result!r}")
+    result_document_id = _result_document_id(result)
     return {
-        "document_id": document.id or result["id"],
-        "document_name": document.name or result.get("name", name),
+        "document_id": document.id or result_document_id,
+        "document_name": document.name or name,
         "width": document.width,
         "height": document.height,
         "resolution": document.resolution,
         "color_mode": color_mode,
     }
+
+
+def _result_document_id(result: object) -> object:
+    if isinstance(result, dict):
+        return result.get("documentID") or result.get("id")
+    return None
 
 
 def _map_color_mode(mode: str) -> str:
