@@ -414,9 +414,7 @@ class TestTextSkills:
         result = mod.update_text_layer(name="MyText", color="#1a2b3c")
 
         assert result["success"] is True
-        assert FakeClient._text_state["characterStyle"]["color"] == {
-            "rgb": {"red": 26, "green": 43, "blue": 60}
-        }
+        assert FakeClient._text_state["characterStyle"]["color"] == {"rgb": {"red": 26, "green": 43, "blue": 60}}
 
     def test_update_text_layer_alignment(self):
         """Alignment must be set via paragraph style, not character style."""

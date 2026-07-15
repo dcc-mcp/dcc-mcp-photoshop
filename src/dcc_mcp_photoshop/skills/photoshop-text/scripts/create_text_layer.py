@@ -103,6 +103,8 @@ def _create_text(
         "size": font_size,
         "color": hex_color,
     }
+
+
 def main(**kwargs) -> dict:
     return create_text_layer(**kwargs)
 
