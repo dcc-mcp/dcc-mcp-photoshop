@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.34](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.33...v0.1.34) (2026-07-15)
+
+
+### Bug Fixes
+
+* **skills:** harden document and color operations ([3c81703](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3c81703411243d251371e01bc6f6e0ca199635c4))
+
 ## [0.1.33](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.32...v0.1.33) (2026-07-14)
 
 
