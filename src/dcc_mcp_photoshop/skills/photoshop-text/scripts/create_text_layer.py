@@ -6,8 +6,7 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
-from dcc_mcp_photoshop._color import solid_color_payload
-from dcc_mcp_photoshop._layer_operations import rename_layer_by_id
+from dcc_mcp_photoshop._color import hex_to_rgb
 
 
 @skill_entry
@@ -64,39 +63,62 @@ def _create_text(
     bold: bool,
     italic: bool,
 ) -> dict:
-    result = app.dom.app.activeDocument.createTextLayer(
-        {
+    document = app.activeDocument
+    if document is None:
+        raise RuntimeError("No active Photoshop document")
+    red, green, blue = hex_to_rgb(hex_color)
+    text_length = len(content)
+    horizontal = 100.0 * x / float(document.width)
+    vertical = 100.0 * y / float(document.height)
+    descriptor = {
+        "_obj": "make",
+        "_target": [{"_ref": "textLayer"}],
+        "using": {
+            "_obj": "textLayer",
             "name": name,
-            "contents": content,
-            "fontName": font_name,
-            "fontSize": font_size,
-            "position": {"x": x, "y": y},
+            "textKey": content,
+            "textClickPoint": {
+                "_obj": "paint",
+                "horizontal": {"_unit": "percentUnit", "_value": horizontal},
+                "vertical": {"_unit": "percentUnit", "_value": vertical},
+            },
+            "textStyleRange": [
+                {
+                    "_obj": "textStyleRange",
+                    "from": 0,
+                    "to": text_length,
+                    "textStyle": {
+                        "_obj": "textStyle",
+                        "fontPostScriptName": font_name,
+                        "size": {"_unit": "pointsUnit", "_value": font_size},
+                        "color": {"_obj": "RGBColor", "red": red, "grain": green, "blue": blue},
+                        "syntheticBold": bold,
+                        "syntheticItalic": italic,
+                    },
+                }
+            ],
+            "paragraphStyleRange": [
+                {
+                    "_obj": "paragraphStyleRange",
+                    "from": 0,
+                    "to": text_length,
+                    "paragraphStyle": {
+                        "_obj": "paragraphStyle",
+                        "align": {"_enum": "alignmentType", "_value": alignment},
+                    },
+                }
+            ],
         },
-        modal=True,
-        command_name="Create text layer",
-    )
-    if not isinstance(result, dict) or result.get("id") is None:
+    }
+    result = app.batch_play([descriptor], modal=True, command_name="Create text layer")
+    if not isinstance(result, list) or not result:
+        raise RuntimeError(f"Photoshop did not create the text layer: {result!r}")
+    layer_id = result[0].get("layerID", result[0].get("id"))
+    if layer_id is None:
         raise RuntimeError(f"Photoshop did not create the text layer: {result!r}")
 
-    rename_layer_by_id(app, result["id"], name)
-    text_item = app.activeLayer.text_item
-    text_item.set_character_style(
-        {
-            "font": font_name,
-            "size": font_size,
-            "fauxBold": bold,
-            "fauxItalic": italic,
-            "color": solid_color_payload(hex_color),
-        },
-        command_name="Style text layer",
-    )
-    text_item.set_paragraph_style(
-        {"justification": alignment if alignment in {"left", "center", "right"} else "left"},
-        command_name="Align text layer",
-    )
-
     return {
-        "layer_id": result["id"],
+        "layer_id": layer_id,
         "layer_name": name,
         "content": content,
         "font": font_name,
