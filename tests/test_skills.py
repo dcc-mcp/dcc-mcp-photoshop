@@ -115,6 +115,27 @@ class TestListLayersSkill:
 
 
 class TestLayerSkills:
+    def test_fill_layer_selects_target_and_uses_rgb_descriptor(self):
+        mod = _load_script(_LAYERS_SCRIPTS, "fill_layer.py")
+        app = Mock()
+
+        result = mod._fill_layer(app, "FRAME", "#1a2b3c", 75)
+
+        descriptors = app.batch_play.call_args.args[0]
+        assert descriptors[0] == {
+            "_obj": "select",
+            "_target": [{"_ref": "layer", "_name": "FRAME"}],
+            "makeVisible": False,
+        }
+        assert descriptors[1] == {
+            "_obj": "fill",
+            "using": {"_enum": "fillContents", "_value": "color"},
+            "color": {"_obj": "RGBColor", "red": 26, "grain": 43, "blue": 60},
+            "opacity": {"_unit": "percentUnit", "_value": 75},
+            "mode": {"_enum": "blendMode", "_value": "normal"},
+        }
+        assert result["filled"] is True
+
     def test_create_layer(self):
         mod = _load_script(_LAYERS_SCRIPTS, "create_layer.py")
         result = mod.create_layer(name="TestLayer")
@@ -254,6 +275,43 @@ class TestFilterSkills:
 
 
 class TestImageSkills:
+    def test_create_document_uses_active_document_when_dom_return_is_unreliable(self):
+        mod = _load_script(_IMAGE_SCRIPTS, "create_document.py")
+        app = Mock()
+        app.dom.app.documents.add.return_value = None
+        app.activeDocument = SimpleNamespace(
+            id=42,
+            name="Card Template",
+            width=1024,
+            height=1536,
+            resolution=144.0,
+        )
+
+        result = mod._create_document(
+            app,
+            "Card Template",
+            1024,
+            1536,
+            144.0,
+            "rgb",
+            8,
+            "transparent",
+        )
+
+        options = app.dom.app.documents.add.call_args.args[0]
+        assert options == {
+            "name": "Card Template",
+            "width": 1024,
+            "height": 1536,
+            "resolution": 144.0,
+            "mode": "RGBColorMode",
+            "depth": 8,
+            "fill": "transparent",
+        }
+        assert result["document_id"] == 42
+        assert result["width"] == 1024
+        assert result["height"] == 1536
+
     def test_create_document(self):
         mod = _load_script(_IMAGE_SCRIPTS, "create_document.py")
         result = mod.create_document(name="New Doc", width=800, height=600)
@@ -348,6 +406,17 @@ class TestTextSkills:
         result = mod.update_text_layer(name="MyText", content="Updated text")
         assert result["success"] is True
         assert result["context"]["layer_name"] == "MyText"
+
+    def test_update_text_layer_converts_hex_color_to_solid_color_payload(self):
+        from tests.conftest import FakeClient
+
+        mod = _load_script(_TEXT_SCRIPTS, "update_text_layer.py")
+        result = mod.update_text_layer(name="MyText", color="#1a2b3c")
+
+        assert result["success"] is True
+        assert FakeClient._text_state["characterStyle"]["color"] == {
+            "rgb": {"red": 26, "green": 43, "blue": 60}
+        }
 
     def test_update_text_layer_alignment(self):
         """Alignment must be set via paragraph style, not character style."""

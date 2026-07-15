@@ -6,6 +6,8 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop._color import hex_to_rgb
+
 
 @skill_entry
 def fill_layer(
@@ -34,13 +36,28 @@ def fill_layer(
 
 
 def _fill_layer(app: Photoshop, name: str, color: str, opacity: float) -> dict:
+    if color.lower() == "transparent":
+        raise ValueError("Transparent clearing is not supported by fill_layer; use a selection clear operation instead")
+
+    red, green, blue = hex_to_rgb(color)
     app.batch_play(
         [
             {
-                "_obj": "fill",
+                "_obj": "select",
                 "_target": [{"_ref": "layer", "_name": name}],
-                "using": {"_obj": "color", "color": color},
+                "makeVisible": False,
+            },
+            {
+                "_obj": "fill",
+                "using": {"_enum": "fillContents", "_value": "color"},
+                "color": {
+                    "_obj": "RGBColor",
+                    "red": red,
+                    "grain": green,
+                    "blue": blue,
+                },
                 "opacity": {"_unit": "percentUnit", "_value": opacity},
+                "mode": {"_enum": "blendMode", "_value": "normal"},
             }
         ],
         modal=True,
@@ -52,8 +69,6 @@ def _fill_layer(app: Photoshop, name: str, color: str, opacity: float) -> dict:
         "opacity": opacity,
         "filled": True,
     }
-
-
 def main(**kwargs) -> dict:
     return fill_layer(**kwargs)
 

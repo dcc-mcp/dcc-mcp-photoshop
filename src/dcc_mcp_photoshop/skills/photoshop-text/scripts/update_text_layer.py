@@ -8,6 +8,8 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop._color import solid_color_payload
+
 
 @skill_entry
 def update_text_layer(
@@ -86,7 +88,7 @@ def _update_text(
     if size is not None:
         char_style_props["size"] = size
     if color is not None:
-        char_style_props["color"] = color
+        char_style_props["color"] = solid_color_payload(color)
     if bold is not None:
         char_style_props["bold"] = bold
     if italic is not None:
