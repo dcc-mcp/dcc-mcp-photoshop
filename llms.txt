@@ -21,8 +21,8 @@ adobepy install-bridge photoshop --dest ./adobepy-photoshop-bridge
 # 3. Enable Photoshop Developer Mode. In Adobe UXP Developer Tool, add
 #    ./adobepy-photoshop-bridge/manifest.json and click Load.
 
-# 4. Start the adapter.
-dcc-mcp-photoshop --mcp-port 8765 --gateway-port 9765
+# 4. Start the adapter. Its instance port is OS-assigned by default.
+dcc-mcp-photoshop --gateway-port 9765
 ```
 
 The broker health endpoint must report at least one session before Photoshop
@@ -45,7 +45,7 @@ create_layer / set_layer_opacity / ...
 
 | Flag | Default | Description |
 |------|---------|-------------|
-| `--mcp-port` | 8765 | Direct MCP HTTP port |
+| `--mcp-port` | OS-assigned | Optional fixed direct MCP HTTP port |
 | `--broker-url` | http://127.0.0.1:47391 | adobepy broker endpoint |
 | `--gateway-port` | disabled unless configured | Gateway competition port |
 | `--server-name` | photoshop-mcp | MCP server name |

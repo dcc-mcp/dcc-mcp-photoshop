@@ -33,7 +33,7 @@ class PhotoshopMcpConfig:
     broker_target: str = field(default_factory=lambda: os.getenv("ADOBEPY_TARGET", "default"))
 
     # --- MCP server ---
-    mcp_port: int = field(default_factory=lambda: int(os.getenv("DCC_MCP_PHOTOSHOP_PORT", "8765")))
+    mcp_port: Optional[int] = None
     gateway_port: Optional[int] = field(default_factory=lambda: _parse_optional_int(os.getenv("DCC_MCP_GATEWAY_PORT")))
     server_name: str = field(default_factory=lambda: os.getenv("DCC_MCP_PHOTOSHOP_SERVER_NAME", "photoshop-mcp"))
 

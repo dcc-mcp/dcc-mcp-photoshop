@@ -36,6 +36,34 @@ def test_api_imports():
     assert callable(is_photoshop_available)
 
 
+@pytest.mark.parametrize(("requested_port", "expected_port"), [(None, None), (0, 0)])
+def test_start_server_delegates_port_resolution_to_core(monkeypatch, requested_port, expected_port):
+    from dcc_mcp_photoshop import server as server_module
+
+    captured = {}
+
+    class FakeServer:
+        is_running = False
+
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+        def discover_builtin_skills(self, **kwargs):
+            return self
+
+        def start(self):
+            self.is_running = True
+            return self
+
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_PORT", "18765")
+    monkeypatch.setattr(server_module, "_server_instance", None)
+    monkeypatch.setattr(server_module, "PhotoshopMcpServer", FakeServer)
+
+    server_module.start_server(port=requested_port)
+
+    assert captured["port"] == expected_port
+
+
 def test_is_photoshop_available_false_when_bridge_disconnected():
     from dcc_mcp_photoshop import is_photoshop_available
 

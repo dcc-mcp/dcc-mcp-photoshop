@@ -16,11 +16,11 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import urllib.request
-from typing import Any
 
-MCP_URL = "http://127.0.0.1:8765/mcp"
+MCP_URL = os.getenv("DCC_MCP_TEST_URL", "http://127.0.0.1:9765/mcp")
 GREEN = "\033[32m"
 RED   = "\033[31m"
 YELLOW = "\033[33m"

@@ -575,7 +575,7 @@ function Write-LocalConfig {
     "version": 1,
     "dcc": "photoshop",
     "bin_dir": "$( $BIN_DIR -replace '\\', '\\' )",
-    "mcp_port": 8765,
+    "mcp_port": 0,
     "ws_port": 9001,
     "gateway_port": 9765,
     "rpc_port": 9100,
@@ -620,7 +620,7 @@ function Register-Autostart {
 setlocal
 cd /d "%~dp0"
 echo [%date% %time%] Starting dcc-mcp Photoshop connector... >> "%~dp0autostart.log"
-start "" "%~dp0$SERVER_BINARY" --dcc photoshop --mcp-port 8765 --ws-port 9001 --gateway-port 9765 --registry-dir "%USERPROFILE%\.dcc-mcp\registry" >> "%~dp0autostart.log" 2>&1
+start "" "%~dp0$SERVER_BINARY" --dcc photoshop --mcp-port 0 --ws-port 9001 --gateway-port 9765 --registry-dir "%USERPROFILE%\.dcc-mcp\registry" >> "%~dp0autostart.log" 2>&1
 "@
 
     if (-not (Test-WhatIf "Write autostart script: $autostartScript")) {
@@ -667,7 +667,7 @@ function Invoke-SmokeCheck {
     $serverLog = "$BIN_DIR\smoke-server.log"
     $serverProcess = Start-Process -FilePath $serverBinary -ArgumentList @(
         "--dcc", "photoshop",
-        "--mcp-port", "8765",
+        "--mcp-port", "0",
         "--ws-port", "9001",
         "--gateway-port", "9765",
         "--rpc-port", "9100",
@@ -1111,7 +1111,7 @@ function Main {
     Write-Host ""
     Write-Host "  Next steps:"
     Write-Host "    1. Restart Photoshop to load the UXP plugin"
-    Write-Host "    2. Run 'dcc-mcp-server --dcc photoshop --mcp-port 8765 --ws-port 9001'"
+    Write-Host "    2. Run 'dcc-mcp-server --dcc photoshop --mcp-port 0 --ws-port 9001'"
     Write-Host "    3. Connect your MCP client to http://127.0.0.1:9765/mcp"
     if (-not $NoAutostart) {
         Write-Host ""

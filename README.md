@@ -19,7 +19,7 @@ The Python MCP server communicates with Photoshop through the adobepy Rust broke
 [![Python](https://img.shields.io/pypi/pyversions/dcc-mcp-photoshop?label=Python)](https://pypi.org/project/dcc-mcp-photoshop/)
 [![Photoshop](https://img.shields.io/badge/Photoshop-2022%2B-001E36)](https://www.adobe.com/products/photoshop.html)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-6f42c1)](https://modelcontextprotocol.io/)
-[![dcc-mcp-core](https://img.shields.io/badge/dcc--mcp--core-%3E%3D0.19.17-blue)](https://github.com/dcc-mcp/dcc-mcp-core)
+[![dcc-mcp-core](https://img.shields.io/badge/dcc--mcp--core-%3E%3D0.19.45-blue)](https://github.com/dcc-mcp/dcc-mcp-core)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 ## Why Use It
@@ -95,7 +95,7 @@ Adobe Photoshop 2022+
 
 **Key architectural decisions:**
 - The **adobepy Rust broker** (port 47391) is the central hub — Python SDK and UXP bridge both connect to it.
-- Python MCP server runs independently (port 8765); skill scripts use `adobe.photoshop.Photoshop()` facade to call the broker.
+- Python MCP instances use OS-assigned ports; skill scripts use `adobe.photoshop.Photoshop()` facade to call the broker.
 - The adobepy UXP bridge (`bridges/uxp/photoshop/`) handles all Photoshop DOM operations with 60+ typed methods.
 - All Photoshop automation goes through the [adobepy](https://github.com/dcc-mcp/adobepy) facade layer, which abstracts over the broker.
 
@@ -404,7 +404,7 @@ URL: http://127.0.0.1:9765/mcp
 | `ADOBEPY_BROKER_URL` | adobepy broker HTTP endpoint | `http://127.0.0.1:47391` |
 | `ADOBEPY_TOKEN` | Broker authentication token | `dev-token` |
 | `ADOBEPY_TARGET` | Broker target identifier | `default` |
-| `DCC_MCP_PHOTOSHOP_PORT` | MCP HTTP server port | `8765` |
+| `DCC_MCP_PHOTOSHOP_PORT` | Optional fixed MCP instance port | `0` (OS-assigned) |
 | `DCC_MCP_GATEWAY_PORT` | Gateway competition port | — |
 | `DCC_MCP_PHOTOSHOP_LOG_DIR` | Log directory | `~/.dcc-mcp/logs` |
 | `DCC_MCP_PHOTOSHOP_LOG_LEVEL` | Log level (DEBUG/INFO/WARNING/ERROR) | `INFO` |
@@ -495,7 +495,7 @@ dcc-mcp-photoshop --skill-paths /path/to/my/skills
 dcc-mcp-photoshop [OPTIONS]
 
 Options:
-  --mcp-port PORT     MCP HTTP server port (default: 8765)
+  --mcp-port PORT     Optional fixed MCP instance port (default: OS-assigned)
   --broker-url URL    adobepy broker URL (default: http://127.0.0.1:47391)
   --gateway-port PORT Gateway competition port
   --server-name NAME  Server name in MCP initialize (default: photoshop-mcp)
@@ -510,7 +510,7 @@ Options:
 ```python
 import dcc_mcp_photoshop
 
-handle = dcc_mcp_photoshop.start_server(port=8765, broker_url="http://127.0.0.1:47391")
+handle = dcc_mcp_photoshop.start_server(broker_url="http://127.0.0.1:47391")
 print(f"MCP URL: {handle.mcp_url()}")
 
 # ... use with Claude Desktop, Cursor, etc.
@@ -523,7 +523,7 @@ handle.shutdown()
 | Port | Service | Description |
 |------|---------|-------------|
 | 47391 | adobepy broker | Rust broker HTTP/WS endpoint (Python SDK ↔ UXP bridge) |
-| 8765 | MCP HTTP server | MCP Streamable HTTP endpoint for AI agents |
+| OS-assigned | MCP instance | Direct Streamable HTTP endpoint discovered through CLI/gateway |
 | 9765 | Gateway | Optional multi-DCC gateway proxy |
 
 ## Gateway Mode (Recommended for Deployment)
@@ -542,7 +542,7 @@ dcc-mcp-photoshop --broker-url http://127.0.0.1:47391
 
 **MCP clients** connect to the gateway URL:
 - `http://127.0.0.1:9765/mcp` — Gateway proxy (recommended)
-- `http://127.0.0.1:8765/mcp` — Direct access
+- `dcc-mcp-cli list` — discover direct instance URLs
 
 ## UXP Bridge Setup
 
@@ -586,7 +586,7 @@ pytest tests/
 - **Photoshop**: Adobe Photoshop 2022+ (UXP support required)
 - **Python** (pip path only): Python 3.8+
 - **Dependencies** (auto-installed with pip):
-  - `dcc-mcp-core >= 0.19.17, < 1.0.0`
+  - `dcc-mcp-core >= 0.19.45, < 1.0.0`
   - `adobepy >= 0.1.0`
   - `websockets >= 12.0`
 - **Build** (to build standalone binary from source): Python 3.8+, [Rust toolchain](https://rustup.rs/), and PyOxidizer (`pip install pyoxidizer`)
@@ -601,7 +601,7 @@ pytest tests/
 
 | dcc-mcp-photoshop | dcc-mcp-core | adobepy | Sidecar Binary |
 |-------------------|-------------|---------|----------------|
-| current main | >=0.19.17,<1.0.0 | >=0.1.0 | dcc-mcp-server >=0.19.17 |
+| current main | >=0.19.45,<1.0.0 | >=0.1.0 | dcc-mcp-server >=0.19.45 |
 | 0.1.0-0.1.26 | >=0.12.14,<1.0.0 | >=0.1.0 | dcc-mcp-server >=0.12.14 |
 
 ## Distribution
@@ -668,7 +668,7 @@ If skills return "No active document":
 | Port | Service |
 |------|---------|
 | 47391 | adobepy Rust broker |
-| 8765 | MCP HTTP server |
+| OS-assigned | MCP instance |
 | 9765 | Gateway competition port |
 
 ## Contributing

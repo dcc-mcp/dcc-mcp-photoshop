@@ -29,11 +29,12 @@ then report at least one session.
 Start the adapter after the broker and bridge are ready:
 
 ```powershell
-dcc-mcp-photoshop --mcp-port 8765 --gateway-port 9765
+dcc-mcp-photoshop --gateway-port 9765
 ```
 
-Clients should use the gateway endpoint `http://127.0.0.1:9765/mcp` or the
-direct adapter endpoint `http://127.0.0.1:8765/mcp`.
+Clients should use the stable gateway endpoint `http://127.0.0.1:9765/mcp`.
+The direct adapter port is OS-assigned and its exact URL is available through
+`dcc-mcp-cli list` when direct inspection is needed.
 
 ## Release artifacts
 

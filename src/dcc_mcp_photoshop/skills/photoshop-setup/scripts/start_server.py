@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Optional
+
 from dcc_mcp_core.skill import skill_entry
 
 from dcc_mcp_photoshop.runtime_probe import probe_broker
@@ -11,7 +13,7 @@ from dcc_mcp_photoshop.server import start_server as start_adapter
 
 @skill_entry
 def start_server(
-    mcp_port: int = 8765,
+    mcp_port: Optional[int] = None,
     broker_url: str = "http://127.0.0.1:47391",
     gateway_port: int = 9765,
     **kwargs,

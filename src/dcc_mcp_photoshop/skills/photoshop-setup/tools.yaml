@@ -82,10 +82,9 @@ tools:
     properties:
       mcp_port:
         type: integer
-        default: 8765
-        minimum: 1024
+        minimum: 0
         maximum: 65535
-        description: MCP HTTP server port.
+        description: Optional fixed MCP instance port; omit for core/env then OS assignment.
       broker_url:
         type: string
         default: http://127.0.0.1:47391
@@ -93,7 +92,7 @@ tools:
       gateway_port:
         type: integer
         default: 9765
-        minimum: 1024
+        minimum: 0
         maximum: 65535
         description: Gateway competition port.
 - name: verify_connection
