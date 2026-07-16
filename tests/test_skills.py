@@ -66,6 +66,49 @@ class TestGetDocumentInfoSkill:
         assert result["success"] is True
 
 
+class TestOpenDocumentSkill:
+    def test_opens_local_file_and_reports_active_document(self, tmp_path):
+        source = tmp_path / "four-heroes.png"
+        source.write_bytes(b"not-a-real-png")
+        mod = _load_script(_DOCUMENT_SCRIPTS, "open_document.py")
+
+        result = mod.open_document(path=str(source))
+
+        assert result["success"] is True
+        assert result["context"]["document_name"] == source.name
+        assert result["context"]["path"] == str(source.resolve())
+
+    def test_batch_play_uses_local_open_descriptor(self, tmp_path):
+        source = (tmp_path / "poster.psd").resolve()
+        source.write_bytes(b"psd")
+        mod = _load_script(_DOCUMENT_SCRIPTS, "open_document.py")
+        app = Mock()
+        app.activeDocument = SimpleNamespace(id=7, name=source.name, width=1024, height=1536)
+
+        result = mod._open(app, source)
+
+        app.batch_play.assert_called_once_with(
+            [
+                {
+                    "_obj": "open",
+                    "null": {"_path": str(source), "_kind": "local"},
+                    "_options": {"dialogOptions": "dontDisplay"},
+                }
+            ],
+            modal=True,
+            command_name=f"Open document '{source.name}'",
+        )
+        assert result["document_id"] == 7
+
+    def test_missing_file_is_rejected_before_photoshop_call(self, tmp_path):
+        mod = _load_script(_DOCUMENT_SCRIPTS, "open_document.py")
+
+        result = mod.open_document(path=str(tmp_path / "missing.png"))
+
+        assert result["success"] is False
+        assert "does not exist" in result["error"]
+
+
 # ---------------------------------------------------------------------------
 # list_layers skill
 # ---------------------------------------------------------------------------

@@ -21,6 +21,22 @@ tools:
     type: object
     properties: {}
     additionalProperties: false
+- name: open_document
+  description: Open an existing local image or Photoshop document and make it active
+  source_file: scripts/open_document.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    required:
+    - path
+    properties:
+      path:
+        type: string
+        description: Absolute path to a local image or Photoshop document.
+    additionalProperties: false
 - name: list_layers
   description: List all layers in the active Photoshop document. Set include_hidden=false to exclude hidden layers.
   source_file: scripts/list_layers.py

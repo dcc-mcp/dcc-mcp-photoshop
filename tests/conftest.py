@@ -16,6 +16,7 @@ from __future__ import annotations
 import asyncio
 import json
 import threading
+from pathlib import Path
 from typing import Any, Dict
 
 import pytest
@@ -465,6 +466,19 @@ class FakeClient:
                     new_name = desc.get("name", "")
                     src_name = target_list[0].get("_name", "Layer") if target_list else "Layer"
                     return [{"id": 1000, "name": new_name or f"{src_name} copy"}]
+                elif obj == "open":
+                    path = desc.get("null", {}).get("_path", "")
+                    FakeClient._active_document = {
+                        "id": 2,
+                        "name": Path(path).name,
+                        "path": path,
+                        "width": 1024,
+                        "height": 1536,
+                        "resolution": 72.0,
+                        "mode": "RGBColor",
+                        "typename": "Document",
+                    }
+                    return [{"documentID": 2}]
 
             return [{"ok": True, "id": 999, "name": "New Layer"}]
 
