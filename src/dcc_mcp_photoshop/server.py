@@ -6,7 +6,7 @@ to the broker at ``ADOBEPY_BROKER_URL`` (default ``http://127.0.0.1:47391``).
 
 Flow::
 
-    MCP Client -> PhotoshopMcpServer (HTTP:8765)
+    MCP Client -> Gateway (:9765) -> PhotoshopMcpServer (OS-assigned port)
         Skill scripts -> adobe.photoshop.Photoshop() -> BrokerClient -> adobepy broker (HTTP:47391)
             -> adobepy UXP bridge (WS:47391) -> Photoshop UXP API
 
@@ -15,7 +15,7 @@ Configuration::
     Environment variables:
       ADOBEPY_BROKER_URL  Broker HTTP endpoint (default: http://127.0.0.1:47391)
       ADOBEPY_TOKEN       Authentication token (default: dev-token)
-      DCC_MCP_PHOTOSHOP_PORT  MCP HTTP server port (default: 8765)
+      DCC_MCP_PHOTOSHOP_PORT  Optional fixed MCP instance port (default: OS-assigned)
 """
 
 from __future__ import annotations
@@ -466,7 +466,7 @@ _lock = threading.Lock()
 
 
 def start_server(
-    port: int = 8765,
+    port: int | None = None,
     server_name: str = "photoshop-mcp",
     broker_url: str | None = None,
     gateway_port: int | None = None,
@@ -523,7 +523,7 @@ def get_server() -> Optional[PhotoshopMcpServer]:
 
 
 def run_daemon(
-    port: int = 8765,
+    port: int | None = None,
     server_name: str = "photoshop-mcp",
     broker_url: str | None = None,
     gateway_port: int | None = None,

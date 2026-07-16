@@ -83,7 +83,7 @@ serve:
     {{python}} -m dcc_mcp_photoshop
 
 # Start with custom ports
-serve-ports mcp_port="8765" gateway_port="9765":
+serve-ports mcp_port="0" gateway_port="9765":
     {{python}} -m dcc_mcp_photoshop --mcp-port {{mcp_port}} --gateway-port {{gateway_port}}
 
 # Clean all build artifacts

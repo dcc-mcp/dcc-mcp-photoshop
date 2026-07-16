@@ -13,7 +13,7 @@ Usage::
     # Start the MCP server
     python -m dcc_mcp_photoshop
 
-    # MCP clients connect to http://127.0.0.1:8765/mcp
+    # MCP clients normally connect through the stable gateway on port 9765.
 
 Requirements:
     - adobepy Rust broker running (``adobepy broker``)
@@ -64,7 +64,7 @@ Examples:
 Environment variables:
   ADOBEPY_BROKER_URL            Broker HTTP endpoint (default: http://127.0.0.1:47391)
   ADOBEPY_TOKEN                 Auth token (default: dev-token)
-  DCC_MCP_PHOTOSHOP_PORT        MCP HTTP server port (default: 8765)
+  DCC_MCP_PHOTOSHOP_PORT        Optional fixed MCP instance port (default: OS-assigned)
   DCC_MCP_GATEWAY_PORT          Gateway competition port
   DCC_MCP_PHOTOSHOP_LOG_DIR     Log directory (default: ~/.dcc-mcp/logs)
   DCC_MCP_PHOTOSHOP_LOG_LEVEL   Log level (default: INFO)
@@ -74,8 +74,8 @@ Environment variables:
     parser.add_argument(
         "--mcp-port",
         type=int,
-        default=8765,
-        help="MCP HTTP server port (default: 8765)",
+        default=None,
+        help="MCP instance port (default: operating-system assigned)",
     )
     parser.add_argument(
         "--broker-url",
@@ -130,7 +130,6 @@ def _get_version() -> str:
 
 def _run_server(args: argparse.Namespace, config: PhotoshopMcpConfig) -> None:
     print(f"dcc-mcp-photoshop v{_get_version()}")
-    print(f"  MCP server  : http://127.0.0.1:{args.mcp_port}/mcp")
     print(f"  Broker      : {config.broker_url}")
     print()
     print("Requires adobepy broker + UXP bridge running in Photoshop.")
@@ -158,6 +157,7 @@ def _run_server(args: argparse.Namespace, config: PhotoshopMcpConfig) -> None:
 
     mcp_url = handle.mcp_url() if hasattr(handle, "mcp_url") else str(handle)
     logger.info("MCP server started at %s  (startup_state=%s)", mcp_url, startup_state.stage)
+    print(f"  MCP server  : {mcp_url}")
 
     if startup_state.stage == "failed":
         logger.error(

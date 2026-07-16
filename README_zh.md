@@ -31,11 +31,11 @@ MCP 客户端 → dcc-mcp gateway (:9765) → Photoshop adapter
 
    ```powershell
    pip install dcc-mcp-photoshop
-   dcc-mcp-photoshop --mcp-port 8765 --gateway-port 9765
+   dcc-mcp-photoshop --gateway-port 9765
    ```
 
-5. MCP 客户端连接 `http://127.0.0.1:9765/mcp`。单适配器调试可连接
-   `http://127.0.0.1:8765/mcp`。
+5. MCP 客户端连接 `http://127.0.0.1:9765/mcp`。单适配器调试可用
+   `dcc-mcp-cli list` 查询实例直连地址。
 
 ## 验收标准
 
@@ -56,7 +56,7 @@ MCP 客户端 → dcc-mcp gateway (:9765) → Photoshop adapter
 ```text
 dcc-mcp-photoshop [OPTIONS]
 
---mcp-port PORT       直连 MCP HTTP 端口，默认 8765
+--mcp-port PORT       可选固定实例端口，默认由操作系统分配
 --broker-url URL      adobepy Broker，默认 http://127.0.0.1:47391
 --gateway-port PORT   网关竞争端口
 --server-name NAME    MCP 服务名

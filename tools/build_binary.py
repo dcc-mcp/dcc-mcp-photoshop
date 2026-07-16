@@ -171,7 +171,7 @@ def main() -> None:
     _copy_lib_dir(binary.parent, output_dir)
 
     size_mb = dest.stat().st_size / 1_048_576
-    print(f"\nBuild complete!")
+    print("\nBuild complete!")
     print(f"  Binary: {dest}  ({size_mb:.1f} MB)")
     if sys.platform == "win32":
         dlls = list(output_dir.glob("*.dll"))
@@ -185,7 +185,7 @@ def main() -> None:
     print()
     print("Usage:")
     print(f"  {dest.name} --help")
-    print(f"  {dest.name}                  # default MCP port 8765; broker 127.0.0.1:47391")
+    print(f"  {dest.name}                  # OS-assigned MCP port; broker 127.0.0.1:47391")
     print(f"  {dest.name} --mcp-port 9000  # custom ports")
 
 

@@ -60,7 +60,7 @@ This package solves this by introducing a **WebSocket bridge** between the Pytho
 │                     AI Agent (Client)                        │
 │              Claude Desktop / Cursor / OpenClaw              │
 └───────────────────────────┬─────────────────────────────────┘
-                            │ MCP Streamable HTTP (port 8765)
+                            │ MCP Streamable HTTP (OS-assigned instance port)
 ┌───────────────────────────▼─────────────────────────────────┐
 │              PhotoshopMcpServer (Python process)             │
 │  - dcc-mcp-core McpHttpServer                                │

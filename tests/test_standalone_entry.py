@@ -10,7 +10,7 @@ from dcc_mcp_photoshop import _standalone_entry
 def test_project_requires_core_with_stdin_parameter_forwarding():
     pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
-    assert '"dcc-mcp-core>=0.19.32,<1.0.0"' in pyproject
+    assert '"dcc-mcp-core>=0.19.45,<1.0.0"' in pyproject
 
 
 def test_server_invocation_delegates_to_cli(monkeypatch):
