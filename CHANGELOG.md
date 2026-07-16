@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.1.35](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.34...v0.1.35) (2026-07-16)
+
+
+### Features
+
+* open existing Photoshop documents ([b43acb3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/b43acb361a133207274b5962d32aecc79d10f34c))
+
+
+### Bug Fixes
+
+* use OS-assigned MCP instance ports ([#94](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/94)) ([2cbe378](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2cbe378a8cf72dbdad14f3479a0d04f7ca5c402a))
+
 ## [0.1.34](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.33...v0.1.34) (2026-07-15)
 
 
