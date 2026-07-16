@@ -117,6 +117,7 @@ Document information, listing, and lifecycle management.
 |------|-------------|-----------|
 | `get_document_info` | Get metadata about the active Photoshop document (name, size, resolution, color mode) | ✅ |
 | `list_documents` | List all currently open Photoshop documents with metadata | ✅ |
+| `open_document` | Open an existing local image or Photoshop document and make it active | ❌ |
 | `list_layers` | List all layers in the active document. Set `include_hidden=false` to exclude hidden layers | ✅ |
 | `close_document` | Close a Photoshop document by ID or the active document | ❌ |
 
