@@ -13,6 +13,7 @@ def test_import():
     import dcc_mcp_photoshop
 
     assert dcc_mcp_photoshop.__version__
+    assert dcc_mcp_photoshop.DEFAULT_PORT == 0
     # Verify semver format (major.minor.patch) — never pin exact version;
     # release-please bumps trigger CI failures on hardcoded assertions.
     parts = dcc_mcp_photoshop.__version__.split(".")

@@ -84,6 +84,7 @@ from dcc_mcp_photoshop.capabilities import PHOTOSHOP_CAPABILITIES_DICT
 from dcc_mcp_photoshop.capability_manifest import PhotoshopCapabilityManifestBuilder
 from dcc_mcp_photoshop.context_snapshot import PhotoshopContextSnapshotProvider
 from dcc_mcp_photoshop.server import (
+    DEFAULT_PORT,
     PhotoshopMcpServer,
     StartupState,
     get_server,
@@ -94,6 +95,7 @@ from dcc_mcp_photoshop.server import (
 
 __all__ = [
     "__version__",
+    "DEFAULT_PORT",
     "PhotoshopMcpServer",
     "StartupState",
     "run_daemon",
