@@ -37,6 +37,8 @@ from dcc_mcp_photoshop.runtime_probe import probe_broker
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_PORT = 0
+
 # Built-in skills directory shipped with this package
 _BUILTIN_SKILLS_DIR = Path(__file__).parent / "skills"
 
