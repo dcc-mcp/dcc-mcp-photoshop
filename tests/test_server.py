@@ -37,6 +37,23 @@ def test_api_imports():
     assert callable(is_photoshop_available)
 
 
+def test_server_version_defaults_to_installed_adapter_version():
+    from dcc_mcp_photoshop import __version__
+    from dcc_mcp_photoshop.server import PhotoshopMcpServer
+
+    server = PhotoshopMcpServer(gateway_port=0)
+
+    assert server._config.server_version == __version__
+
+
+def test_server_version_preserves_explicit_override():
+    from dcc_mcp_photoshop.server import PhotoshopMcpServer
+
+    server = PhotoshopMcpServer(server_version="custom-build", gateway_port=0)
+
+    assert server._config.server_version == "custom-build"
+
+
 @pytest.mark.parametrize(("requested_port", "expected_port"), [(None, None), (0, 0)])
 def test_start_server_delegates_port_resolution_to_core(monkeypatch, requested_port, expected_port):
     from dcc_mcp_photoshop import server as server_module

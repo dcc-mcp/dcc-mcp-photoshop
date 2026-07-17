@@ -32,6 +32,7 @@ from typing import Any, Iterable, Optional
 from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core.server_base import DccServerBase
 
+from dcc_mcp_photoshop.__version__ import __version__
 from dcc_mcp_photoshop.config import PhotoshopMcpConfig
 from dcc_mcp_photoshop.runtime_probe import probe_broker
 
@@ -144,7 +145,8 @@ class PhotoshopMcpServer(DccServerBase):
         config: ``PhotoshopMcpConfig`` instance.  If ``None``, reads from env.
         port: TCP port for the MCP HTTP server (overrides config).
         server_name: Name reported in MCP ``initialize`` response.
-        server_version: Version reported in MCP ``initialize`` response.
+        server_version: Version reported in MCP ``initialize`` response.  Defaults
+            to the installed adapter version.
         gateway_port: Gateway competition port.  ``None`` reads env var, ``0`` disables.
     """
 
@@ -153,7 +155,7 @@ class PhotoshopMcpServer(DccServerBase):
         config: Optional[PhotoshopMcpConfig] = None,
         port: int | None = None,
         server_name: str = "photoshop-mcp",
-        server_version: str = "0.2.0",
+        server_version: str | None = None,
         gateway_port: int | None = None,
         metrics_enabled: bool | None = None,
         strict_skill_scan: bool | None = None,
@@ -180,7 +182,7 @@ class PhotoshopMcpServer(DccServerBase):
             builtin_skills_dir=_BUILTIN_SKILLS_DIR,
             port=port if port is not None else self._adapter_config.mcp_port,
             server_name=server_name,
-            server_version=server_version,
+            server_version=server_version if server_version is not None else __version__,
             gateway_port=gateway_port if gateway_port is not None else self._adapter_config.gateway_port,
         )
         super().__init__(options=options)
