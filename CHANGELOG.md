@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.37](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.36...v0.1.37) (2026-07-17)
+
+
+### Bug Fixes
+
+* report the installed Photoshop adapter version ([#98](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/98)) ([a0663fc](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/a0663fc63e534a453e35dbe1643c5b171484ec6e))
+
 ## [0.1.36](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.35...v0.1.36) (2026-07-17)
 
 
