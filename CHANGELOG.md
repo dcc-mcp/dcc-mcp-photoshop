@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.36](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.35...v0.1.36) (2026-07-17)
+
+
+### Bug Fixes
+
+* **ci:** allow tagless release dispatch ([#96](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/96)) ([8248496](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/8248496ef0c1f1db001693174af104af2210343b))
+* expose the dynamic default port ([#95](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/95)) ([029efc3](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/029efc3314c8580f658b23681d11092270bf1a37))
+
 ## [0.1.35](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.34...v0.1.35) (2026-07-16)
 
 
