@@ -4,6 +4,21 @@
 > Follow the links; don't read everything upfront.
 > Agent-specific files (`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`) intentionally point back here.
 
+## Agent Control Path
+
+AI agent runtimes default to the shared gateway through the
+`dcc-cli-gateway` skill and `dcc-mcp-cli` REST commands:
+
+```bash
+dcc-mcp-cli search --query "<task>" --dcc-type photoshop
+dcc-mcp-cli describe <tool-slug>
+dcc-mcp-cli call <tool-slug> --json '{"key":"value"}'
+```
+
+Use `dcc-mcp-cli list` for live instances and `dcc-mcp-cli dcc-types` for
+release-catalog support. IDE users may continue to configure the gateway MCP
+endpoint; adapter-local Python start APIs are for host bootstrap and tests.
+
 ## Project Overview
 
 **dcc-mcp-photoshop** turns Adobe Photoshop into an MCP Streamable HTTP backend via a UXP WebSocket plugin. The Python bridge runs a WebSocket server on port 9001; the UXP plugin inside Photoshop connects as a client.
@@ -30,7 +45,7 @@ Adobe Photoshop 2022+
 
 | Scenario | Path |
 |----------|------|
-| AI agent / CLI runtime | Gateway REST at `http://127.0.0.1:9765/mcp` — single endpoint for all DCCs |
+| AI agent / CLI runtime | `dcc-cli-gateway` + `dcc-mcp-cli` over gateway REST `/v1/search`, `/v1/describe`, and `/v1/call` |
 | IDE user (Cursor, Claude Desktop) | Configure `mcpServers` → `url: "http://127.0.0.1:9765/mcp"` |
 | Development / debugging | Embedded mode: `dcc-mcp-photoshop --embedded` (MCP server + bridge in one process) |
 

@@ -44,9 +44,9 @@ dev = [
 ]
 
 [project.urls]
-Homepage = "https://github.com/loonghao/dcc-mcp-photoshop"
-Repository = "https://github.com/loonghao/dcc-mcp-photoshop"
-"Bug Tracker" = "https://github.com/loonghao/dcc-mcp-photoshop/issues"
+Homepage = "https://github.com/dcc-mcp/dcc-mcp-photoshop"
+Repository = "https://github.com/dcc-mcp/dcc-mcp-photoshop"
+"Bug Tracker" = "https://github.com/dcc-mcp/dcc-mcp-photoshop/issues"
 
 [project.scripts]
 dcc-mcp-photoshop = "dcc_mcp_photoshop.cli:main"
