@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.38](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.37...v0.1.38) (2026-07-19)
+
+
+### Documentation
+
+* align agent workflow and branding ([829d977](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/829d977ca7eed24fe50b4e1c23c269f0eef6efed))
+* document CLI install and updates ([bfe375a](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/bfe375ae3ad86973c8aadad3a69d179106f81791))
+
 ## [0.1.37](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.36...v0.1.37) (2026-07-17)
 
 
