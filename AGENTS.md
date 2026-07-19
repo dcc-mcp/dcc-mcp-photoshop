@@ -7,7 +7,7 @@
 ## Agent Control Path
 
 AI agent runtimes default to the shared gateway through the
-`dcc-cli-gateway` skill and `dcc-mcp-cli` REST commands:
+`dcc-mcp` skill and `dcc-mcp-cli` REST commands:
 
 ```bash
 dcc-mcp-cli search --query "<task>" --dcc-type photoshop
@@ -18,6 +18,20 @@ dcc-mcp-cli call <tool-slug> --json '{"key":"value"}'
 Use `dcc-mcp-cli list` for live instances and `dcc-mcp-cli dcc-types` for
 release-catalog support. IDE users may continue to configure the gateway MCP
 endpoint; adapter-local Python start APIs are for host bootstrap and tests.
+
+### CLI availability and updates
+
+If `dcc-mcp-cli` is missing, obtain user consent before using the official
+install commands in the README Agent workflow. Keep an official build current
+with:
+
+```bash
+dcc-mcp-cli update check
+dcc-mcp-cli update apply
+```
+
+`update apply` stages the latest CLI for the next launch; it does not replace
+a running server.
 
 ## Project Overview
 
@@ -45,7 +59,7 @@ Adobe Photoshop 2022+
 
 | Scenario | Path |
 |----------|------|
-| AI agent / CLI runtime | `dcc-cli-gateway` + `dcc-mcp-cli` over gateway REST `/v1/search`, `/v1/describe`, and `/v1/call` |
+| AI agent / CLI runtime | `dcc-mcp` + `dcc-mcp-cli` over gateway REST `/v1/search`, `/v1/describe`, and `/v1/call` |
 | IDE user (Cursor, Claude Desktop) | Configure `mcpServers` → `url: "http://127.0.0.1:9765/mcp"` |
 | Development / debugging | Embedded mode: `dcc-mcp-photoshop --embedded` (MCP server + bridge in one process) |
 
