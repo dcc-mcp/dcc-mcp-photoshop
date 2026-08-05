@@ -1,5 +1,7 @@
 # dcc-mcp-photoshop
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fdcc-mcp%2Fdcc-mcp-photoshop.svg)](https://mcptoplist.com/server/glama%2Fdcc-mcp%2Fdcc-mcp-photoshop)
+
 <p align="center">
   <img src="docs/assets/dcc-mcp-photoshop.svg" alt="DCC-MCP · PHOTOSHOP" width="600">
 </p>
