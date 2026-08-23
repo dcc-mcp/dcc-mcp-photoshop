@@ -7,6 +7,8 @@ import os
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
 
+from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
 
 def probe_broker(broker_url: str, timeout: float) -> dict:
     """Return the broker health payload or a structured failure."""
@@ -15,7 +17,12 @@ def probe_broker(broker_url: str, timeout: float) -> dict:
         with urlopen(Request(url, method="GET"), timeout=timeout) as response:
             payload = json.loads(response.read().decode("utf-8"))
     except Exception as exc:  # noqa: BLE001 - the probe reports transport failures
-        return {"ok": False, "url": url, "sessions": 0, "error": str(exc)}
+        return {
+            "ok": False,
+            "url": redact_bootstrap_message(url),
+            "sessions": 0,
+            "error": redact_bootstrap_message(str(exc)),
+        }
 
     sessions = int(payload.get("sessions", 0))
     return {
@@ -39,7 +46,7 @@ def probe_photoshop(broker_url: str, timeout: float) -> dict:
         )
         return {"ok": True, "version": app.version}
     except Exception as exc:  # noqa: BLE001 - the probe reports host failures
-        return {"ok": False, "error": str(exc)}
+        return {"ok": False, "error": redact_bootstrap_message(str(exc))}
 
 
 def endpoint_host_port(url: str) -> tuple[str, int]:

@@ -78,26 +78,23 @@ The Python MCP server communicates with Photoshop through the adobepy Rust broke
 | **Sidecar isolation** | Python MCP server runs outside Photoshop's UI thread; adobepy broker handles all host communication. |
 | **Gateway compatible** | Works with `dcc-mcp-server` sidecar for multi-DCC deployments alongside Maya, Houdini, Blender, etc. |
 | **Multi-channel distribution** | Available as a PyPI package or standalone adapter binary; the host bridge ships with adobepy. |
-| **One-click setup** | The `photoshop-setup` skill automates environment checks, plugin installation, and MCP client configuration. |
+| **Canonical lifecycle** | One cross-platform CLI owns plan, staged install, receipt, repair, rollback, verify, and uninstall. |
 
 ## Quick Start
 
 ### Prerequisites
 
-1. **adobepy broker** — Install and start the Rust broker:
-   ```bash
-   cargo install adobepy-cli
-   adobepy broker
-   ```
-
-2. **adobepy UXP bridge** — Install in Photoshop:
-   ```bash
-   adobepy install-bridge photoshop --dest ./adobepy-photoshop-bridge
-   ```
-   Enable Developer Mode in Photoshop, add the generated `manifest.json` to
-   Adobe UXP Developer Tool, and click **Load**.
+Follow the cross-platform [Install SOP](install.md). It documents the supported
+adobepy CLI source, env-only token contract, Photoshop 2022+ paths, and the one
+Adobe-owned UXP Developer Tool load step.
 
 ### 1. Install dcc-mcp-photoshop
+
+```bash
+python -m pip install dcc-mcp-photoshop
+dcc-mcp-photoshop install --json --dry-run
+dcc-mcp-photoshop install --json --yes
+```
 
 ### 2. Configure your MCP client
 
@@ -275,9 +272,11 @@ Channel operations and low-level batchPlay access.
 | Persistent logging | Logs written to `~/.dcc-mcp/logs/` (configurable via `DCC_MCP_PHOTOSHOP_LOG_DIR`). |
 | Lazy skill loading | `load_skill` meta-tool expands the tool surface on demand. |
 
-## One-Click Installer
+## Canonical Installer
 
-The `photoshop-setup` skill provides a complete installer workflow that automates environment checks, package installation, UXP plugin setup, and MCP client configuration.
+The `dcc-mcp-photoshop` CLI is the only lifecycle owner. The legacy
+`photoshop-setup` skill and PowerShell script remain discoverable compatibility
+routes, but they delegate operators to the same contract.
 
 ```
 load_skill("photoshop-setup")
@@ -289,68 +288,19 @@ load_skill("photoshop-setup")
 |------|-------------|
 | `check_environment` | Check system prerequisites (Python, pip, Photoshop) |
 | `install_package` | Install or upgrade dcc-mcp-photoshop via pip |
-| `setup_uxp_plugin` | Stage the adobepy bridge and provide explicit UXP Developer Tool loading steps |
+| `setup_uxp_plugin` | Redirect legacy calls to the canonical install lifecycle |
 | `start_server` | Start server in dev mode for testing |
 | `verify_connection` | Verify bridge connection to Photoshop |
 | `configure_mcp_client` | Auto-configure MCP client configs for Claude Desktop, Cursor, VS Code |
 
-### Standard Install Flow
-
-```text
-check_environment → install_package → setup_uxp_plugin → configure_mcp_client → verify_connection
-```
-
-1. **check_environment** — Verifies Python, pip, and Photoshop are available.
-2. **install_package** — Installs `dcc-mcp-photoshop` and dependencies from PyPI.
-3. **setup_uxp_plugin** — Generates the adobepy bridge files. Adobe UXP Developer Tool performs the explicit host load.
-4. **configure_mcp_client** — Sets up `mcpServers` entries for Claude Desktop, Cursor, and VS Code.
-5. **verify_connection** — Confirms the bridge is connected and Photoshop responds.
-
-### Installing a Specific Version
-
-Pin to a specific version for compatibility with your existing dcc-mcp-core deployment:
-
-```text
-install_package(version="0.1.14")
-```
-
-### Upgrading
-
-Upgrade `dcc-mcp-photoshop` and its dependencies to the latest version on PyPI:
-
-```text
-install_package(upgrade=True)
-```
-
-### Rolling Back
-
-Install a previous adapter version to roll back from a regression. The adobepy broker and bridge use their own release version:
-
-```text
-install_package(version="0.1.13")
-```
-
-### Uninstalling
-
-Remove the Python package via pip:
-
-```bash
-pip uninstall dcc-mcp-photoshop
-```
-
-Remove the generated bridge directory after unloading it from Adobe UXP Developer Tool:
-
-```powershell
-# Windows
-Remove-Item -Recurse "$env:LOCALAPPDATA\adobepy\bridges\photoshop"
-```
-
-```bash
-# macOS
-rm -rf ~/.local/share/adobepy/bridges/photoshop
-```
+See [install.md](install.md) for the standard verbs, flags, JSON schema, exit
+codes, three-platform host paths, repair behavior, receipt-only uninstall, and
+verify-to-usable acceptance gate.
 
 ## Installation
+
+Use the [canonical Install SOP](install.md) for host integration. Installing a
+wheel alone does not load the UXP bridge or prove Photoshop readiness.
 
 ### PyPI
 
@@ -391,15 +341,10 @@ chmod +x dcc-mcp-photoshop
 
 ### adobepy UXP Bridge
 
-Generate the bridge from an adobepy release bundle:
-
-```powershell
-adobepy install-bridge photoshop --dest "$env:LOCALAPPDATA\adobepy\bridges\photoshop"
-```
-
-Enable Photoshop Developer Mode, open Adobe UXP Developer Tool, add the
-generated `manifest.json`, and click **Load**. Copying an unpacked development
-plugin into an Adobe plugin directory does not register or load it.
+The canonical lifecycle uses the approved adobepy CLI through env-only
+authentication, stages the generated bridge, commits a redacted receipt, and
+then requires a real Photoshop RPC. See [install.md](install.md); direct bridge
+generation is not a second supported installer surface.
 
 ## Configuration
 
@@ -449,7 +394,7 @@ URL: http://127.0.0.1:9765/mcp
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `ADOBEPY_BROKER_URL` | adobepy broker HTTP endpoint | `http://127.0.0.1:47391` |
-| `ADOBEPY_TOKEN` | Broker authentication token | `dev-token` |
+| `ADOBEPY_TOKEN` | Required broker authentication token | — |
 | `ADOBEPY_TARGET` | Broker target identifier | `default` |
 | `DCC_MCP_PHOTOSHOP_PORT` | Optional fixed MCP instance port | `0` (OS-assigned) |
 | `DCC_MCP_GATEWAY_PORT` | Gateway competition port | — |
@@ -593,10 +538,11 @@ dcc-mcp-photoshop --broker-url http://127.0.0.1:47391
 
 ## UXP Bridge Setup
 
-The UXP bridge is part of the adobepy project. To install:
+The UXP bridge template is part of adobepy, while the canonical lifecycle owns
+its safe generation and receipt:
 
 ```bash
-adobepy install-bridge photoshop --dest ./adobepy-photoshop-bridge
+dcc-mcp-photoshop install --json --yes
 ```
 
 This stages the bridge files only. Enable Photoshop Developer Mode, add the
@@ -700,8 +646,8 @@ adobepy broker not reachable at http://127.0.0.1:47391
 
 ### UXP bridge not connecting
 
-1. Ensure Photoshop 2024+ (min version 25.0.0) is running
-2. Run `adobepy install-bridge photoshop` and restart Photoshop
+1. Ensure Photoshop 2022+ (min version 23.0.0) is running
+2. Run `dcc-mcp-photoshop status --json`, then follow its single structured next step
 3. Check the bridge is loaded: **Plugins** → **Adobe Python Bridge**
 
 ### No active document error

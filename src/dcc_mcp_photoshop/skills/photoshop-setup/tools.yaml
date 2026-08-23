@@ -40,7 +40,7 @@ tools:
         default: ''
         description: Local source path for editable install.
 - name: setup_uxp_plugin
-  description: Stage the adobepy UXP bridge for explicit loading with Adobe UXP Developer Tool.
+  description: Redirect legacy setup calls to the canonical dcc-mcp-photoshop install lifecycle.
   source_file: scripts/setup_uxp_plugin.py
   execution: sync
   read_only: false

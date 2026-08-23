@@ -25,8 +25,9 @@ metadata:
 ---
 # photoshop-setup
 
-Guided setup skill for dcc-mcp-photoshop. Helps agents walk through the entire
-installation, configuration, and verification flow.
+Compatibility and diagnostics skill for dcc-mcp-photoshop. The canonical
+installer is `dcc-mcp-photoshop install --json`; this skill must not create a
+second staging, receipt, rollback, or uninstall implementation.
 
 ## Distribution Channels
 
@@ -34,22 +35,20 @@ installation, configuration, and verification flow.
 |---------|-------------------|-----------------|
 | **pip** | `pip install dcc-mcp-photoshop` | Yes |
 | **Standalone binary** | GitHub Releases — platform-specific binary | No |
-| **adobepy bridge** | `adobepy install-bridge photoshop --dest <dir>` | No |
+| **adobepy bridge** | Managed by `dcc-mcp-photoshop install --json` | No |
 
 ## Workflow
 
-1. **check_environment** — Inspect the current system state
-2. **install_package** — Install dcc-mcp-photoshop via pip
-3. **setup_uxp_plugin** — Stage the adobepy UXP bridge, then load it with Adobe UXP Developer Tool
-4. **start_server** — Launch the broker-backed MCP adapter
-5. **verify_connection** — Confirm everything is working
-6. **configure_mcp_client** — Auto-configure Claude Desktop / Cursor / VS Code with the gateway URL
+1. Run `dcc-mcp-photoshop install --json --dry-run`.
+2. Review the plan, then run `dcc-mcp-photoshop install --json --yes`.
+3. Follow the single structured UXP host-load next step when Adobe requires it.
+4. Run `dcc-mcp-photoshop verify --json`; only a real Photoshop RPC is usable.
 
 ## Tools
 
 - `check_environment` — Python / pip / installed packages / Photoshop process / adobepy broker
 - `install_package` — pip install dcc-mcp-photoshop
-- `setup_uxp_plugin` — Generate bridge files without falsely claiming Adobe loaded them
+- `setup_uxp_plugin` — Legacy compatibility redirect to the canonical CLI
 - `start_server` — Start the MCP adapter after the adobepy broker is ready
 - `verify_connection` — End-to-end connection check
 - `configure_mcp_client` — Write MCP client config for Claude Desktop / Cursor / VS Code

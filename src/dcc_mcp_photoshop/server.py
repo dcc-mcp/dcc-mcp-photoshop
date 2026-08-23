@@ -14,7 +14,7 @@ Configuration::
 
     Environment variables:
       ADOBEPY_BROKER_URL  Broker HTTP endpoint (default: http://127.0.0.1:47391)
-      ADOBEPY_TOKEN       Authentication token (default: dev-token)
+      ADOBEPY_TOKEN       Required authentication token (no default)
       DCC_MCP_PHOTOSHOP_PORT  Optional fixed MCP instance port (default: OS-assigned)
 """
 
@@ -33,6 +33,7 @@ from dcc_mcp_core._server.options import DccServerOptions
 from dcc_mcp_core.server_base import DccServerBase
 
 from dcc_mcp_photoshop.__version__ import __version__
+from dcc_mcp_photoshop.bootstrap_diagnostics import capture_bootstrap_error
 from dcc_mcp_photoshop.config import PhotoshopMcpConfig
 from dcc_mcp_photoshop.runtime_probe import probe_broker
 
@@ -120,6 +121,7 @@ class StartupState:
 
     def set_failed(self, failure_stage: str, action: str) -> None:
         """Transition to the ``failed`` state and record diagnostics."""
+        action = capture_bootstrap_error(failure_stage, action)
         self.stage = "failed"
         self.failure_stage = failure_stage
         self.recommended_next_action = action

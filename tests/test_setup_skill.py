@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import importlib.util
-import subprocess
 from pathlib import Path
 from unittest.mock import patch
 
@@ -42,34 +41,29 @@ def _load_verify_module():
     return module
 
 
-def test_auto_stages_adobepy_bridge_without_claiming_host_install(tmp_path: Path) -> None:
+def test_legacy_setup_tool_routes_to_the_canonical_install_contract(tmp_path: Path) -> None:
     module = _load_setup_module()
-    executable = str(tmp_path / "adobepy.exe")
-
-    with patch.object(module.shutil, "which", return_value=executable):
-        with patch.object(module.subprocess, "run", return_value=subprocess.CompletedProcess([], 0, "ok", "")) as run:
-            result = module.setup_uxp_plugin(bridge_dir=str(tmp_path / "bridge"))
+    result = module.setup_uxp_plugin(bridge_dir=str(tmp_path / "bridge"))
 
     assert result["success"] is True
-    assert result["details"]["state"] == "staged"
-    assert "UXP Developer Tool" in result["prompt"]
-    run.assert_called_once_with(
-        [executable, "install-bridge", "photoshop", "--dest", str(tmp_path / "bridge")],
-        capture_output=True,
-        text=True,
-        timeout=60,
-    )
+    assert result["details"]["state"] == "canonical_redirect"
+    assert result["next_steps"] == [
+        {
+            "id": "canonical-install",
+            "description": "Run the canonical Photoshop install lifecycle",
+            "command": ["dcc-mcp-photoshop", "install", "--json", "--yes"],
+            "why": "The canonical lifecycle owns staging, receipts, rollback, and verify-to-usable",
+        }
+    ]
 
 
-def test_auto_fails_closed_when_adobepy_cli_is_missing(tmp_path: Path) -> None:
+def test_legacy_setup_route_does_not_bypass_canonical_cli_preflight(tmp_path: Path) -> None:
     module = _load_setup_module()
 
-    with patch.object(module.shutil, "which", return_value=None):
-        result = module.setup_uxp_plugin(bridge_dir=str(tmp_path / "bridge"))
+    result = module.setup_uxp_plugin(bridge_dir=str(tmp_path / "bridge"))
 
-    assert result["success"] is False
-    assert result["details"]["state"] == "not_staged"
-    assert "adobepy" in result["summary"]
+    assert result["success"] is True
+    assert result["details"]["state"] == "canonical_redirect"
 
 
 def test_verify_requires_a_connected_bridge_session() -> None:
