@@ -1,11 +1,9 @@
-"""Stage the adobepy UXP bridge for Adobe Photoshop."""
+"""Route legacy Photoshop bridge setup calls to the canonical lifecycle."""
 
 from __future__ import annotations
 
 import os
 import platform
-import shutil
-import subprocess
 from pathlib import Path
 
 from dcc_mcp_core.skill import skill_entry
@@ -19,20 +17,6 @@ def _default_bridge_dir() -> Path:
     return Path(root) / "adobepy" / "bridges" / "photoshop"
 
 
-def _guide(bridge_dir: Path) -> str:
-    manifest = bridge_dir / "manifest.json"
-    return "\n".join(
-        [
-            "1. Install the adobepy release bundle so the adobepy CLI is on PATH.",
-            f'2. Run: adobepy install-bridge photoshop --dest "{bridge_dir}"',
-            "3. In Photoshop, enable Plugins > Enable Developer Mode.",
-            "4. Open Adobe UXP Developer Tool and add the generated manifest:",
-            f"   {manifest}",
-            "5. Select the plugin and click Load, then verify the broker reports a Photoshop session.",
-        ]
-    )
-
-
 @skill_entry
 def setup_uxp_plugin(
     method: str = "auto",
@@ -40,63 +24,31 @@ def setup_uxp_plugin(
     adobepy_executable: str = "",
     **kwargs,
 ) -> dict:
-    """Stage the adobepy Photoshop bridge without claiming Adobe loaded it.
+    """Return the canonical install command without staging a second bridge.
 
-    Adobe owns developer-plugin registration and loading. This tool generates
-    the bridge files; UXP Developer Tool performs the explicit host load.
+    Adobe owns developer-plugin registration and loading. The adapter lifecycle
+    owns staging, receipts, rollback, and readiness verification.
     """
     destination = Path(bridge_dir).expanduser() if bridge_dir else _default_bridge_dir()
-    guide = _guide(destination)
-
-    if method == "guide":
-        return {
-            "success": True,
-            "summary": "adobepy bridge setup guide generated",
-            "details": {"state": "guide", "bridge_dir": str(destination), "guide": guide},
-            "prompt": guide,
-        }
-
-    executable = adobepy_executable or shutil.which("adobepy")
-    if not executable:
-        return {
-            "success": False,
-            "summary": "adobepy CLI not found; Photoshop bridge was not staged",
-            "details": {"state": "not_staged", "bridge_dir": str(destination), "guide": guide},
-            "prompt": guide,
-        }
-
-    try:
-        result = subprocess.run(
-            [executable, "install-bridge", "photoshop", "--dest", str(destination)],
-            capture_output=True,
-            text=True,
-            timeout=60,
-        )
-    except (OSError, subprocess.SubprocessError) as exc:
-        return {
-            "success": False,
-            "summary": "adobepy bridge staging failed",
-            "details": {"state": "not_staged", "bridge_dir": str(destination), "error": str(exc)},
-            "prompt": guide,
-        }
-
-    if result.returncode != 0:
-        return {
-            "success": False,
-            "summary": "adobepy bridge staging failed",
-            "details": {
-                "state": "not_staged",
-                "bridge_dir": str(destination),
-                "error": result.stderr.strip() or result.stdout.strip(),
-            },
-            "prompt": guide,
-        }
-
+    command = ["dcc-mcp-photoshop", "install", "--json", "--yes"]
     return {
         "success": True,
-        "summary": "adobepy Photoshop bridge staged; Adobe host load is still required",
-        "details": {"state": "staged", "bridge_dir": str(destination), "manifest": str(destination / "manifest.json")},
-        "prompt": guide,
+        "summary": "Use the canonical Photoshop install lifecycle",
+        "details": {
+            "state": "canonical_redirect",
+            "legacy_method": method,
+            "requested_bridge_dir": str(destination),
+            "requested_adobepy_executable": bool(adobepy_executable),
+        },
+        "next_steps": [
+            {
+                "id": "canonical-install",
+                "description": "Run the canonical Photoshop install lifecycle",
+                "command": command,
+                "why": "The canonical lifecycle owns staging, receipts, rollback, and verify-to-usable",
+            }
+        ],
+        "prompt": "Run: " + " ".join(command),
     }
 
 

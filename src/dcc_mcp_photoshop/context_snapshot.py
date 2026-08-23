@@ -8,7 +8,10 @@ otherwise returns minimal availability data.
 from __future__ import annotations
 
 import logging
+import os
 from typing import Any, Optional
+
+from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
 
 logger = logging.getLogger(__name__)
 
@@ -50,7 +53,7 @@ class PhotoshopContextSnapshotProvider:
 
             client = BrokerClient(
                 broker_url=broker_url or "http://127.0.0.1:47391",
-                token="dev-token",
+                token=os.environ.get("ADOBEPY_TOKEN", ""),
                 timeout=5.0,
             )
 
@@ -83,16 +86,20 @@ class PhotoshopContextSnapshotProvider:
             except Exception as exc:  # noqa: BLE001
                 snapshot["active_document"] = None
                 snapshot["layer_count"] = 0
-                logger.debug("Could not query active document: %s", exc)
+                logger.debug(
+                    "Could not query active document: %s",
+                    redact_bootstrap_message(str(exc)),
+                )
 
         except ImportError:
             snapshot["version"] = self._cached_version or "unknown"
             snapshot["error"] = "adobepy not installed"
             logger.debug("adobepy not available for context snapshot")
         except Exception as exc:  # noqa: BLE001
+            safe_error = redact_bootstrap_message(str(exc))
             snapshot["version"] = self._cached_version or "unknown"
-            snapshot["error"] = str(exc)
-            logger.debug("Context snapshot collection failed: %s", exc)
+            snapshot["error"] = safe_error
+            logger.debug("Context snapshot collection failed: %s", safe_error)
 
         return snapshot
 

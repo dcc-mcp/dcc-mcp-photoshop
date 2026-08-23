@@ -11,30 +11,20 @@ ownership boundaries.
 
 The dcc-mcp-photoshop repository does not own or publish a Photoshop `.ccx`.
 Development bridge registration and loading remain explicit Adobe workflows.
+The current release assets confirm this boundary: adapter archives and Python
+packages are published here, while the UXP bridge template is owned by
+adobepy.
 
 ## Install
 
-```powershell
-pip install dcc-mcp-photoshop
+Use the canonical agent runbook:
 
-# From an extracted adobepy release bundle:
-adobepy broker
-adobepy install-bridge photoshop --dest "$env:LOCALAPPDATA\adobepy\bridges\photoshop"
-```
+https://raw.githubusercontent.com/dcc-mcp/dcc-mcp-photoshop/main/install.md
 
-Enable Developer Mode in Photoshop. Open Adobe UXP Developer Tool, add the
-generated `manifest.json`, and click **Load**. The broker health endpoint must
-then report at least one session.
-
-Start the adapter after the broker and bridge are ready:
-
-```powershell
-dcc-mcp-photoshop --gateway-port 9765
-```
-
-Clients should use the stable gateway endpoint `http://127.0.0.1:9765/mcp`.
-The direct adapter port is OS-assigned and its exact URL is available through
-`dcc-mcp-cli list` when direct inspection is needed.
+It owns all standard verbs, env-only authentication, staging, receipt,
+rollback, Adobe host enablement, and real Photoshop RPC verification. This
+distribution guide intentionally does not duplicate that host-specific
+lifecycle.
 
 ## Release artifacts
 

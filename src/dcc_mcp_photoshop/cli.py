@@ -63,13 +63,29 @@ Examples:
 
 Environment variables:
   ADOBEPY_BROKER_URL            Broker HTTP endpoint (default: http://127.0.0.1:47391)
-  ADOBEPY_TOKEN                 Auth token (default: dev-token)
+  ADOBEPY_TOKEN                 Required broker authentication token (no default)
   DCC_MCP_PHOTOSHOP_PORT        Optional fixed MCP instance port (default: OS-assigned)
   DCC_MCP_GATEWAY_PORT          Gateway competition port
   DCC_MCP_PHOTOSHOP_LOG_DIR     Log directory (default: ~/.dcc-mcp/logs)
   DCC_MCP_PHOTOSHOP_LOG_LEVEL   Log level (default: INFO)
   DCC_MCP_PHOTOSHOP_TIMEOUT     Timeout in seconds (default: 30.0)
 """,
+    )
+    parser.add_argument(
+        "command",
+        nargs="?",
+        choices=("install", "status", "verify", "uninstall", "upgrade"),
+        help="Run the canonical adapter install lifecycle instead of the server",
+    )
+    parser.add_argument("--json", action="store_true", help="Emit the Install SOP v1 JSON result")
+    parser.add_argument("--yes", action="store_true", help="Apply the requested lifecycle operation")
+    parser.add_argument("--dry-run", action="store_true", help="Plan without changing files")
+    parser.add_argument("--dcc-path", default="", metavar="PATH", help="Photoshop executable override")
+    parser.add_argument(
+        "--python",
+        default="",
+        metavar="PATH",
+        help="Target Python override (current interpreter for install; receipt value for upgrade)",
     )
     parser.add_argument(
         "--mcp-port",
@@ -179,6 +195,14 @@ def _run_server(args: argparse.Namespace, config: PhotoshopMcpConfig) -> None:
 def main(argv: list[str] | None = None) -> None:
     parser = _build_parser()
     args = parser.parse_args(argv)
+
+    if args.command:
+        from dcc_mcp_photoshop.install_lifecycle import run_install_lifecycle  # noqa: PLC0415
+
+        exit_code = run_install_lifecycle(args)
+        if exit_code:
+            raise SystemExit(exit_code)
+        return
 
     from dcc_mcp_photoshop.config import PhotoshopMcpConfig  # noqa: PLC0415
 

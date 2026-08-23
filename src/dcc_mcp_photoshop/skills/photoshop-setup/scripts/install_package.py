@@ -88,7 +88,7 @@ def install_package(
             installed = "unknown"
 
         summary = f"dcc-mcp-photoshop installed (version: {installed})"
-        prompt = "Use setup_uxp_plugin to stage and load the adobepy bridge, then start_server."
+        prompt = "Run dcc-mcp-photoshop install --json --dry-run, then apply the reviewed plan."
     else:
         summary = "Installation failed"
         prompt = "Check Python/pip setup with check_environment, then retry."

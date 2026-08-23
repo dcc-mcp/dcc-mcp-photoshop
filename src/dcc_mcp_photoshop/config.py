@@ -29,7 +29,7 @@ class PhotoshopMcpConfig:
 
     # --- Broker connection (adobepy) ---
     broker_url: str = field(default_factory=lambda: os.getenv("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"))
-    broker_token: str = field(default_factory=lambda: os.getenv("ADOBEPY_TOKEN", "dev-token"))
+    broker_token: str = field(default_factory=lambda: os.getenv("ADOBEPY_TOKEN", ""))
     broker_target: str = field(default_factory=lambda: os.getenv("ADOBEPY_TARGET", "default"))
 
     # --- MCP server ---

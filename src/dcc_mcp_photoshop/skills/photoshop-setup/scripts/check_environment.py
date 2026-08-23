@@ -152,9 +152,7 @@ def check_environment(verbose: bool = False, **kwargs) -> dict:
             ]
         ),
         "details": result,
-        "prompt": (
-            "Use setup_uxp_plugin to stage the bridge, load it with UXP Developer Tool, then verify_connection."
-        ),
+        "prompt": "Run dcc-mcp-photoshop install --json --dry-run, then apply the reviewed plan.",
     }
 
 

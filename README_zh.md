@@ -12,25 +12,23 @@ MCP 客户端 → dcc-mcp gateway (:9765) → Photoshop adapter
 
 ## 快速开始
 
-1. 从 adobepy Release 解压运行时并启动 Broker：
+1. 按根目录 [Install SOP](install.md) 安装 wheel 与经过验证的 adobepy CLI，
+   并通过环境变量配置 `ADOBEPY_CLI` 与 `ADOBEPY_TOKEN`。
+
+2. 先生成计划，再执行 canonical 生命周期：
 
    ```powershell
-   adobepy broker
+   dcc-mcp-photoshop install --json --dry-run
+   dcc-mcp-photoshop install --json --yes
    ```
 
-2. 生成 Photoshop UXP Bridge：
+3. 如果命令返回唯一 UXP next step，在 Photoshop 中启用 Developer Mode，
+   用 Adobe UXP Developer Tool 加载报告的 `manifest.json`。
+
+4. 验证真实 Photoshop RPC，然后启动适配器：
 
    ```powershell
-   adobepy install-bridge photoshop --dest "$env:LOCALAPPDATA\adobepy\bridges\photoshop"
-   ```
-
-3. 在 Photoshop 中启用 Developer Mode。打开 Adobe UXP Developer Tool，
-   添加生成目录里的 `manifest.json`，点击 **Load**。
-
-4. 启动适配器：
-
-   ```powershell
-   pip install dcc-mcp-photoshop
+   dcc-mcp-photoshop verify --json
    dcc-mcp-photoshop --gateway-port 9765
    ```
 
@@ -46,16 +44,19 @@ MCP 客户端 → dcc-mcp gateway (:9765) → Photoshop adapter
 - Broker 至少有一个 Photoshop Bridge session；
 - `get_document_info` 等真实 Photoshop 工具调用成功。
 
-`photoshop-setup` skill 提供 `check_environment`、`setup_uxp_plugin`、
-`start_server`、`verify_connection` 与 `configure_mcp_client`。其中
-`setup_uxp_plugin` 只生成 Bridge 文件，不会把“文件已复制”误报为
-“Adobe 已加载”。
+`photoshop-setup` skill 保留兼容入口，但 `setup_uxp_plugin` 只路由到
+canonical CLI。文件复制不代表可用，只有真实 Photoshop RPC 成功才算完成。
 
 ## CLI
 
 ```text
-dcc-mcp-photoshop [OPTIONS]
+dcc-mcp-photoshop [install|status|verify|uninstall|upgrade] [OPTIONS]
 
+--json                输出 Install SOP v1 JSON
+--yes                 执行变更
+--dry-run             只生成计划
+--dcc-path PATH       Photoshop 可执行文件覆盖
+--python PATH         目标 Python 覆盖
 --mcp-port PORT       可选固定实例端口，默认由操作系统分配
 --broker-url URL      adobepy Broker，默认 http://127.0.0.1:47391
 --gateway-port PORT   网关竞争端口
