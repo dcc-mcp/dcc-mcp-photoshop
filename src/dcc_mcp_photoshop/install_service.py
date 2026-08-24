@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import shutil
 import subprocess
 import sys
 from datetime import datetime, timezone
@@ -37,6 +38,69 @@ def _uxp_bootstrap_blocker() -> dict[str, Any]:
     }
 
 
+def _block_unowned_install(report: dict[str, Any], *, staging: Path | None = None) -> tuple[dict[str, Any], int]:
+    if staging is not None:
+        shutil.rmtree(staging, ignore_errors=True)
+    report.update(status="failed", mode="apply", exit_code=INSTALL_EXIT_PREFLIGHT)
+    report["steps"][0] = {
+        "id": "preflight",
+        "status": "failed",
+        "message": "Exact receipt ownership is required before Photoshop bridge replacement",
+    }
+    report["steps"][1] = {"id": "stage_bridge", "status": "blocked"}
+    report["steps"][2] = {"id": "verify", "status": "blocked"}
+    report["verify"] = {
+        "directly_usable": False,
+        "failure_stage": "receipt_integrity",
+        "failure_reason": "Existing Photoshop bridge state is not the exact receipt-owned closure",
+    }
+    report["next_steps"] = []
+    return report, INSTALL_EXIT_PREFLIGHT
+
+
+def _capture_previous_receipt(
+    report: dict[str, Any], destination: Path, receipt_path: Path
+) -> tuple[bool, bytes | None, bool]:
+    """Capture an exact prior receipt, or prove the destination is still fresh."""
+    installed_state = report.get("installed_state")
+    if installed_state == "fresh":
+        return not destination.exists() and not receipt_path.exists(), None, True
+    if installed_state != "installed":
+        return False, None, False
+    try:
+        receipt_bytes = receipt_path.read_bytes()
+    except OSError:
+        return False, None, False
+    receipt = load_receipt(receipt_path, destination)
+    if receipt is None or not receipt_files_match(receipt, destination):
+        return False, None, False
+    try:
+        unchanged = receipt_path.read_bytes() == receipt_bytes
+    except OSError:
+        unchanged = False
+    return unchanged, receipt_bytes if unchanged else None, False
+
+
+def _previous_state_unchanged(
+    *,
+    destination: Path,
+    receipt_path: Path,
+    expected_previous_receipt: bytes | None,
+    require_fresh_destination: bool,
+) -> bool:
+    if require_fresh_destination:
+        return not destination.exists() and not receipt_path.exists()
+    if expected_previous_receipt is None:
+        return False
+    try:
+        if receipt_path.read_bytes() != expected_previous_receipt:
+            return False
+    except OSError:
+        return False
+    receipt = load_receipt(receipt_path, destination)
+    return receipt is not None and receipt_files_match(receipt, destination)
+
+
 def apply_install(
     report: dict[str, Any],
     *,
@@ -49,6 +113,13 @@ def apply_install(
 ) -> tuple[dict[str, Any], int]:
     """Stage, atomically commit, and verify one receipt-backed bridge install."""
     lifecycle_state = state_dir()
+    destination = Path(report["plan"]["bridge"]["destination"])
+    receipt_path = Path(report["receipt_path"])
+    owned, expected_previous_receipt, require_fresh_destination = _capture_previous_receipt(
+        report, destination, receipt_path
+    )
+    if not owned:
+        return _block_unowned_install(report)
     staging, error = stage_bridge(
         executable=Path(report["plan"]["bridge"]["installer"]),
         expected_identity=report["plan"]["bridge"]["installer_identity"],
@@ -66,8 +137,13 @@ def apply_install(
         }
         return report, INSTALL_EXIT_INSTALL
 
-    destination = Path(report["plan"]["bridge"]["destination"])
-    receipt_path = Path(report["receipt_path"])
+    if not _previous_state_unchanged(
+        destination=destination,
+        receipt_path=receipt_path,
+        expected_previous_receipt=expected_previous_receipt,
+        require_fresh_destination=require_fresh_destination,
+    ):
+        return _block_unowned_install(report, staging=staging)
     receipt = {
         "schema_version": 1,
         "dcc_type": "photoshop",
@@ -85,6 +161,8 @@ def apply_install(
         receipt_path=receipt_path,
         receipt=receipt,
         replacer=replacer,
+        expected_previous_receipt=expected_previous_receipt,
+        require_fresh_destination=require_fresh_destination,
     )
     if commit_status != "ok":
         exit_code = INSTALL_EXIT_REQUIRES_RESTART if commit_status == "requires_restart" else INSTALL_EXIT_INSTALL
@@ -144,7 +222,7 @@ def apply_install(
         report["next_steps"] = []
         return report, INSTALL_EXIT_OK
 
-    if report["verb"] == "upgrade" and transaction.moved_previous:
+    if transaction.moved_previous:
         try:
             transaction.rollback()
         except OSError:

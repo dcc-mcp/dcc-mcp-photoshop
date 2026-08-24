@@ -837,6 +837,40 @@ def test_owned_link_targets_are_bounded_to_the_install_root() -> None:
         assert install_io._safe_symlink_target("bridge.js", target) is False
 
 
+@pytest.mark.skipif(os.name != "nt", reason="requires a native Windows directory junction")
+def test_receipt_manifest_rejects_directory_junction_without_touching_target(tmp_path: Path) -> None:
+    external = tmp_path / "operator-owned"
+    external.mkdir()
+    external_file = external / "do-not-own.txt"
+    external_file.write_bytes(b"operator-owned-bytes")
+    staging = tmp_path / "staging"
+    staging.mkdir()
+    (staging / "manifest.json").write_text("{}", encoding="utf-8")
+    junction = staging / "external"
+    created = subprocess.run(
+        ["cmd.exe", "/d", "/c", "mklink", "/J", str(junction), str(external)],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if created.returncode != 0:
+        pytest.skip("native directory junction creation is unavailable")
+
+    bridge_root = tmp_path / "state" / "bridge"
+    receipt_path = tmp_path / "state" / "receipts" / "photoshop.json"
+    status, error = commit_bridge(
+        staging=staging,
+        destination=bridge_root,
+        receipt_path=receipt_path,
+        receipt={"schema_version": 1, "dcc_type": "photoshop", "bridge_root": str(bridge_root)},
+    )
+
+    assert status == "failed", error
+    assert external_file.read_bytes() == b"operator-owned-bytes"
+    assert external.is_dir()
+    assert not receipt_path.exists()
+
+
 def test_uninstall_partial_cleanup_restores_complete_bridge_and_receipt(tmp_path: Path, monkeypatch) -> None:
     from dcc_mcp_photoshop import install_io
 
@@ -1106,6 +1140,66 @@ def test_upgrade_verification_failure_rolls_back_bridge_and_receipt(tmp_path: Pa
     assert not list(state_dir.glob(".bridge.*"))
 
 
+def test_install_repair_verification_failure_restores_receipt_backed_bridge(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    adobepy_cli = _fake_adobepy_cli(tmp_path)
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("ADOBEPY_CLI", str(adobepy_cli))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "install-repair-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(state_dir))
+    generated = ["old"]
+
+    def fake_run(command, *, env, capture_output, text, timeout):
+        destination = Path(command[command.index("--dest") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "manifest.json").write_text(generated[0], encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, _bridge_stage_receipt(command), "")
+
+    live_broker, live_photoshop, process_probe = _bound_runtime_probes(host, state_dir)
+    args = Namespace(
+        command="install",
+        json=True,
+        yes=True,
+        dry_run=False,
+        dcc_path=str(host),
+        python=sys.executable,
+    )
+    assert (
+        run_install_lifecycle(
+            args,
+            external_runner=fake_run,
+            broker_probe=live_broker,
+            photoshop_probe=live_photoshop,
+            process_probe=process_probe,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    receipt_path = state_dir / "receipts" / "photoshop.json"
+    old_receipt = receipt_path.read_bytes()
+
+    generated[0] = "new"
+    exit_code = run_install_lifecycle(
+        args,
+        external_runner=fake_run,
+        broker_probe=lambda *_: {"ok": False, "error_type": "connection_refused"},
+        photoshop_probe=lambda *_: {"ok": True, "version": "26.0"},
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 40
+    _canonical_install_validator().validate(report)
+    assert report["status"] == "failed"
+    assert report["previous_install_restored"] is True
+    assert (state_dir / "bridge" / "manifest.json").read_text(encoding="utf-8") == "old"
+    assert receipt_path.read_bytes() == old_receipt
+    assert not list(state_dir.glob(".bridge.*"))
+
+
 def test_install_rejects_broker_url_credentials_without_serializing_them(tmp_path: Path, monkeypatch, capsys) -> None:
     host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
     host.parent.mkdir(parents=True)
@@ -1267,6 +1361,107 @@ def test_install_plan_classifies_partial_state_as_repair(tmp_path: Path, monkeyp
     report = json.loads(capsys.readouterr().out)
     assert report["installed_state"] == "partial"
     assert report["plan"]["action"] == "repair"
+
+
+def test_install_yes_refuses_an_unreceipted_partial_bridge_before_staging(tmp_path: Path, monkeypatch, capsys) -> None:
+    host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    adobepy_cli = _fake_adobepy_cli(tmp_path)
+    state_dir = tmp_path / "state"
+    bridge_root = state_dir / "bridge"
+    bridge_root.mkdir(parents=True)
+    operator_file = bridge_root / "operator-owned.txt"
+    operator_file.write_bytes(b"keep-me")
+    monkeypatch.setenv("ADOBEPY_CLI", str(adobepy_cli))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "partial-repair-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(state_dir))
+    staging_calls: list[list[str]] = []
+
+    def fake_run(command, *, env, capture_output, text, timeout):
+        staging_calls.append(command)
+        destination = Path(command[command.index("--dest") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "manifest.json").write_text("replacement", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, _bridge_stage_receipt(command), "")
+
+    exit_code = run_install_lifecycle(
+        Namespace(
+            command="install",
+            json=True,
+            yes=True,
+            dry_run=False,
+            dcc_path=str(host),
+            python=sys.executable,
+        ),
+        external_runner=fake_run,
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 10
+    _canonical_install_validator().validate(report)
+    assert report["verify"]["failure_stage"] == "receipt_integrity"
+    assert staging_calls == []
+    assert operator_file.read_bytes() == b"keep-me"
+
+
+def test_install_repair_rechecks_receipt_closure_after_external_staging(tmp_path: Path, monkeypatch, capsys) -> None:
+    host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    adobepy_cli = _fake_adobepy_cli(tmp_path)
+    state_dir = tmp_path / "state"
+    monkeypatch.setenv("ADOBEPY_CLI", str(adobepy_cli))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "repair-race-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(state_dir))
+    generation = ["old"]
+    stage_count = [0]
+
+    def fake_run(command, *, env, capture_output, text, timeout):
+        stage_count[0] += 1
+        destination = Path(command[command.index("--dest") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "manifest.json").write_text(generation[0], encoding="utf-8")
+        if stage_count[0] == 2:
+            (state_dir / "bridge" / "operator-owned.txt").write_bytes(b"keep-me")
+        return subprocess.CompletedProcess(command, 0, _bridge_stage_receipt(command), "")
+
+    live_broker, live_photoshop, process_probe = _bound_runtime_probes(host, state_dir)
+    args = Namespace(
+        command="install",
+        json=True,
+        yes=True,
+        dry_run=False,
+        dcc_path=str(host),
+        python=sys.executable,
+    )
+    assert (
+        run_install_lifecycle(
+            args,
+            external_runner=fake_run,
+            broker_probe=live_broker,
+            photoshop_probe=live_photoshop,
+            process_probe=process_probe,
+        )
+        == 0
+    )
+    capsys.readouterr()
+    generation[0] = "new"
+
+    exit_code = run_install_lifecycle(
+        args,
+        external_runner=fake_run,
+        broker_probe=live_broker,
+        photoshop_probe=live_photoshop,
+        process_probe=process_probe,
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 10
+    _canonical_install_validator().validate(report)
+    assert report["verify"]["failure_stage"] == "receipt_integrity"
+    assert (state_dir / "bridge" / "manifest.json").read_text(encoding="utf-8") == "old"
+    assert (state_dir / "bridge" / "operator-owned.txt").read_bytes() == b"keep-me"
 
 
 def test_upgrade_reuses_receipt_host_and_python_when_overrides_are_omitted(tmp_path: Path, monkeypatch, capsys) -> None:
