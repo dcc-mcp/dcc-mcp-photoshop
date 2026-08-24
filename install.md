@@ -2,7 +2,8 @@
 
 - Adobe Photoshop 2022 or newer.
 - Python 3.8 or newer for the wheel-based adapter path.
-- `dcc-mcp-core` 0.19.45 or newer.
+- `dcc-mcp-core` 0.20.14 or newer. The installed Core package must carry the
+  canonical Install SOP v1 schema byte-for-byte.
 - The supported adobepy CLI from an approved adobepy release or an exact tagged source build.
 - Adobe UXP Developer Tool for the one Adobe-owned developer-plugin load step.
 
@@ -60,13 +61,16 @@ dcc-mcp-photoshop install --json --yes --dcc-path "/path/to/Photoshop" --python 
 
 The lifecycle generates the UXP bridge in a sibling staging directory, verifies
 its manifest, atomically swaps it into the adapter-owned install root, and writes
-a redacted receipt. Fresh, partial, installed, repair, and upgrade states are
-reported explicitly. A failed commit restores the previous receipt-backed tree.
+a redacted receipt containing a complete typed file, directory, and link closure.
+Fresh, partial, installed, repair, and upgrade states are reported explicitly.
+Upgrade keeps its backup through live verification; any commit, receipt, or
+verification failure restores the exact previous receipt-backed tree.
 
 Adobe physically requires an explicit developer-plugin load. When no live UXP
-session exists, the installer returns exactly one structured next step: load the
-reported `manifest.json` in Adobe UXP Developer Tool, then run the provided
-verification command. It does not use UI automation.
+session exists, the installer returns the manifest for that operator action and
+an executable `adobepy doctor` command bound to the selected broker, Python, and
+runtime. It does not claim a blind verify loop as progress and does not use UI
+automation.
 
 # Manual path
 
@@ -94,11 +98,15 @@ dcc-mcp-photoshop verify --json
 
 Verification is ordered and fail-closed:
 
-1. Validate the adapter receipt and installed file digests.
-2. Import/run through the selected Python environment.
-3. Probe adobepy broker health.
-4. Require a connected Photoshop UXP session.
-5. Execute a real Photoshop RPC through the typed adobepy facade.
+1. Validate the complete typed ownership closure and reject extra, escaped,
+   duplicate, wrong-type, or tampered paths while preserving unowned content.
+2. Import through the selected Python and prove adapter, Core, and adobepy
+   origins against distribution metadata.
+3. Verify the installed Core package's canonical Install SOP schema bytes.
+4. Probe the authenticated adobepy broker and bind its PID, process-start
+   identity, executable, version, and instance to independent OS observations.
+5. Require exactly one matching Photoshop UXP session and a typed Photoshop RPC
+   bound to the host PID/start/executable/profile and installed plugin origins.
 
 Files copied is not an installed/usable result. Only the real Photoshop RPC can
 set `verify.directly_usable` to `true`.
@@ -125,8 +133,10 @@ dcc-mcp-photoshop uninstall --json --yes
 ```
 
 Uninstall consumes only the adapter receipt and refuses an unknown path. It
-does not delete a guessed UXP, Adobe, or user profile directory. Locked files
-return exit `50` with a retry command after Photoshop restarts.
+does not delete a guessed UXP, Adobe, or user profile directory, and it stages a
+recoverable snapshot before removing anything. Any staging, receipt, or cleanup
+failure restores the complete install; locked files return exit `50` with a
+retry command after Photoshop restarts.
 
 # Troubleshooting
 
@@ -139,6 +149,10 @@ return exit `50` with a retry command after Photoshop restarts.
 - **Partial state:** run `dcc-mcp-photoshop install --json --yes` to repair it. Do not delete the bridge before repair.
 - **Bootstrap failure:** inspect the bounded, secret-redacted `bootstrap-errors.json` under the Photoshop install state directory.
 
-The adapter currently carries a thin schema/exit-code compatibility layer while
-the shared Core Install SOP v1 foundation is pending integration. Host paths,
-UXP enablement, receipts, and Photoshop RPC verification remain adapter-owned.
+Core 0.20.14 owns the canonical schema and exit contract. Adapter contract tests
+validate every public lifecycle branch against that Draft 2020-12 schema; the
+adapter remains the owner of Photoshop paths, UXP enablement, receipts, and
+exact-instance runtime verification. adobepy 0.6.2 does not yet expose the full
+broker and host identity attestation, so live verification remains fail-closed
+until that upstream contract is available; staging and package tests are not
+proof of a licensed Photoshop session.

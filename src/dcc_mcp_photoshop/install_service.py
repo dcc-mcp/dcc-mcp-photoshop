@@ -8,6 +8,7 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
+from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
     INSTALL_EXIT_INSTALL,
@@ -19,13 +20,38 @@ from dcc_mcp_photoshop.install_contract import (
     state_dir,
 )
 from dcc_mcp_photoshop.install_io import (
-    commit_bridge,
+    begin_bridge_commit,
     load_receipt,
     receipt_files_match,
     remove_receipt_install,
     stage_bridge,
 )
-from dcc_mcp_photoshop.install_verification import verify_photoshop_rpc
+from dcc_mcp_photoshop.install_verification import observe_process_identity, verify_photoshop_rpc
+
+
+def _runtime_doctor_step(report: dict[str, Any]) -> dict[str, Any] | None:
+    try:
+        installer = report["plan"]["bridge"]["installer"]
+        python = report["plan"]["python"]["executable"]
+        parsed = urlparse(os.environ.get("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"))
+        if not isinstance(installer, str) or not isinstance(python, str) or not parsed.hostname or not parsed.port:
+            return None
+    except (KeyError, TypeError, ValueError):
+        return None
+    return {
+        "id": "diagnose-adobepy-runtime",
+        "description": "Run the trusted adobepy doctor before loading the receipted manifest with Adobe UXP Developer Tool",
+        "command": [
+            installer,
+            "doctor",
+            "--broker",
+            f"{parsed.hostname}:{parsed.port}",
+            "--python",
+            python,
+            "--json",
+        ],
+        "why": "Adobe requires an operator UXP load, and the runtime must be healthy before exact identity verification",
+    }
 
 
 def apply_install(
@@ -36,6 +62,7 @@ def apply_install(
     python_probe: Callable[[str, float], dict[str, Any]],
     broker_probe: Callable[[str, float], dict[str, Any]],
     photoshop_probe: Callable[[str, float], dict[str, Any]],
+    process_probe: Callable[[int], dict[str, Any]] = observe_process_identity,
 ) -> tuple[dict[str, Any], int]:
     """Stage, atomically commit, and verify one receipt-backed bridge install."""
     lifecycle_state = state_dir()
@@ -64,10 +91,11 @@ def apply_install(
         "core_version": report["core_version"],
         "host": report["plan"]["host"],
         "python": report["plan"]["python"],
+        "bridge": report["plan"]["bridge"],
         "bridge_root": str(destination),
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    commit_status, commit_error = commit_bridge(
+    commit_status, commit_error, transaction = begin_bridge_commit(
         staging=staging,
         destination=destination,
         receipt_path=receipt_path,
@@ -87,15 +115,43 @@ def apply_install(
             "failure_reason": commit_error,
         }
         return report, exit_code
+    if transaction is None:
+        report.update(status="failed", exit_code=INSTALL_EXIT_INSTALL)
+        report["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "commit",
+            "failure_reason": "Bridge commit did not return a verification transaction",
+        }
+        return report, INSTALL_EXIT_INSTALL
 
     verification = verify_photoshop_rpc(
         os.environ.get("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"),
         python_executable=report["plan"]["python"]["executable"],
+        expected_host=report["plan"]["host"],
+        expected_bridge=report["plan"]["bridge"],
+        expected_bridge_root=destination,
+        expected_python=report["plan"]["python"],
         python_probe=python_probe,
         broker_probe=broker_probe,
         photoshop_probe=photoshop_probe,
+        process_probe=process_probe,
     )
     if verification["directly_usable"]:
+        try:
+            transaction.finalize()
+        except OSError:
+            report.update(
+                status="requires_restart",
+                mode="apply",
+                exit_code=INSTALL_EXIT_REQUIRES_RESTART,
+            )
+            report["steps"][1] = {
+                "id": "stage_bridge",
+                "status": "requires_restart",
+                "message": "Verified bridge backup cleanup requires a Photoshop restart",
+            }
+            report["verify"] = verification
+            return report, INSTALL_EXIT_REQUIRES_RESTART
         report.update(status="ok", mode="apply", exit_code=INSTALL_EXIT_OK)
         report["steps"][0] = {"id": "preflight", "status": "ok"}
         report["steps"][1] = {"id": "stage_bridge", "status": "ok"}
@@ -104,27 +160,35 @@ def apply_install(
         report["next_steps"] = []
         return report, INSTALL_EXIT_OK
 
+    if report["verb"] == "upgrade" and transaction.moved_previous:
+        try:
+            transaction.rollback()
+        except OSError:
+            report.update(status="failed", mode="apply", exit_code=INSTALL_EXIT_INSTALL)
+            report["verify"] = {
+                "directly_usable": False,
+                "failure_stage": "rollback",
+                "failure_reason": "The previous Photoshop bridge could not be restored",
+            }
+            return report, INSTALL_EXIT_INSTALL
+        report.update(status="failed", mode="apply", exit_code=INSTALL_EXIT_VERIFY)
+        report["steps"][0] = {"id": "preflight", "status": "ok"}
+        report["steps"][1] = {"id": "stage_bridge", "status": "rolled_back"}
+        report["steps"][2] = {"id": "verify", "status": "failed"}
+        report["verify"] = verification
+        report["previous_install_restored"] = True
+        doctor_step = _runtime_doctor_step(report)
+        report["next_steps"] = [doctor_step] if doctor_step else []
+        return report, INSTALL_EXIT_VERIFY
+
+    transaction.finalize()
     report.update(status="requires_restart", mode="apply", exit_code=INSTALL_EXIT_REQUIRES_RESTART)
     report["steps"][0] = {"id": "preflight", "status": "ok"}
     report["steps"][1] = {"id": "stage_bridge", "status": "ok"}
     report["steps"][2] = {"id": "verify", "status": "requires_host_action"}
     report["verify"] = verification
-    report["next_steps"] = [
-        {
-            "id": "load-uxp-and-verify",
-            "description": "Load the staged manifest in Adobe UXP Developer Tool, then verify the Photoshop RPC",
-            "command": [
-                "dcc-mcp-photoshop",
-                "verify",
-                "--json",
-                "--dcc-path",
-                report["plan"]["host"]["executable"],
-                "--python",
-                report["plan"]["python"]["executable"],
-            ],
-            "why": "Adobe requires an explicit UXP host load before the bridge can answer a real Photoshop RPC",
-        }
-    ]
+    doctor_step = _runtime_doctor_step(report)
+    report["next_steps"] = [doctor_step] if doctor_step else []
     return report, INSTALL_EXIT_REQUIRES_RESTART
 
 
@@ -136,6 +200,7 @@ def inspect_existing_install(
     python_probe: Callable[[str, float], dict[str, Any]],
     broker_probe: Callable[[str, float], dict[str, Any]],
     photoshop_probe: Callable[[str, float], dict[str, Any]],
+    process_probe: Callable[[int], dict[str, Any]] = observe_process_identity,
 ) -> tuple[dict[str, Any], int]:
     """Inspect, verify, or remove only receipt-owned installed state."""
     lifecycle_state = state_dir()
@@ -173,9 +238,14 @@ def inspect_existing_install(
         verification = verify_photoshop_rpc(
             os.environ.get("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"),
             python_executable=receipt_python.get("executable", sys.executable),
+            expected_host=receipt.get("host") if isinstance(receipt.get("host"), dict) else None,
+            expected_bridge=receipt.get("bridge") if isinstance(receipt.get("bridge"), dict) else None,
+            expected_bridge_root=bridge_root,
+            expected_python=receipt_python,
             python_probe=python_probe,
             broker_probe=broker_probe,
             photoshop_probe=photoshop_probe,
+            process_probe=process_probe,
         )
 
     report: dict[str, Any] = {
@@ -206,6 +276,16 @@ def inspect_existing_install(
         report["status"] = "planned"
         report["steps"].append({"id": "uninstall", "status": "planned"})
         return report, INSTALL_EXIT_OK
+    if installed_state == "partial":
+        report.update(status="failed", exit_code=INSTALL_EXIT_PREFLIGHT)
+        report["steps"].append(
+            {
+                "id": "uninstall",
+                "status": "blocked",
+                "message": "Receipt integrity must be restored before uninstall",
+            }
+        )
+        return report, INSTALL_EXIT_PREFLIGHT
     if receipt is None:
         report.update(status="failed", exit_code=INSTALL_EXIT_PREFLIGHT)
         report["verify"] = {

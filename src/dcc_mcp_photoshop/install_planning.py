@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 import os
+import re
 import subprocess
 import sys
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any
 from urllib.parse import urlparse
 
@@ -21,6 +24,7 @@ from dcc_mcp_photoshop.install_contract import (
 )
 from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable, host_version
 from dcc_mcp_photoshop.install_io import load_receipt, receipt_files_match
+from dcc_mcp_photoshop.install_verification import probe_target_import
 
 
 def _host_supported(version: str | None) -> bool:
@@ -47,6 +51,76 @@ def _python_version(executable: Path) -> str | None:
         return None
     version = (result.stdout or result.stderr).strip()
     return version[len("Python ") :] if version.startswith("Python ") else version
+
+
+def _canonical_host_path(path: Path) -> bool:
+    try:
+        resolved = path.resolve()
+    except OSError:
+        return False
+    if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size < 0:
+        return False
+    name = resolved.name
+    if os.name == "nt":
+        return name.casefold() == "photoshop.exe" and bool(host_version(resolved.parent))
+    return bool(
+        re.fullmatch(r"Adobe Photoshop (?:20\d{2}|\d{2}(?:\.\d+)?)", name, re.IGNORECASE) and host_version(resolved)
+    )
+
+
+def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[str, Any] | None:
+    if path is None or not version_tuple(sdk_version):
+        return None
+    try:
+        resolved = path.resolve()
+        contents = resolved.read_bytes()
+        manifest_path = resolved.parent.parent / "package-manifest.json"
+        if manifest_path.stat().st_size > 65_536:
+            return None
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError, UnicodeError):
+        return None
+    expected_names = {"adobepy", "adobepy.exe"}
+    relative_cli = f"bin/{resolved.name}"
+    includes = manifest.get("includes") if isinstance(manifest, dict) else None
+    includes_are_safe = bool(
+        isinstance(includes, list)
+        and includes
+        and all(
+            isinstance(item, str)
+            and 0 < len(item) <= 256
+            and "\\" not in item
+            and not PurePosixPath(item).is_absolute()
+            and ".." not in PurePosixPath(item).parts
+            for item in includes
+        )
+    )
+    if (
+        not contents
+        or resolved.name.casefold() not in expected_names
+        or resolved.is_symlink()
+        or resolved.parent.name != "bin"
+        or not isinstance(manifest, dict)
+        or manifest.get("name") != "adobepy"
+        or manifest.get("version") != sdk_version
+        or not isinstance(manifest.get("runtime"), str)
+        or re.fullmatch(r"[A-Za-z0-9._-]{1,64}", manifest["runtime"]) is None
+        or not includes_are_safe
+        or relative_cli not in includes
+        or re.fullmatch(
+            rf"adobepy-{re.escape(sdk_version)}-[A-Za-z0-9._-]+",
+            resolved.parent.parent.name,
+        )
+        is None
+    ):
+        return None
+    return {
+        "executable": str(resolved),
+        "version": sdk_version,
+        "runtime": manifest["runtime"],
+        "bytes": len(contents),
+        "sha256": hashlib.sha256(contents).hexdigest(),
+    }
 
 
 def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool) -> tuple[dict[str, Any], int]:
@@ -76,8 +150,13 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         interpreter = Path(sys.executable)
     python_version = _python_version(interpreter) if interpreter.is_file() else None
     core_version = package_version("dcc-mcp-core")
+    target_import = probe_target_import(str(interpreter), 10.0) if python_version else {"ok": False}
     adobepy_cli_value = os.environ.get("ADOBEPY_CLI", "")
     adobepy_cli = Path(adobepy_cli_value).expanduser() if adobepy_cli_value else None
+    target_modules = target_import.get("modules") if isinstance(target_import, dict) else None
+    adobepy_module = target_modules.get("adobepy") if isinstance(target_modules, dict) else None
+    adobepy_sdk_version = adobepy_module.get("version") if isinstance(adobepy_module, dict) else None
+    adobepy_identity = _adobepy_cli_identity(adobepy_cli, adobepy_sdk_version)
     if receipt and bridge_root.is_dir() and receipt_files_match(receipt, bridge_root):
         installed_state = "installed"
     elif receipt or bridge_root.exists():
@@ -94,13 +173,17 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         failures.append(("core_version", f"dcc-mcp-core {MIN_CORE_VERSION} or newer is required"))
     if not host.is_file():
         failures.append(("preflight", "Photoshop executable was not found"))
+    elif not _canonical_host_path(host):
+        failures.append(("preflight", "--dcc-path must select a canonical Photoshop executable"))
     elif not _host_supported(detected_host_version):
         failures.append(("preflight", "Photoshop 2022 or newer is required"))
     if python_version is None:
         failures.append(("preflight", "Target Python could not be executed"))
     elif version_tuple(python_version)[:2] < MIN_PYTHON_VERSION:
         failures.append(("preflight", "Python 3.8 or newer is required"))
-    if adobepy_cli is None or not adobepy_cli.is_file():
+    elif target_import.get("ok") is not True:
+        failures.append(("preflight", "Target Python imports are not owned by their selected distributions"))
+    if adobepy_identity is None:
         failures.append(("acquire", "A supported adobepy CLI is required to stage the UXP bridge"))
     if not os.environ.get("ADOBEPY_TOKEN"):
         failures.append(("preflight", "ADOBEPY_TOKEN must be configured in the environment"))
@@ -114,21 +197,35 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         else INSTALL_EXIT_OK
     )
     status = "failed" if failure_stage else "planned"
-    retry_command = ["dcc-mcp-photoshop", verb, "--json", "--dry-run"]
-    if host.is_file():
-        retry_command.extend(["--dcc-path", str(host)])
-    if interpreter.is_file():
-        retry_command.extend(["--python", str(interpreter)])
+    broker_authority = None
+    try:
+        if parsed_broker.hostname and parsed_broker.port:
+            broker_authority = f"{parsed_broker.hostname}:{parsed_broker.port}"
+    except ValueError:
+        broker_authority = None
+    doctor_command = (
+        [
+            adobepy_identity["executable"],
+            "doctor",
+            "--broker",
+            broker_authority,
+            "--python",
+            str(interpreter.resolve()),
+            "--json",
+        ]
+        if adobepy_identity and broker_authority and interpreter.is_file()
+        else None
+    )
     next_steps = (
         [
             {
-                "id": f"retry-{verb}-plan",
-                "description": f"Retry the canonical Photoshop {verb} plan after resolving preflight",
-                "command": retry_command,
-                "why": failure_reason,
+                "id": "diagnose-adobepy-runtime",
+                "description": "Run the trusted adobepy doctor against the selected broker and Python",
+                "command": doctor_command,
+                "why": "The missing broker token must be recovered from the operator-owned broker before installation can continue",
             }
         ]
-        if failure_stage
+        if failure_reason == "ADOBEPY_TOKEN must be configured in the environment" and doctor_command
         else []
     )
     report: dict[str, Any] = {
@@ -155,10 +252,21 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         "installed_state": installed_state,
         "plan": {
             "action": "upgrade" if verb == "upgrade" else "repair" if installed_state != "fresh" else "install",
-            "host": {"executable": str(host), "version": detected_host_version},
-            "python": {"executable": str(interpreter), "version": python_version},
+            "host": {
+                "executable": str(host.resolve()) if host.is_file() else str(host),
+                "version": detected_host_version,
+            },
+            "python": {
+                "executable": str(interpreter.resolve()) if interpreter.is_file() else str(interpreter),
+                "version": python_version,
+                "modules": target_import.get("modules", {}),
+            },
             "bridge": {
-                "installer": str(adobepy_cli) if adobepy_cli else None,
+                "installer": adobepy_identity["executable"] if adobepy_identity else None,
+                "installer_version": adobepy_identity["version"] if adobepy_identity else None,
+                "installer_runtime": adobepy_identity["runtime"] if adobepy_identity else None,
+                "installer_bytes": adobepy_identity["bytes"] if adobepy_identity else None,
+                "installer_sha256": adobepy_identity["sha256"] if adobepy_identity else None,
                 "destination": str(bridge_root),
             },
             "requirements": {
