@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -160,11 +161,41 @@ def observe_process_identity(pid: int) -> dict[str, Any]:
     start_identity = _process_start_identity(pid)
     if path is None or start_identity is None:
         return {"ok": False}
+    try:
+        size = path.stat().st_size
+        if size <= 0 or size > 2_147_483_647:
+            return {"ok": False}
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+    except OSError:
+        return {"ok": False}
     return {
         "ok": True,
         "executable": str(path),
         "process_start_identity": start_identity,
+        "bytes": size,
+        "sha256": digest.hexdigest(),
     }
+
+
+def _binary_observation_matches(
+    observation: Mapping[str, Any],
+    expected_path: object,
+    expected_bytes: object = None,
+    expected_sha256: object = None,
+) -> bool:
+    if not _same_path(observation.get("executable"), expected_path):
+        return False
+    if expected_bytes is not None and observation.get("bytes") != expected_bytes:
+        return False
+    if expected_sha256 is not None and observation.get("sha256") != expected_sha256:
+        return False
+    return True
 
 
 def _failure(stage: str, reason: str, error_type: str) -> dict[str, Any]:
@@ -421,11 +452,18 @@ def verify_photoshop_rpc(
         )
     broker_before = process_probe(broker_pid)
     broker_after = process_probe(broker_pid)
+    expected_broker_bytes = expected_bridge.get("installer_bytes") if expected_bridge else None
+    expected_broker_sha256 = expected_bridge.get("installer_sha256") if expected_bridge else None
     if (
         broker_before.get("ok") is not True
         or broker_after.get("ok") is not True
         or broker_before != broker_after
-        or not _same_path(broker_before.get("executable"), expected_broker_path)
+        or not _binary_observation_matches(
+            broker_before,
+            expected_broker_path,
+            expected_broker_bytes,
+            expected_broker_sha256,
+        )
         or broker_before.get("process_start_identity") != broker_identity["process_start_identity"]
     ):
         return _failure(
@@ -482,6 +520,26 @@ def verify_photoshop_rpc(
             "broker_identity",
             "The Photoshop UXP session contains noncanonical identity fields",
             "invalid_identity",
+        )
+
+    expected_product_version = expected_host.get("version") if expected_host else session_host_version
+    session_version_parts = version_tuple(session_host_version)
+    product_version_parts = version_tuple(expected_product_version)
+    versions_match = bool(
+        session_version_parts
+        and product_version_parts
+        and session_version_parts[0] == product_version_parts[0]
+        and (
+            len(session_version_parts) < 2
+            or len(product_version_parts) < 2
+            or session_version_parts[1] == product_version_parts[1]
+        )
+    )
+    if not versions_match:
+        return _failure(
+            "photoshop_identity",
+            "The Photoshop runtime version differs from the authenticated Adobe product",
+            "wrong_host_version",
         )
 
     photoshop = photoshop_probe(broker_url, 5.0)
@@ -577,11 +635,18 @@ def verify_photoshop_rpc(
         )
     before = process_probe(host_pid)
     after = process_probe(host_pid)
+    expected_host_bytes = expected_host.get("bytes") if expected_host else None
+    expected_host_sha256 = expected_host.get("sha256") if expected_host else None
     if (
         before.get("ok") is not True
         or after.get("ok") is not True
         or before != after
-        or not _same_path(before.get("executable"), host_executable)
+        or not _binary_observation_matches(
+            before,
+            host_executable,
+            expected_host_bytes,
+            expected_host_sha256,
+        )
         or before.get("process_start_identity") != identity["process_start_identity"]
     ):
         return _failure(

@@ -80,6 +80,35 @@ jobs:
       - name: Lint SKILL.md files
         run: python tools/lint_skills.py --error-only
 
+  adobepy_cli_floor:
+    name: adobepy CLI checksum floor
+    runs-on: windows-latest
+    env:
+      ADOBEPY_VERSION: "0.6.2"
+      ADOBEPY_ARCHIVE_SHA256: "9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - run: python -m pip install -e ".[dev]"
+
+      - name: Verify official adobepy release bytes
+        shell: pwsh
+        run: |
+          $archive = Join-Path $env:RUNNER_TEMP "adobepy-$env:ADOBEPY_VERSION-windows-x64.zip"
+          $release = "https://github.com/dcc-mcp/adobepy/releases/download/adobepy-v$env:ADOBEPY_VERSION/adobepy-$env:ADOBEPY_VERSION-windows-x64.zip"
+          Invoke-WebRequest -Uri $release -OutFile $archive
+          if ((Get-FileHash -LiteralPath $archive -Algorithm SHA256).Hash.ToLowerInvariant() -ne $env:ADOBEPY_ARCHIVE_SHA256) {
+            throw "adobepy release archive digest mismatch"
+          }
+          $extract = Join-Path $env:RUNNER_TEMP "adobepy-release"
+          Expand-Archive -LiteralPath $archive -DestinationPath $extract
+          $env:DCC_MCP_PHOTOSHOP_ADOBEPY_FLOOR_CLI = Join-Path $extract "adobepy-$env:ADOBEPY_VERSION-windows-x64\bin\adobepy.exe"
+          python -m pytest -q tests/test_install_lifecycle.py::test_declared_adobepy_floor_cli_matches_the_official_checksum_release
+
   cli-smoke:
     name: CLI Smoke Test
     runs-on: ubuntu-latest
@@ -110,9 +139,9 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [test, lint, lint-skills, cli-smoke]
+    needs: [test, lint, lint-skills, adobepy_cli_floor, cli-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Require all CI jobs to pass
-        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.cli-smoke.result != 'success'
+        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.adobepy_cli_floor.result != 'success' || needs.cli-smoke.result != 'success'
         run: exit 1

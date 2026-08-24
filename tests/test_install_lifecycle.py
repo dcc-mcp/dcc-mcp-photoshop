@@ -10,6 +10,7 @@ import sys
 from argparse import Namespace
 from pathlib import Path
 
+import pytest
 from jsonschema import Draft202012Validator
 
 from dcc_mcp_photoshop.cli import _build_parser
@@ -47,6 +48,8 @@ def _bound_runtime_probes(host: Path, state_dir: Path):
     host_start_identity = "test-host-start:12345"
     broker_start_identity = "test-broker-start:67890"
     broker_executable = Path(os.environ["ADOBEPY_CLI"]).resolve()
+    broker_contents = broker_executable.read_bytes()
+    host_contents = host.read_bytes()
 
     def broker_probe(*_):
         return {
@@ -103,11 +106,15 @@ def _bound_runtime_probes(host: Path, state_dir: Path):
                 "ok": True,
                 "executable": str(broker_executable),
                 "process_start_identity": broker_start_identity,
+                "bytes": len(broker_contents),
+                "sha256": hashlib.sha256(broker_contents).hexdigest(),
             }
         return {
             "ok": True,
             "executable": str(host.resolve()),
             "process_start_identity": host_start_identity,
+            "bytes": len(host_contents),
+            "sha256": hashlib.sha256(host_contents).hexdigest(),
         }
 
     return broker_probe, photoshop_probe, process_probe
@@ -130,6 +137,68 @@ def _fake_adobepy_cli(root: Path, version: str = "0.6.2") -> Path:
         encoding="utf-8",
     )
     return executable
+
+
+@pytest.fixture(autouse=True)
+def _trusted_install_artifact_test_doubles(monkeypatch, request) -> None:
+    """Keep lifecycle tests host-free while production provenance stays fail-closed."""
+    from dcc_mcp_photoshop import install_planning
+
+    def fake_host_attestation(path: Path):
+        try:
+            resolved = path.resolve(strict=True)
+        except OSError:
+            return None
+        valid_name = resolved.name.casefold() == "photoshop.exe" or bool(
+            __import__("re").fullmatch(r"Adobe Photoshop 20[0-9]{2}", resolved.name, __import__("re").IGNORECASE)
+        )
+        if not resolved.is_file() or resolved.is_symlink() or not valid_name:
+            return None
+        return {
+            "executable": str(resolved),
+            "version": "26.0",
+            "product": "Adobe Photoshop",
+            "publisher": "Adobe Inc.",
+            "signature": "test_double",
+            "bytes": resolved.stat().st_size,
+            "sha256": hashlib.sha256(resolved.read_bytes()).hexdigest(),
+        }
+
+    monkeypatch.setattr(install_planning, "attest_photoshop_executable", fake_host_attestation)
+    if request.node.name in {
+        "test_self_authored_adobepy_manifest_cannot_authenticate_arbitrary_cli",
+        "test_declared_adobepy_floor_cli_matches_the_official_checksum_release",
+    }:
+        return
+
+    def fake_cli_attestation(path: Path | None, sdk_version: str | None):
+        if path is None or sdk_version != "0.6.2":
+            return None
+        try:
+            resolved = path.resolve(strict=True)
+            manifest = resolved.parent.parent / "package-manifest.json"
+            executable_bytes = resolved.read_bytes()
+            manifest_bytes = manifest.read_bytes()
+        except OSError:
+            return None
+        if resolved.name.casefold() not in {"adobepy", "adobepy.exe"} or resolved.parent.name != "bin":
+            return None
+        return {
+            "executable": str(resolved),
+            "version": sdk_version,
+            "runtime": "test-runtime",
+            "bytes": len(executable_bytes),
+            "sha256": hashlib.sha256(executable_bytes).hexdigest(),
+            "manifest_path": str(manifest.resolve()),
+            "manifest_bytes": len(manifest_bytes),
+            "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
+            "release_asset": "test-only-adobepy.zip",
+            "release_asset_sha256": "0" * 64,
+            "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.6.2",
+            "provenance": "official_checksum_release",
+        }
+
+    monkeypatch.setattr(install_planning, "_adobepy_cli_identity", fake_cli_attestation)
 
 
 def _bridge_stage_receipt(command: list[str]) -> str:
@@ -186,15 +255,16 @@ def test_public_cli_exposes_a_secret_safe_cross_platform_install_plan(tmp_path: 
         timeout=30,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 10, result.stderr
     report = json.loads(result.stdout)
     _canonical_install_validator().validate(report)
     assert report["schema_version"] == 1
     assert report["dcc_type"] == "photoshop"
     assert report["verb"] == "install"
     assert report["mode"] == "plan"
-    assert report["exit_code"] == 0
-    assert report["plan"]["host"]["version"] == "2024"
+    assert report["exit_code"] == 10
+    assert report["verify"]["failure_stage"] == "preflight"
+    assert "product provenance" in report["verify"]["failure_reason"]
     assert report["plan"]["python"]["executable"] == str(Path(sys.executable).resolve())
     assert secret not in result.stdout
     assert not (state_dir / "receipts" / "photoshop.json").exists()
@@ -382,7 +452,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
     result = verify_photoshop_rpc(
         "http://127.0.0.1:47391",
         python_executable=selected_python,
-        expected_host={"executable": str(host), "version": "2025"},
+        expected_host={"executable": str(host), "version": "26.0"},
         expected_bridge={"installer": str(broker_executable), "installer_version": "0.6.2"},
         expected_bridge_root=bridge_root,
         expected_python={"executable": selected_python, "modules": modules},
@@ -392,6 +462,20 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
         process_probe=process_probe,
     )
     assert result["directly_usable"] is True
+
+    wrong_product_version = verify_photoshop_rpc(
+        "http://127.0.0.1:47391",
+        python_executable=selected_python,
+        expected_host={"executable": str(host), "version": "25.0"},
+        expected_bridge={"installer": str(broker_executable), "installer_version": "0.6.2"},
+        expected_bridge_root=bridge_root,
+        expected_python={"executable": selected_python, "modules": modules},
+        python_probe=lambda *_: python_identity,
+        broker_probe=lambda *_: broker_identity,
+        photoshop_probe=lambda *_: {"ok": True, "version": "26.0", "identity": identity},
+        process_probe=process_probe,
+    )
+    assert wrong_product_version["error_type"] == "wrong_host_version"
 
     observations = iter(
         [
@@ -406,7 +490,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
     stale = verify_photoshop_rpc(
         "http://127.0.0.1:47391",
         python_executable=selected_python,
-        expected_host={"executable": str(host), "version": "2025"},
+        expected_host={"executable": str(host), "version": "26.0"},
         expected_bridge={"installer": str(broker_executable), "installer_version": "0.6.2"},
         expected_bridge_root=bridge_root,
         expected_python={"executable": selected_python, "modules": modules},
@@ -464,10 +548,9 @@ def test_install_stages_bridge_writes_redacted_receipt_and_requires_real_host_rp
     assert report["status"] == "requires_restart"
     assert report["verify"]["directly_usable"] is False
     assert report["verify"]["failure_stage"] == "broker_health"
-    assert len(report["next_steps"]) == 1
-    assert report["next_steps"][0]["id"] == "diagnose-adobepy-runtime"
-    assert report["next_steps"][0]["command"][1] == "doctor"
-    assert "verify" not in report["next_steps"][0]["command"]
+    assert report["next_steps"] == []
+    assert report["blocker"]["reason"] == "bounded_photoshop_uxp_bootstrap_unavailable"
+    assert report["blocker"]["continuation_command"] == ["dcc-mcp-photoshop", "verify", "--json"]
     assert (state_dir / "bridge" / "manifest.json").is_file()
     assert receipt_path.is_file()
     assert secret not in stdout
@@ -1248,7 +1331,9 @@ def test_upgrade_reuses_receipt_host_and_python_when_overrides_are_omitted(tmp_p
     assert report["plan"]["python"]["executable"] == str(Path(sys.executable).resolve())
 
 
-def test_preflight_failure_returns_one_machine_executable_retry_step(tmp_path: Path, monkeypatch, capsys) -> None:
+def test_preflight_missing_token_returns_an_honest_context_preserving_blocker(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
     host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
     host.parent.mkdir(parents=True)
     host.write_bytes(b"")
@@ -1272,10 +1357,19 @@ def test_preflight_failure_returns_one_machine_executable_retry_step(tmp_path: P
     )
 
     report = json.loads(capsys.readouterr().out)
-    assert len(report["next_steps"]) == 1
-    assert report["next_steps"][0]["command"][0] == str(adobepy_cli.resolve())
-    assert report["next_steps"][0]["command"][1] == "doctor"
-    assert report["next_steps"][0]["id"] == "diagnose-adobepy-runtime"
+    assert report["next_steps"] == []
+    assert report["blocker"]["reason"] == "operator_broker_token_required"
+    assert report["blocker"]["configuration"] == "ADOBEPY_TOKEN"
+    assert report["blocker"]["continuation_command"] == [
+        "dcc-mcp-photoshop",
+        "install",
+        "--json",
+        "--dcc-path",
+        str(host.resolve()),
+        "--python",
+        str(Path(sys.executable).resolve()),
+        "--dry-run",
+    ]
 
 
 def test_verify_stops_at_target_import_before_photoshop_rpc(tmp_path: Path, monkeypatch, capsys) -> None:
@@ -1370,3 +1464,233 @@ def test_external_installer_secret_output_is_discarded_before_commit(tmp_path: P
     assert secret not in stdout
     assert not (state_dir / "bridge").exists()
     assert not (state_dir / "receipts" / "photoshop.json").exists()
+
+
+def test_windows_host_attestation_uses_signed_product_metadata_not_the_filename(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "Adobe Photoshop 2024" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"signed-product-bytes")
+
+    def valid_probe(command, **_kwargs):
+        assert command[-1] == str(host.resolve())
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            json.dumps(
+                {
+                    "status": "Valid",
+                    "subject": "CN=Adobe Inc., O=Adobe Inc., C=US",
+                    "company": "Adobe Inc.",
+                    "product": "Adobe Photoshop",
+                    "product_version": "26.4.0.0",
+                }
+            ),
+            "",
+        )
+
+    identity = attest_photoshop_executable(host, platform_name="Windows", runner=valid_probe)
+
+    assert identity is not None
+    assert identity["version"] == "26.4.0.0"
+    assert identity["product"] == "Adobe Photoshop"
+    assert identity["publisher"] == "Adobe Inc."
+
+    def wrong_signer(command, **_kwargs):
+        payload = {
+            "status": "Valid",
+            "subject": "CN=Example Corp., O=Example Corp.",
+            "company": "Adobe Inc.",
+            "product": "Adobe Photoshop",
+            "product_version": "26.4.0.0",
+        }
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    assert attest_photoshop_executable(host, platform_name="Windows", runner=wrong_signer) is None
+
+    def spoofed_signer_name(command, **_kwargs):
+        payload = {
+            "status": "Valid",
+            "subject": "CN=Not Adobe Inc. Support, O=Example Corp.",
+            "company": "Adobe Inc.",
+            "product": "Adobe Photoshop",
+            "product_version": "26.4.0.0",
+        }
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    assert attest_photoshop_executable(host, platform_name="Windows", runner=spoofed_signer_name) is None
+
+
+def test_host_attestation_rejects_zero_byte_and_symlink_spoofs(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    zero = tmp_path / "Adobe Photoshop 2025" / "Photoshop.exe"
+    zero.parent.mkdir(parents=True)
+    zero.write_bytes(b"")
+    assert attest_photoshop_executable(zero, platform_name="Windows") is None
+
+    target = tmp_path / "real.exe"
+    target.write_bytes(b"not-adobe")
+    link = tmp_path / "Adobe Photoshop 2026" / "Photoshop.exe"
+    link.parent.mkdir(parents=True)
+    try:
+        link.symlink_to(target)
+    except OSError:
+        pytest.skip("symlink creation is unavailable on this Windows test host")
+    assert attest_photoshop_executable(link, platform_name="Windows") is None
+
+
+def test_macos_host_attestation_binds_info_plist_and_adobe_team(tmp_path: Path) -> None:
+    import plistlib
+
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    bundle = tmp_path / "Adobe Photoshop 2025.app"
+    host = bundle / "Contents" / "MacOS" / "Adobe Photoshop 2025"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"signed-macos-product")
+    info = bundle / "Contents" / "Info.plist"
+    with info.open("wb") as stream:
+        plistlib.dump(
+            {
+                "CFBundleIdentifier": "com.adobe.Photoshop",
+                "CFBundleName": "Adobe Photoshop 2025",
+                "CFBundleExecutable": host.name,
+                "CFBundleShortVersionString": "26.1.0",
+            },
+            stream,
+        )
+
+    def codesign_probe(command, **_kwargs):
+        if "--verify" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "",
+            "Identifier=com.adobe.Photoshop\nTeamIdentifier=JQ525L2MZD\nAuthority=Developer ID Application: Adobe Inc.\n",
+        )
+
+    identity = attest_photoshop_executable(host, platform_name="Darwin", runner=codesign_probe)
+    assert identity is not None
+    assert identity["version"] == "26.1.0"
+    assert identity["bundle_identifier"] == "com.adobe.Photoshop"
+    assert identity["team_identifier"] == "JQ525L2MZD"
+
+    def wrong_team(command, **_kwargs):
+        if "--verify" in command:
+            return subprocess.CompletedProcess(command, 0, "", "")
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            "",
+            "Identifier=com.adobe.Photoshop\nTeamIdentifier=EVILTEAM\nAuthority=Example Corp.\n",
+        )
+
+    assert attest_photoshop_executable(host, platform_name="Darwin", runner=wrong_team) is None
+
+
+def test_self_authored_adobepy_manifest_cannot_authenticate_arbitrary_cli(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_planning import _adobepy_cli_identity
+
+    attacker_cli = _fake_adobepy_cli(tmp_path)
+
+    assert _adobepy_cli_identity(attacker_cli, "0.6.2") is None
+
+
+def test_declared_adobepy_floor_cli_matches_the_official_checksum_release() -> None:
+    from dcc_mcp_photoshop.install_planning import _adobepy_cli_identity
+
+    selected = os.environ.get("DCC_MCP_PHOTOSHOP_ADOBEPY_FLOOR_CLI")
+    if not selected:
+        pytest.skip("official adobepy CLI floor is supplied by the pinned CI job")
+
+    identity = _adobepy_cli_identity(Path(selected), "0.6.2")
+
+    assert identity is not None
+    assert identity["bytes"] == 2_974_720
+    assert identity["sha256"] == "c02f28f07705b69a4f97f9f6639f0f80d1f5292115446801fbd92423336301aa"
+    assert identity["manifest_bytes"] == 663
+    assert identity["manifest_sha256"] == "3f0cf14b44b1d4c7d98b0175152e7ea58fc3edb92bd61e84983b3ad39de6b554"
+    assert identity["release_asset_sha256"] == ("9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7")
+
+
+def test_stage_bridge_rejects_adobepy_cli_replacement_before_execution(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_io import stage_bridge
+
+    bundle = tmp_path / "adobepy-0.6.2-windows-x64"
+    executable = bundle / "bin" / "adobepy.exe"
+    executable.parent.mkdir(parents=True)
+    executable.write_bytes(b"official-cli")
+    manifest = bundle / "package-manifest.json"
+    manifest.write_text("official-manifest", encoding="utf-8")
+    expected_identity = {
+        "executable": str(executable.resolve()),
+        "bytes": len(b"official-cli"),
+        "sha256": hashlib.sha256(b"official-cli").hexdigest(),
+        "manifest_path": str(manifest.resolve()),
+        "manifest_bytes": len(b"official-manifest"),
+        "manifest_sha256": hashlib.sha256(b"official-manifest").hexdigest(),
+        "provenance": "official_checksum_release",
+    }
+    executable.write_bytes(b"replaced-cli")
+    calls = []
+
+    staging, error = stage_bridge(
+        executable=executable,
+        expected_identity=expected_identity,
+        state_dir=tmp_path / "state",
+        token="secret",
+        runner=lambda *args, **kwargs: calls.append((args, kwargs)),
+    )
+
+    assert staging is None
+    assert error == "adobepy CLI identity changed before bridge staging"
+    assert calls == []
+
+
+def test_runtime_failure_returns_honest_uxp_bootstrap_blocker_not_doctor_loop(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"signed-host-test-double")
+    adobepy_cli = _fake_adobepy_cli(tmp_path)
+    state = tmp_path / "state"
+    monkeypatch.setenv("ADOBEPY_CLI", str(adobepy_cli))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "runtime-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(state))
+
+    def fake_run(command, *, env, capture_output, text, timeout):
+        destination = Path(command[command.index("--dest") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "manifest.json").write_text("bridge", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, _bridge_stage_receipt(command), "")
+
+    exit_code = run_install_lifecycle(
+        Namespace(command="install", json=True, yes=True, dry_run=False, dcc_path=str(host), python=sys.executable),
+        external_runner=fake_run,
+        broker_probe=lambda *_: {"ok": False, "error_type": "broker_unavailable"},
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 50
+    assert report["next_steps"] == []
+    assert report["blocker"]["reason"] == "bounded_photoshop_uxp_bootstrap_unavailable"
+    assert report["blocker"]["dependency_issue"].endswith("/dcc-mcp/adobepy/issues/67")
+    assert report["blocker"]["continuation_command"] == ["dcc-mcp-photoshop", "verify", "--json"]
+
+
+def test_repeated_absent_uninstall_is_a_schema_valid_successful_noop(tmp_path: Path, monkeypatch, capsys) -> None:
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+    args = Namespace(command="uninstall", json=True, yes=True, dry_run=False, dcc_path="", python="")
+
+    for _ in range(2):
+        assert run_install_lifecycle(args) == 0
+        report = json.loads(capsys.readouterr().out)
+        _canonical_install_validator().validate(report)
+        assert report["status"] == "ok"
+        assert report["installed_state"] == "fresh"
+        assert report["receipt_path"] is None
+        assert report["steps"][-1] == {"id": "uninstall", "status": "not_installed"}

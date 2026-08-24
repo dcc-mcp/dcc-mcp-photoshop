@@ -16,7 +16,80 @@ from typing import Any, Callable
 
 from dcc_mcp_core.install_lifecycle import inspect_install_root
 
+from dcc_mcp_photoshop.install_discovery import path_uses_link
+
 ExternalRunner = Callable[..., subprocess.CompletedProcess]
+
+
+def _stream_sha256(path: Path, expected_size: int) -> str | None:
+    try:
+        if expected_size <= 0 or path.stat().st_size != expected_size:
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
+    except OSError:
+        return None
+
+
+def _adobepy_identity_matches(executable: Path, expected: dict[str, Any]) -> bool:
+    try:
+        expected_path = Path(expected["executable"]).resolve(strict=True)
+        selected_path = executable.resolve(strict=True)
+        manifest_path = Path(expected["manifest_path"]).resolve(strict=True)
+        executable_bytes = int(expected["bytes"])
+        manifest_bytes = int(expected["manifest_bytes"])
+        executable_sha256 = expected["sha256"]
+        manifest_sha256 = expected["manifest_sha256"]
+    except (KeyError, OSError, TypeError, ValueError):
+        return False
+    if (
+        expected.get("provenance") != "official_checksum_release"
+        or os.path.normcase(str(expected_path)) != os.path.normcase(str(selected_path))
+        or manifest_path != selected_path.parent.parent / "package-manifest.json"
+        or path_uses_link(executable)
+        or path_uses_link(manifest_path)
+        or not isinstance(executable_sha256, str)
+        or not isinstance(manifest_sha256, str)
+        or len(executable_sha256) != 64
+        or len(manifest_sha256) != 64
+    ):
+        return False
+    try:
+        before = selected_path.stat()
+        manifest_before = manifest_path.stat()
+    except OSError:
+        return False
+    if _stream_sha256(selected_path, executable_bytes) != executable_sha256:
+        return False
+    if _stream_sha256(manifest_path, manifest_bytes) != manifest_sha256:
+        return False
+    try:
+        after = selected_path.stat()
+        manifest_after = manifest_path.stat()
+    except OSError:
+        return False
+    return (before.st_dev, before.st_ino, before.st_size, before.st_mtime_ns) == (
+        after.st_dev,
+        after.st_ino,
+        after.st_size,
+        after.st_mtime_ns,
+    ) and (
+        manifest_before.st_dev,
+        manifest_before.st_ino,
+        manifest_before.st_size,
+        manifest_before.st_mtime_ns,
+    ) == (
+        manifest_after.st_dev,
+        manifest_after.st_ino,
+        manifest_after.st_size,
+        manifest_after.st_mtime_ns,
+    )
 
 
 def _contains_secret(value: str, secret: str) -> bool:
@@ -38,11 +111,14 @@ def _replace_with_retry(replacer: Callable[[Any, Any], Any], source: Any, destin
 def stage_bridge(
     *,
     executable: Path,
+    expected_identity: dict[str, Any],
     state_dir: Path,
     token: str,
     runner: ExternalRunner,
 ) -> tuple[Path | None, str | None]:
     """Generate a bridge in an isolated sibling directory using env-only auth."""
+    if not _adobepy_identity_matches(executable, expected_identity):
+        return None, "adobepy CLI identity changed before bridge staging"
     state_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".bridge-stage-", dir=str(state_dir)))
     command = [str(executable), "install-bridge", "photoshop", "--dest", str(staging), "--json"]
