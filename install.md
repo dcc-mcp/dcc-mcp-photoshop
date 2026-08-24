@@ -4,8 +4,9 @@
 - Python 3.8 or newer for the wheel-based adapter path.
 - `dcc-mcp-core` 0.20.14 or newer. The installed Core package must carry the
   canonical Install SOP v1 schema byte-for-byte.
-- The supported adobepy CLI from an approved adobepy release or an exact tagged source build.
-- Adobe UXP Developer Tool for the one Adobe-owned developer-plugin load step.
+- On Windows x64, the exact `adobepy` 0.6.2 CLI from the official checksummed
+  release bundle. Other CLI builds and self-authored adjacent manifests are not
+  accepted as provenance.
 
 Install the adapter wheel first:
 
@@ -14,10 +15,11 @@ python -m pip install dcc-mcp-photoshop
 ```
 
 The PyPI `adobepy` wheel is the Python SDK; it does not install the standalone
-adobepy CLI. Windows operators can use the signed/checksummed release bundle.
-macOS operators must use an organization-approved exact-tag build until an
-official macOS CLI asset is published. Never scrape a mutable latest-download
-URL or copy an unverified executable into an adapter cache.
+adobepy CLI. The lifecycle currently recognizes only the official Windows x64
+0.6.2 checksum release: archive SHA-256 `9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7`.
+It independently pins the extracted CLI and package-manifest hashes and checks
+them again immediately before execution. Never scrape a mutable latest-download
+URL or copy an unverified executable beside a locally written manifest.
 
 Set the CLI path and broker token in the environment. The token is a secret and
 must never be placed in process arguments, JSON output, logs, or receipts.
@@ -36,8 +38,8 @@ export ADOBEPY_TOKEN="$(cat "$HOME/.config/adobepy/token")"
 
 | Platform | Photoshop host | Adapter lifecycle |
 |---|---|---|
-| Windows | Photoshop 2022+ under `Program Files/Adobe/Adobe Photoshop <year>/Photoshop.exe` | Supported |
-| macOS | Photoshop 2022+ under `/Applications/Adobe Photoshop <year>/Adobe Photoshop <year>.app` | Supported when an approved adobepy CLI is supplied |
+| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata | Preflight/staging supported with the pinned adobepy 0.6.2 CLI; live readiness remains fail-closed on `adobepy#64` and `#67` |
+| macOS | Photoshop 2022+ with `com.adobe.Photoshop` Info.plist and Adobe Team ID `JQ525L2MZD` code signature | Preflight only until an official checksum-pinned macOS adobepy CLI is published |
 | Linux | Adobe does not ship a Photoshop desktop host | Plan/status tooling only; live verification is unsupported |
 
 The canonical result uses Install SOP v1 schema version `1`. Exit codes are
@@ -66,11 +68,12 @@ Fresh, partial, installed, repair, and upgrade states are reported explicitly.
 Upgrade keeps its backup through live verification; any commit, receipt, or
 verification failure restores the exact previous receipt-backed tree.
 
-Adobe physically requires an explicit developer-plugin load. When no live UXP
-session exists, the installer returns the manifest for that operator action and
-an executable `adobepy doctor` command bound to the selected broker, Python, and
-runtime. It does not claim a blind verify loop as progress and does not use UI
-automation.
+The current adobepy release cannot perform a bounded Photoshop UXP bootstrap or
+load. When no exact live UXP session exists, the installer returns an honest
+`bounded_photoshop_uxp_bootstrap_unavailable` blocker, an empty `next_steps`, and
+the exact `dcc-mcp-photoshop verify --json` continuation for use only after the
+upstream capability is delivered. It does not claim `doctor` or a blind verify
+loop as progress and does not automate arbitrary UI or JavaScript.
 
 # Manual path
 
@@ -80,8 +83,10 @@ The supported manual flow uses the same canonical lifecycle:
 2. Configure `ADOBEPY_CLI`, `ADOBEPY_TOKEN`, and optionally `ADOBEPY_BROKER_URL`.
 3. Run `dcc-mcp-photoshop install --json --dry-run` with explicit overrides when discovery is ambiguous.
 4. Run `dcc-mcp-photoshop install --json --yes`.
-5. Load the staged manifest with Adobe UXP Developer Tool when requested.
-6. Run `dcc-mcp-photoshop verify --json`.
+5. Wait for the bounded adobepy Photoshop UXP bootstrap/load capability tracked
+   in `dcc-mcp/adobepy#67`; do not substitute arbitrary UI automation.
+6. After that capability binds the exact instance, run the reported
+   `dcc-mcp-photoshop verify --json` continuation.
 
 The legacy `scripts/install_photoshop_connector.ps1` and `photoshop-setup`
 Skill remain compatibility entry points, but both route operators to this CLI.
@@ -136,23 +141,26 @@ Uninstall consumes only the adapter receipt and refuses an unknown path. It
 does not delete a guessed UXP, Adobe, or user profile directory, and it stages a
 recoverable snapshot before removing anything. Any staging, receipt, or cleanup
 failure restores the complete install; locked files return exit `50` with a
-retry command after Photoshop restarts.
+stable reason so the same exact uninstall command can be rerun after Photoshop
+restarts.
+Running confirmed uninstall again in the already-absent state is a schema-valid
+successful no-op.
 
 # Troubleshooting
 
-- **Exit `10`, host not found:** pass the full Photoshop executable with `--dcc-path`; Photoshop 2022+ is required.
+- **Exit `10`, host not found/untrusted:** pass the full Photoshop executable with `--dcc-path`; the lifecycle requires nonempty Adobe-signed product bytes and derives the version from product metadata rather than the directory name.
 - **Exit `10`, interpreter/Core floor:** pass a Python 3.8+ executable and upgrade `dcc-mcp-core` to the reported minimum.
-- **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to a supported, verified executable. The SDK-only wheel is not a CLI substitute.
+- **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.6.2 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute.
 - **Exit `30`, bridge staging:** inspect the redacted stage result. External output containing the configured token is rejected and discarded.
 - **Exit `40`, verification:** start the broker, confirm one Photoshop UXP session, and retry `dcc-mcp-photoshop verify --json`.
-- **Exit `50`, UXP load required:** load the reported manifest with Adobe UXP Developer Tool, or restart Photoshop when files are locked, then run the single returned command.
+- **Exit `50`, UXP load required:** the lifecycle fails closed with the `dcc-mcp/adobepy#67` blocker until bounded bootstrap/load exists. A file-lock restart is separate and may be retried after the operator resolves the lock.
 - **Partial state:** run `dcc-mcp-photoshop install --json --yes` to repair it. Do not delete the bridge before repair.
 - **Bootstrap failure:** inspect the bounded, secret-redacted `bootstrap-errors.json` under the Photoshop install state directory.
 
 Core 0.20.14 owns the canonical schema and exit contract. Adapter contract tests
 validate every public lifecycle branch against that Draft 2020-12 schema; the
 adapter remains the owner of Photoshop paths, UXP enablement, receipts, and
-exact-instance runtime verification. adobepy 0.6.2 does not yet expose the full
-broker and host identity attestation, so live verification remains fail-closed
-until that upstream contract is available; staging and package tests are not
-proof of a licensed Photoshop session.
+exact-instance runtime verification. adobepy runtime identity remains tracked in
+`dcc-mcp/adobepy#64`, and bounded Photoshop UXP bootstrap/load in `#67`; live
+verification remains fail-closed until both contracts are available. Staging,
+package, and checksum tests are not proof of a licensed Photoshop session.

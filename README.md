@@ -84,9 +84,9 @@ The Python MCP server communicates with Photoshop through the adobepy Rust broke
 
 ### Prerequisites
 
-Follow the cross-platform [Install SOP](install.md). It documents the supported
-adobepy CLI source, env-only token contract, Photoshop 2022+ paths, and the one
-Adobe-owned UXP Developer Tool load step.
+Follow the cross-platform [Install SOP](install.md). It documents the pinned
+official adobepy CLI checksum release, env-only token contract, Adobe-signed
+Photoshop product attestation, and the currently blocked bounded UXP bootstrap.
 
 ### 1. Install dcc-mcp-photoshop
 
@@ -545,10 +545,13 @@ its safe generation and receipt:
 dcc-mcp-photoshop install --json --yes
 ```
 
-This stages the bridge files only. Enable Photoshop Developer Mode, add the
-generated `manifest.json` in Adobe UXP Developer Tool, and click **Load**.
+This stages receipt-owned bridge files only. The canonical agent lifecycle does
+not automate UXP Developer Tool or treat an adobepy doctor call as installation
+progress. It remains fail-closed until the bounded Photoshop bootstrap/load
+contract in `dcc-mcp/adobepy#67` is available, then continues with
+`dcc-mcp-photoshop verify --json`.
 
-For development, load from source:
+For human-controlled development only, outside the Install SOP readiness claim:
 1. Open Photoshop
 2. Go to **Plugins** → **Development** → **Load Plugin...**
 3. Navigate to adobepy's `bridges/uxp/photoshop/` and select `manifest.json`

@@ -5,10 +5,10 @@ from __future__ import annotations
 import hashlib
 import json
 import os
-import re
+import platform
 import subprocess
 import sys
-from pathlib import Path, PurePosixPath
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
@@ -22,7 +22,11 @@ from dcc_mcp_photoshop.install_contract import (
     state_dir,
     version_tuple,
 )
-from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable, host_version
+from dcc_mcp_photoshop.install_discovery import (
+    attest_photoshop_executable,
+    discover_photoshop_executable,
+    path_uses_link,
+)
 from dcc_mcp_photoshop.install_io import load_receipt, receipt_files_match
 from dcc_mcp_photoshop.install_verification import probe_target_import
 
@@ -53,73 +57,89 @@ def _python_version(executable: Path) -> str | None:
     return version[len("Python ") :] if version.startswith("Python ") else version
 
 
-def _canonical_host_path(path: Path) -> bool:
+_ADOBEPY_CLI_RELEASES = {
+    ("0.6.2", "windows-x64"): {
+        "asset_name": "adobepy-0.6.2-windows-x64.zip",
+        "asset_sha256": "9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7",
+        "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.6.2",
+        "cli_name": "adobepy.exe",
+        "cli_bytes": 2_974_720,
+        "cli_sha256": "c02f28f07705b69a4f97f9f6639f0f80d1f5292115446801fbd92423336301aa",
+        "manifest_bytes": 663,
+        "manifest_sha256": "3f0cf14b44b1d4c7d98b0175152e7ea58fc3edb92bd61e84983b3ad39de6b554",
+    }
+}
+
+
+def _adobepy_platform_key() -> str | None:
+    machine = platform.machine().casefold()
+    if os.name == "nt" and machine in {"amd64", "x86_64"}:
+        return "windows-x64"
+    return None
+
+
+def _file_sha256(path: Path, expected_size: int) -> str | None:
     try:
-        resolved = path.resolve()
+        if path.stat().st_size != expected_size:
+            return None
+        digest = hashlib.sha256()
+        with path.open("rb") as stream:
+            while True:
+                chunk = stream.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        return digest.hexdigest()
     except OSError:
-        return False
-    if not resolved.is_file() or resolved.is_symlink() or resolved.stat().st_size < 0:
-        return False
-    name = resolved.name
-    if os.name == "nt":
-        return name.casefold() == "photoshop.exe" and bool(host_version(resolved.parent))
-    return bool(
-        re.fullmatch(r"Adobe Photoshop (?:20\d{2}|\d{2}(?:\.\d+)?)", name, re.IGNORECASE) and host_version(resolved)
-    )
+        return None
 
 
 def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[str, Any] | None:
-    if path is None or not version_tuple(sdk_version):
+    platform_key = _adobepy_platform_key()
+    release = _ADOBEPY_CLI_RELEASES.get((sdk_version, platform_key))
+    if path is None or not version_tuple(sdk_version) or release is None:
         return None
     try:
-        resolved = path.resolve()
-        contents = resolved.read_bytes()
+        if path_uses_link(path):
+            return None
+        resolved = path.resolve(strict=True)
         manifest_path = resolved.parent.parent / "package-manifest.json"
-        if manifest_path.stat().st_size > 65_536:
+        if path_uses_link(manifest_path):
+            return None
+        if _file_sha256(resolved, release["cli_bytes"]) != release["cli_sha256"]:
+            return None
+        if _file_sha256(manifest_path, release["manifest_bytes"]) != release["manifest_sha256"]:
             return None
         manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError, UnicodeError):
         return None
-    expected_names = {"adobepy", "adobepy.exe"}
     relative_cli = f"bin/{resolved.name}"
     includes = manifest.get("includes") if isinstance(manifest, dict) else None
-    includes_are_safe = bool(
-        isinstance(includes, list)
-        and includes
-        and all(
-            isinstance(item, str)
-            and 0 < len(item) <= 256
-            and "\\" not in item
-            and not PurePosixPath(item).is_absolute()
-            and ".." not in PurePosixPath(item).parts
-            for item in includes
-        )
-    )
     if (
-        not contents
-        or resolved.name.casefold() not in expected_names
-        or resolved.is_symlink()
+        resolved.name != release["cli_name"]
         or resolved.parent.name != "bin"
+        or resolved.parent.parent.name != f"adobepy-{sdk_version}-{platform_key}"
         or not isinstance(manifest, dict)
         or manifest.get("name") != "adobepy"
         or manifest.get("version") != sdk_version
-        or not isinstance(manifest.get("runtime"), str)
-        or re.fullmatch(r"[A-Za-z0-9._-]{1,64}", manifest["runtime"]) is None
-        or not includes_are_safe
+        or manifest.get("runtime") != platform_key
+        or not isinstance(includes, list)
         or relative_cli not in includes
-        or re.fullmatch(
-            rf"adobepy-{re.escape(sdk_version)}-[A-Za-z0-9._-]+",
-            resolved.parent.parent.name,
-        )
-        is None
     ):
         return None
     return {
         "executable": str(resolved),
         "version": sdk_version,
-        "runtime": manifest["runtime"],
-        "bytes": len(contents),
-        "sha256": hashlib.sha256(contents).hexdigest(),
+        "runtime": platform_key,
+        "bytes": release["cli_bytes"],
+        "sha256": release["cli_sha256"],
+        "manifest_path": str(manifest_path.resolve()),
+        "manifest_bytes": release["manifest_bytes"],
+        "manifest_sha256": release["manifest_sha256"],
+        "release_asset": release["asset_name"],
+        "release_asset_sha256": release["asset_sha256"],
+        "release_url": release["release_url"],
+        "provenance": "official_checksum_release",
     }
 
 
@@ -135,13 +155,13 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
     receipt_python = receipt_python if isinstance(receipt_python, dict) else {}
     if dcc_path:
         host = Path(dcc_path).expanduser()
-        detected_host_version = host_version(host)
     elif verb == "upgrade" and receipt:
         host = Path(receipt_host.get("executable", "")).expanduser()
-        detected_host_version = receipt_host.get("version")
     else:
-        discovered_host, detected_host_version = discover_photoshop_executable()
+        discovered_host, _layout_version = discover_photoshop_executable()
         host = discovered_host or Path()
+    host_identity = attest_photoshop_executable(host) if host.is_file() else None
+    detected_host_version = host_identity.get("version") if host_identity else None
     if python:
         interpreter = Path(python).expanduser()
     elif verb == "upgrade" and receipt:
@@ -173,8 +193,8 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         failures.append(("core_version", f"dcc-mcp-core {MIN_CORE_VERSION} or newer is required"))
     if not host.is_file():
         failures.append(("preflight", "Photoshop executable was not found"))
-    elif not _canonical_host_path(host):
-        failures.append(("preflight", "--dcc-path must select a canonical Photoshop executable"))
+    elif host_identity is None:
+        failures.append(("preflight", "Photoshop executable lacks valid Adobe product provenance"))
     elif not _host_supported(detected_host_version):
         failures.append(("preflight", "Photoshop 2022 or newer is required"))
     if python_version is None:
@@ -197,37 +217,7 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         else INSTALL_EXIT_OK
     )
     status = "failed" if failure_stage else "planned"
-    broker_authority = None
-    try:
-        if parsed_broker.hostname and parsed_broker.port:
-            broker_authority = f"{parsed_broker.hostname}:{parsed_broker.port}"
-    except ValueError:
-        broker_authority = None
-    doctor_command = (
-        [
-            adobepy_identity["executable"],
-            "doctor",
-            "--broker",
-            broker_authority,
-            "--python",
-            str(interpreter.resolve()),
-            "--json",
-        ]
-        if adobepy_identity and broker_authority and interpreter.is_file()
-        else None
-    )
-    next_steps = (
-        [
-            {
-                "id": "diagnose-adobepy-runtime",
-                "description": "Run the trusted adobepy doctor against the selected broker and Python",
-                "command": doctor_command,
-                "why": "The missing broker token must be recovered from the operator-owned broker before installation can continue",
-            }
-        ]
-        if failure_reason == "ADOBEPY_TOKEN must be configured in the environment" and doctor_command
-        else []
-    )
+    next_steps: list[dict[str, Any]] = []
     report: dict[str, Any] = {
         "schema_version": 1,
         "status": status,
@@ -252,7 +242,8 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         "installed_state": installed_state,
         "plan": {
             "action": "upgrade" if verb == "upgrade" else "repair" if installed_state != "fresh" else "install",
-            "host": {
+            "host": host_identity
+            or {
                 "executable": str(host.resolve()) if host.is_file() else str(host),
                 "version": detected_host_version,
             },
@@ -267,6 +258,16 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
                 "installer_runtime": adobepy_identity["runtime"] if adobepy_identity else None,
                 "installer_bytes": adobepy_identity["bytes"] if adobepy_identity else None,
                 "installer_sha256": adobepy_identity["sha256"] if adobepy_identity else None,
+                "installer_manifest": adobepy_identity["manifest_path"] if adobepy_identity else None,
+                "installer_manifest_bytes": adobepy_identity["manifest_bytes"] if adobepy_identity else None,
+                "installer_manifest_sha256": adobepy_identity["manifest_sha256"] if adobepy_identity else None,
+                "installer_release_asset": adobepy_identity["release_asset"] if adobepy_identity else None,
+                "installer_release_asset_sha256": (
+                    adobepy_identity["release_asset_sha256"] if adobepy_identity else None
+                ),
+                "installer_release_url": adobepy_identity["release_url"] if adobepy_identity else None,
+                "installer_provenance": adobepy_identity["provenance"] if adobepy_identity else None,
+                "installer_identity": adobepy_identity,
                 "destination": str(bridge_root),
             },
             "requirements": {
@@ -276,4 +277,21 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
             },
         },
     }
+    if failure_reason == "ADOBEPY_TOKEN must be configured in the environment":
+        continuation = [
+            "dcc-mcp-photoshop",
+            verb,
+            "--json",
+            "--dcc-path",
+            str(host.resolve()),
+            "--python",
+            str(interpreter.resolve()),
+        ]
+        if dry_run:
+            continuation.append("--dry-run")
+        report["blocker"] = {
+            "reason": "operator_broker_token_required",
+            "configuration": "ADOBEPY_TOKEN",
+            "continuation_command": continuation,
+        }
     return report, exit_code

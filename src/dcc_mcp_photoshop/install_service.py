@@ -8,7 +8,6 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
-from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
     INSTALL_EXIT_INSTALL,
@@ -29,28 +28,12 @@ from dcc_mcp_photoshop.install_io import (
 from dcc_mcp_photoshop.install_verification import observe_process_identity, verify_photoshop_rpc
 
 
-def _runtime_doctor_step(report: dict[str, Any]) -> dict[str, Any] | None:
-    try:
-        installer = report["plan"]["bridge"]["installer"]
-        python = report["plan"]["python"]["executable"]
-        parsed = urlparse(os.environ.get("ADOBEPY_BROKER_URL", "http://127.0.0.1:47391"))
-        if not isinstance(installer, str) or not isinstance(python, str) or not parsed.hostname or not parsed.port:
-            return None
-    except (KeyError, TypeError, ValueError):
-        return None
+def _uxp_bootstrap_blocker() -> dict[str, Any]:
+    """Describe the unavailable bounded host action without inventing a dead command."""
     return {
-        "id": "diagnose-adobepy-runtime",
-        "description": "Run the trusted adobepy doctor before loading the receipted manifest with Adobe UXP Developer Tool",
-        "command": [
-            installer,
-            "doctor",
-            "--broker",
-            f"{parsed.hostname}:{parsed.port}",
-            "--python",
-            python,
-            "--json",
-        ],
-        "why": "Adobe requires an operator UXP load, and the runtime must be healthy before exact identity verification",
+        "reason": "bounded_photoshop_uxp_bootstrap_unavailable",
+        "dependency_issue": "https://github.com/dcc-mcp/adobepy/issues/67",
+        "continuation_command": ["dcc-mcp-photoshop", "verify", "--json"],
     }
 
 
@@ -68,6 +51,7 @@ def apply_install(
     lifecycle_state = state_dir()
     staging, error = stage_bridge(
         executable=Path(report["plan"]["bridge"]["installer"]),
+        expected_identity=report["plan"]["bridge"]["installer_identity"],
         state_dir=lifecycle_state,
         token=os.environ["ADOBEPY_TOKEN"],
         runner=runner,
@@ -177,8 +161,8 @@ def apply_install(
         report["steps"][2] = {"id": "verify", "status": "failed"}
         report["verify"] = verification
         report["previous_install_restored"] = True
-        doctor_step = _runtime_doctor_step(report)
-        report["next_steps"] = [doctor_step] if doctor_step else []
+        report["next_steps"] = []
+        report["blocker"] = _uxp_bootstrap_blocker()
         return report, INSTALL_EXIT_VERIFY
 
     transaction.finalize()
@@ -187,8 +171,8 @@ def apply_install(
     report["steps"][1] = {"id": "stage_bridge", "status": "ok"}
     report["steps"][2] = {"id": "verify", "status": "requires_host_action"}
     report["verify"] = verification
-    doctor_step = _runtime_doctor_step(report)
-    report["next_steps"] = [doctor_step] if doctor_step else []
+    report["next_steps"] = []
+    report["blocker"] = _uxp_bootstrap_blocker()
     return report, INSTALL_EXIT_REQUIRES_RESTART
 
 
@@ -286,6 +270,15 @@ def inspect_existing_install(
             }
         )
         return report, INSTALL_EXIT_PREFLIGHT
+    if receipt is None and installed_state == "fresh":
+        report.update(status="ok", exit_code=INSTALL_EXIT_OK, receipt_path=None)
+        report["steps"].append({"id": "uninstall", "status": "not_installed"})
+        report["verify"] = {
+            "directly_usable": False,
+            "failure_stage": "not_installed",
+            "failure_reason": "No receipt-backed Photoshop bridge is installed",
+        }
+        return report, INSTALL_EXIT_OK
     if receipt is None:
         report.update(status="failed", exit_code=INSTALL_EXIT_PREFLIGHT)
         report["verify"] = {
