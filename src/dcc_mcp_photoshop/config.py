@@ -5,6 +5,7 @@ All values can be overridden via environment variables.
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -18,6 +19,14 @@ def _parse_optional_int(value: str | None) -> int | None:
         return int(value)
     except ValueError:
         return None
+
+
+def _parse_timeout(value: str | None) -> float:
+    try:
+        timeout = float(value or "30.0")
+    except ValueError:
+        return 30.0
+    return timeout if math.isfinite(timeout) and 0.05 <= timeout <= 300.0 else 30.0
 
 
 @dataclass
@@ -49,7 +58,7 @@ class PhotoshopMcpConfig:
     log_level: str = field(default_factory=lambda: os.getenv("DCC_MCP_PHOTOSHOP_LOG_LEVEL", "INFO"))
 
     # --- Timeout ---
-    timeout: float = field(default_factory=lambda: float(os.getenv("DCC_MCP_PHOTOSHOP_TIMEOUT", "30.0")))
+    timeout: float = field(default_factory=lambda: _parse_timeout(os.getenv("DCC_MCP_PHOTOSHOP_TIMEOUT")))
 
     @classmethod
     def from_env(cls) -> PhotoshopMcpConfig:

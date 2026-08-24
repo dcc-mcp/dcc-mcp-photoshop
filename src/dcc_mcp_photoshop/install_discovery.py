@@ -10,8 +10,12 @@ from typing import Iterable
 
 
 def host_version(path: Path) -> str | None:
-    match = re.search(r"Photoshop\s+(20\d{2}|\d{2}(?:\.\d+)?)", str(path), re.IGNORECASE)
-    return match.group(1) if match else None
+    pattern = re.compile(r"(?:Adobe )?Photoshop (20\d{2}|\d{2}(?:\.\d+)?)", re.IGNORECASE)
+    for component in reversed(path.parts):
+        match = pattern.fullmatch(component)
+        if match:
+            return match.group(1)
+    return None
 
 
 def _default_roots(platform_name: str) -> list[Path]:
