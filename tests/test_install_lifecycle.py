@@ -195,7 +195,7 @@ def test_public_cli_exposes_a_secret_safe_cross_platform_install_plan(tmp_path: 
     assert report["mode"] == "plan"
     assert report["exit_code"] == 0
     assert report["plan"]["host"]["version"] == "2024"
-    assert report["plan"]["python"]["executable"] == sys.executable
+    assert report["plan"]["python"]["executable"] == str(Path(sys.executable).resolve())
     assert secret not in result.stdout
     assert not (state_dir / "receipts" / "photoshop.json").exists()
 
@@ -1245,7 +1245,7 @@ def test_upgrade_reuses_receipt_host_and_python_when_overrides_are_omitted(tmp_p
     report = json.loads(capsys.readouterr().out)
     _canonical_install_validator().validate(report)
     assert report["plan"]["host"]["executable"] == str(host)
-    assert report["plan"]["python"]["executable"] == sys.executable
+    assert report["plan"]["python"]["executable"] == str(Path(sys.executable).resolve())
 
 
 def test_preflight_failure_returns_one_machine_executable_retry_step(tmp_path: Path, monkeypatch, capsys) -> None:
