@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import shutil
+import stat
 import subprocess
 import tempfile
 import time
@@ -205,45 +206,73 @@ def _safe_symlink_target(link_path: str, target: Any) -> bool:
 
 def _owned_entries(root: Path) -> list[dict[str, Any]]:
     entries: list[dict[str, Any]] = []
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix()):
-        relative = path.relative_to(root).as_posix()
-        if path.is_symlink():
-            target = os.readlink(path)
-            if not _safe_symlink_target(relative, target):
-                raise OSError(f"Unsafe bridge symlink target: {relative}")
-            target_bytes = os.fsencode(target)
-            entries.append(
-                {
+    if not root.is_dir() or path_uses_link(root):
+        raise OSError("Photoshop bridge root is redirected by a link or reparse point")
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0x400)
+
+    def visit(directory: Path, relative_parent: PurePosixPath) -> None:
+        try:
+            with os.scandir(directory) as scanner:
+                children = sorted(scanner, key=lambda item: item.name)
+        except OSError as exc:
+            raise OSError("Photoshop bridge ownership scan failed") from exc
+        for child in children:
+            path = Path(child.path)
+            relative_path = relative_parent / child.name
+            relative = relative_path.as_posix()
+            try:
+                metadata = path.lstat()
+            except OSError as exc:
+                raise OSError(f"Photoshop bridge entry changed during ownership scan: {relative}") from exc
+            is_link = stat.S_ISLNK(metadata.st_mode)
+            is_reparse = bool(getattr(metadata, "st_file_attributes", 0) & reparse_flag)
+            if is_link:
+                target = os.readlink(path)
+                if not _safe_symlink_target(relative, target):
+                    raise OSError(f"Unsafe bridge symlink target: {relative}")
+                target_bytes = os.fsencode(target)
+                entries.append(
+                    {
+                        "path": relative,
+                        "type": "symlink",
+                        "target": target,
+                        "bytes": len(target_bytes),
+                        "sha256": _sha256(target_bytes),
+                    }
+                )
+            elif is_reparse:
+                raise OSError(f"Unsupported bridge reparse point: {relative}")
+            elif stat.S_ISDIR(metadata.st_mode):
+                entries.append(
+                    {
+                        "path": relative,
+                        "type": "directory",
+                        "bytes": 0,
+                        "sha256": _sha256(("directory\0" + relative).encode("utf-8")),
+                    }
+                )
+                visit(path, relative_path)
+            elif stat.S_ISREG(metadata.st_mode):
+                contents = path.read_bytes()
+                after = path.lstat()
+                before_identity = (metadata.st_dev, metadata.st_ino, metadata.st_size, metadata.st_mtime_ns)
+                after_identity = (after.st_dev, after.st_ino, after.st_size, after.st_mtime_ns)
+                if before_identity != after_identity or bool(getattr(after, "st_file_attributes", 0) & reparse_flag):
+                    raise OSError(f"Photoshop bridge entry changed during ownership scan: {relative}")
+                entry = {
                     "path": relative,
-                    "type": "symlink",
-                    "target": target,
-                    "bytes": len(target_bytes),
-                    "sha256": _sha256(target_bytes),
+                    "type": "file",
+                    "bytes": len(contents),
+                    "sha256": _sha256(contents),
                 }
-            )
-        elif path.is_dir():
-            entries.append(
-                {
-                    "path": relative,
-                    "type": "directory",
-                    "bytes": 0,
-                    "sha256": _sha256(("directory\0" + relative).encode("utf-8")),
-                }
-            )
-        elif path.is_file():
-            contents = path.read_bytes()
-            entry = {
-                "path": relative,
-                "type": "file",
-                "bytes": len(contents),
-                "sha256": _sha256(contents),
-            }
-            if path.name == "adobepy.config.js":
-                entry["sensitive"] = True
-            entries.append(entry)
-        else:
-            raise OSError(f"Unsupported bridge entry type: {relative}")
-    return entries
+                if path.name == "adobepy.config.js":
+                    entry["sensitive"] = True
+                entries.append(entry)
+            else:
+                raise OSError(f"Unsupported bridge entry type: {relative}")
+
+    visit(root, PurePosixPath())
+    return sorted(entries, key=lambda item: item["path"])
 
 
 def _manifest_digest(entries: list[dict[str, Any]]) -> str:
@@ -464,9 +493,27 @@ def begin_bridge_commit(
     receipt_path: Path,
     receipt: dict[str, Any],
     replacer: Callable[[Any, Any], Any] = os.replace,
+    expected_previous_receipt: bytes | None = None,
+    require_fresh_destination: bool = False,
 ) -> tuple[str, str | None, BridgeCommitTransaction | None]:
     """Swap in one bridge while retaining rollback state through verification."""
     destination.parent.mkdir(parents=True, exist_ok=True)
+    if expected_previous_receipt is not None:
+        try:
+            current_receipt = receipt_path.read_bytes()
+        except OSError:
+            current_receipt = None
+        previous = load_receipt(receipt_path, destination)
+        if (
+            current_receipt != expected_previous_receipt
+            or previous is None
+            or not receipt_files_match(previous, destination)
+        ):
+            shutil.rmtree(staging, ignore_errors=True)
+            return "failed", "The previous Photoshop install changed before replacement", None
+    elif require_fresh_destination and (destination.exists() or receipt_path.exists()):
+        shutil.rmtree(staging, ignore_errors=True)
+        return "failed", "Unowned Photoshop bridge state appeared before installation", None
     if destination.exists():
         inspection = inspect_install_root(destination)
         if inspection.get("requires_restart"):
@@ -478,7 +525,9 @@ def begin_bridge_commit(
             )
 
     backup = destination.with_name(f".{destination.name}.backup-{uuid.uuid4().hex}")
-    old_receipt = receipt_path.read_bytes() if receipt_path.is_file() else None
+    old_receipt = expected_previous_receipt
+    if old_receipt is None and receipt_path.is_file():
+        old_receipt = receipt_path.read_bytes()
     transaction = BridgeCommitTransaction(
         destination=destination,
         backup=backup,
