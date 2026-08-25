@@ -15,7 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Sequence
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Sequence, Set
 
 import yaml
 from yaml.constructor import ConstructorError
@@ -28,6 +28,7 @@ APPROVED_RELEASE_WORKFLOW = ROOT / "scripts" / "ci" / "approved_release_workflow
 APPROVED_RELEASE_WORKFLOW_SHA256 = "a3b38a10c6caab17219f3eeea2a8fab0a1f6c3a93d770a00d5280f74a5e40da1"
 MAX_WORKFLOW_BYTES = 256 * 1024
 GIT_TIMEOUT_SECONDS = 30
+MAX_CANDIDATE_COMMITS = 250
 RELEASE_WORKFLOW_PATH = ".github/workflows/release.yml"
 TRUST_ROOT_PATHS = (
     ".github/workflows/trusted-release-policy.yml",
@@ -305,13 +306,21 @@ def validate_tree(
 def select_upgrade_approver(
     reviews: Sequence[Mapping[str, Any]],
     candidate_sha: str,
-    pull_request_author: str,
+    excluded_logins: Sequence[str],
     permission_lookup: Callable[[str], str],
 ) -> Optional[str]:
+    candidate_sha = _validate_object_id(candidate_sha, "candidate SHA")
+    excluded = {login.casefold() for login in excluded_logins}
     latest_by_reviewer: Dict[str, Mapping[str, Any]] = {}
     for review in reviews:
         user = review.get("user")
-        if not isinstance(user, dict) or not isinstance(user.get("login"), str):
+        if (
+            not isinstance(user, dict)
+            or not isinstance(user.get("login"), str)
+            or user.get("type") != "User"
+            or review.get("commit_id") != candidate_sha
+            or review.get("state") not in {"APPROVED", "CHANGES_REQUESTED", "DISMISSED"}
+        ):
             continue
         login = user["login"]
         review_id = review.get("id")
@@ -320,15 +329,67 @@ def select_upgrade_approver(
         previous = latest_by_reviewer.get(login.casefold())
         if previous is None or review_id > previous.get("id", -1):
             latest_by_reviewer[login.casefold()] = review
+
+    approved: List[Mapping[str, Any]] = []
+    blocked: List[str] = []
     for review in latest_by_reviewer.values():
         login = review["user"]["login"]
-        if login.casefold() == pull_request_author.casefold():
+        if login.casefold() in excluded or review.get("state") == "DISMISSED":
             continue
-        if review.get("state") != "APPROVED" or review.get("commit_id") != candidate_sha:
+        if permission_lookup(login) not in {"admin", "maintain"}:
             continue
-        if permission_lookup(login) in {"admin", "maintain"}:
-            return login
+        if review.get("state") == "CHANGES_REQUESTED":
+            blocked.append(login)
+        else:
+            approved.append(review)
+    if blocked:
+        raise PolicyError("an eligible human maintainer has active exact-head changes requested")
+    if approved:
+        latest_approval = max(approved, key=lambda review: review["id"])
+        return latest_approval["user"]["login"]
     return None
+
+
+def _candidate_commit_shas(repository: Path, base_sha: str, candidate_sha: str) -> List[str]:
+    base_sha = _validate_object_id(base_sha, "base SHA")
+    candidate_sha = _validate_object_id(candidate_sha, "candidate SHA")
+    _ensure_commit(repository, base_sha, "base")
+    _ensure_commit(repository, candidate_sha, "candidate")
+    _require_base_ancestor(repository, base_sha, candidate_sha)
+    result = _git_process(repository, "rev-list", "--reverse", f"{base_sha}..{candidate_sha}")
+    if result.returncode != 0:
+        raise PolicyError("Git could not enumerate the exact candidate commit range")
+    try:
+        commit_shas = [line.decode("ascii") for line in result.stdout.splitlines() if line]
+    except UnicodeError:
+        raise PolicyError("Git returned an invalid candidate commit identity") from None
+    if not commit_shas or len(commit_shas) > MAX_CANDIDATE_COMMITS:
+        raise PolicyError("exact candidate commit range violates the bounded commit limit")
+    if any(OBJECT_ID.fullmatch(sha) is None for sha in commit_shas) or commit_shas[-1] != candidate_sha:
+        raise PolicyError("Git returned an invalid exact candidate commit range")
+    return commit_shas
+
+
+def candidate_commit_participants(
+    repository: Path,
+    base_sha: str,
+    candidate_sha: str,
+    api_commits: Sequence[Mapping[str, Any]],
+) -> Set[str]:
+    local_shas = _candidate_commit_shas(repository, base_sha, candidate_sha)
+    api_shas = [commit.get("sha") for commit in api_commits]
+    if api_shas != local_shas:
+        raise PolicyError("GitHub commits do not match the exact candidate commit range")
+    participants: Set[str] = set()
+    for commit in api_commits:
+        identities: List[str] = []
+        for role in ("author", "committer"):
+            identity = commit.get(role)
+            if not isinstance(identity, dict) or not isinstance(identity.get("login"), str) or not identity["login"]:
+                raise PolicyError("candidate commit author and committer identities must be linked to GitHub users")
+            identities.append(identity["login"])
+        participants.update(identities)
+    return participants
 
 
 def _github_json(path: str, token: str) -> Any:
@@ -349,14 +410,33 @@ def _github_json(path: str, token: str) -> Any:
 
 
 def _live_upgrade_approver(
+    repository: Path,
     repository_slug: str,
     pull_request_number: int,
+    base_sha: str,
     candidate_sha: str,
     pull_request_author: str,
     token: str,
 ) -> Optional[str]:
     if REPOSITORY_SLUG.fullmatch(repository_slug) is None or pull_request_number <= 0 or not token:
         raise PolicyError("upgrade authorization context is invalid")
+    local_commits = _candidate_commit_shas(repository, base_sha, candidate_sha)
+    api_commits: List[Mapping[str, Any]] = []
+    for page in range(1, 4):
+        value = _github_json(
+            f"/repos/{repository_slug}/pulls/{pull_request_number}/commits?per_page=100&page={page}",
+            token,
+        )
+        if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+            raise PolicyError("GitHub candidate commits response is invalid")
+        api_commits.extend(value)
+        if len(value) < 100:
+            break
+    if len(api_commits) > MAX_CANDIDATE_COMMITS or len(api_commits) != len(local_commits):
+        raise PolicyError("GitHub commits do not match the exact candidate commit range")
+    excluded_logins = candidate_commit_participants(repository, base_sha, candidate_sha, api_commits)
+    excluded_logins.add(pull_request_author)
+
     reviews: List[Mapping[str, Any]] = []
     for page in range(1, 11):
         value = _github_json(
@@ -378,7 +458,7 @@ def _live_upgrade_approver(
             raise PolicyError("GitHub collaborator permission response is invalid")
         return value["permission"]
 
-    return select_upgrade_approver(reviews, candidate_sha, pull_request_author, permission_lookup)
+    return select_upgrade_approver(reviews, candidate_sha, excluded_logins, permission_lookup)
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -424,8 +504,10 @@ def main() -> int:
                 ):
                     raise PolicyError("policy-root changes require complete external approval context") from None
                 approver = _live_upgrade_approver(
+                    arguments.repository,
                     arguments.repository_slug,
                     arguments.pull_request_number,
+                    arguments.base_sha,
                     arguments.candidate_sha,
                     arguments.pull_request_author,
                     os.environ.get("GH_TOKEN", ""),
