@@ -109,6 +109,48 @@ jobs:
           $env:DCC_MCP_PHOTOSHOP_ADOBEPY_FLOOR_CLI = Join-Path $extract "adobepy-$env:ADOBEPY_VERSION-windows-x64\bin\adobepy.exe"
           python -m pytest -q tests/test_install_lifecycle.py::test_declared_adobepy_floor_cli_matches_the_official_checksum_release
 
+  dependency-contract:
+    name: Dependency contract (${{ matrix.mode }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        mode: [floor, latest]
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v4
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Resolve the production dependency set
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "${{ matrix.mode }}" == "floor" ]]; then
+            python -m pip install . "dcc-mcp-core==0.20.14"
+          else
+            python -m pip install .
+          fi
+          python -m pip check
+          python scripts/ci/check_installed_dependencies.py
+
+  lock-contract:
+    name: Lock consistency contract
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v4
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Check the committed uv lock
+        run: |
+          python -m pip install uv==0.11.19 tomli
+          python scripts/ci/check_uv_lock.py
+          python -m uv lock --check
+
   cli-smoke:
     name: CLI Smoke Test
     runs-on: ubuntu-latest
@@ -139,9 +181,9 @@ jobs:
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [test, lint, lint-skills, adobepy_cli_floor, cli-smoke]
+    needs: [test, lint, lint-skills, adobepy_cli_floor, dependency-contract, lock-contract, cli-smoke]
     runs-on: ubuntu-latest
     steps:
       - name: Require all CI jobs to pass
-        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.adobepy_cli_floor.result != 'success' || needs.cli-smoke.result != 'success'
+        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.adobepy_cli_floor.result != 'success' || needs.dependency-contract.result != 'success' || needs.lock-contract.result != 'success' || needs.cli-smoke.result != 'success'
         run: exit 1
