@@ -4,22 +4,22 @@ on:
   pull_request_target:
     types: [opened, reopened, synchronize]
     branches: [main]
-    paths:
-      - .github/workflows/release.yml
-      - .github/workflows/trusted-release-policy.yml
-      - scripts/ci/check_trusted_release_policy.py
-      - scripts/ci/approved_release_workflow.yml
+  pull_request_review:
+    types: [submitted, dismissed]
 
 permissions:
   contents: read
+  pull-requests: read
 
 jobs:
   validate:
-    name: Validate release workflow using the trusted base policy
+    name: Trusted Release Policy Gate
+    if: github.event.pull_request.base.ref == 'main'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
       contents: read
+      pull-requests: read
     steps:
       - name: Checkout the trusted base commit
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v4
@@ -42,16 +42,32 @@ jobs:
           BASE_SHA: ${{ github.event.pull_request.base.sha }}
           PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          GH_TOKEN: ${{ github.token }}
+          GIT_NO_LAZY_FETCH: "1"
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "$BASE_SHA"
           test "$(git remote get-url origin)" = "https://github.com/$GITHUB_REPOSITORY"
           [[ "$PR_NUMBER" =~ ^[1-9][0-9]*$ ]]
           [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
-          git -c protocol.version=2 fetch --no-tags --depth=1 origin \
+          git -c protocol.version=2 fetch --no-tags --no-recurse-submodules \
+            --filter=blob:limit=262145 origin \
             "+refs/pull/$PR_NUMBER/head:refs/dcc-mcp-policy/pr-head"
           FETCHED_SHA=$(git rev-parse refs/dcc-mcp-policy/pr-head^{commit})
           test "$FETCHED_SHA" = "$PR_HEAD_SHA"
           CANDIDATE="$RUNNER_TEMP/pr-release.yml"
-          git show "${FETCHED_SHA}:.github/workflows/release.yml" > "$CANDIDATE"
-          python scripts/ci/check_trusted_release_policy.py --candidate "$CANDIDATE"
+          test ! -e "$CANDIDATE"
+          RELEASE_OID=$(python scripts/ci/check_trusted_release_policy.py \
+            --inspect-release \
+            --repository "$GITHUB_WORKSPACE" \
+            --candidate-sha "$FETCHED_SHA")
+          git show "$RELEASE_OID" > "$CANDIDATE"
+          python scripts/ci/check_trusted_release_policy.py \
+            --candidate "$CANDIDATE" \
+            --repository "$GITHUB_WORKSPACE" \
+            --base-sha "$BASE_SHA" \
+            --candidate-sha "$FETCHED_SHA" \
+            --repository-slug "$GITHUB_REPOSITORY" \
+            --pull-request-number "$PR_NUMBER" \
+            --pull-request-author "$PR_AUTHOR"
