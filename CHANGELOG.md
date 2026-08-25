@@ -1,5 +1,23 @@
 # Changelog
 
+## [0.1.39](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.38...v0.1.39) (2026-08-25)
+
+
+### Features
+
+* add Photoshop install lifecycle ([db1ba60](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/db1ba60d8e588f6b2e6e5ae8633a78ed50b7abb9))
+
+
+### Bug Fixes
+
+* authenticate Photoshop install runtime ([2d5f2cf](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2d5f2cf01c55a32c80397083f891ac95ee2a3c11))
+* bind trusted policy to git objects ([f22d830](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f22d830f114a1783a471b21dd8fbcd29f60f2f4e))
+* harden Photoshop install lifecycle ([d7456f6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d7456f6646b3f7ae79d510b2714dc8226993b8cd))
+* pin the verified adobepy runtime ([2b72df8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2b72df8a60da9a3cafa506ed24861d36681a7cf6))
+* protect Photoshop install repairs ([8a1438e](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/8a1438e57400742561392d36fa63f443aa1d8f1c))
+* reject unsafe lock manifest inputs ([d3bd0ef](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d3bd0ef8b7b1af54d1ba33da0ccd803e840988ba))
+* require independent policy approval ([6c24e47](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6c24e476723b55f474d83125e28f8397752da90e))
+
 ## [0.1.38](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.37...v0.1.38) (2026-07-24)
 
 
