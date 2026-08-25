@@ -50,17 +50,26 @@ def _version_tuple(version: str) -> Tuple[int, int, int]:
     return tuple(int(part) for part in version.split("."))  # type: ignore[return-value]
 
 
-def _read_regular_toml(path: Path, label: str) -> Mapping[str, Any]:
+def _read_regular_text(path: Path, label: str) -> str:
     try:
         file_stat = path.lstat()
     except OSError as exc:
         raise ValueError(f"{label} cannot be inspected: {exc.__class__.__name__}") from None
-    if path.is_symlink() or not stat.S_ISREG(file_stat.st_mode):
+    reparse_flag = getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)
+    file_attributes = getattr(file_stat, "st_file_attributes", 0)
+    if path.is_symlink() or file_attributes & reparse_flag or not stat.S_ISREG(file_stat.st_mode):
         raise ValueError(f"{label} must be a non-symlink regular file")
     try:
-        return _mapping(tomllib.loads(path.read_text(encoding="utf-8")), label)
-    except (OSError, UnicodeError, tomllib.TOMLDecodeError) as exc:
-        raise ValueError(f"{label} is unreadable or invalid TOML: {exc.__class__.__name__}") from None
+        return path.read_text(encoding="utf-8")
+    except (OSError, UnicodeError) as exc:
+        raise ValueError(f"{label} is unreadable: {exc.__class__.__name__}") from None
+
+
+def _read_regular_toml(path: Path, label: str) -> Mapping[str, Any]:
+    try:
+        return _mapping(tomllib.loads(_read_regular_text(path, label)), label)
+    except tomllib.TOMLDecodeError as exc:
+        raise ValueError(f"{label} is invalid TOML: {exc.__class__.__name__}") from None
 
 
 def _dependency_map(values: Sequence[Any], label: str) -> Dict[str, List[Mapping[str, Any]]]:
@@ -138,9 +147,9 @@ def validate(root: Path) -> None:
 
     manifest_path = root / ".release-please-manifest.json"
     try:
-        manifest = _mapping(json.loads(manifest_path.read_text(encoding="utf-8")), "release manifest")
-    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
-        raise ValueError(f"release manifest is unreadable or invalid JSON: {exc.__class__.__name__}") from None
+        manifest = _mapping(json.loads(_read_regular_text(manifest_path, "release manifest")), "release manifest")
+    except json.JSONDecodeError as exc:
+        raise ValueError(f"release manifest is invalid JSON: {exc.__class__.__name__}") from None
     if _final_version(manifest.get("."), "release manifest root version") != project_version:
         raise ValueError("release manifest root version must match project.version")
 
