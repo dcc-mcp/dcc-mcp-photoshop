@@ -62,6 +62,15 @@ def _commit(repository: Path, message: str) -> str:
     return _git(repository, "rev-parse", "HEAD")
 
 
+def _review(review_id: int, state: str, commit_id: str, login: str, user_type: str = "User") -> dict:
+    return {
+        "id": review_id,
+        "state": state,
+        "commit_id": commit_id,
+        "user": {"login": login, "type": user_type},
+    }
+
+
 def _validate_tree(
     repository: Path,
     base_sha: str,
@@ -237,13 +246,13 @@ def test_exact_head_maintainer_upgrade_never_executes_candidate_code(tmp_path: P
     assert not marker.exists()
 
 
-def test_upgrade_approval_requires_a_distinct_exact_head_maintainer() -> None:
+def test_upgrade_approval_requires_a_distinct_exact_head_human_maintainer() -> None:
     head = "a" * 40
     reviews = [
-        {"id": 1, "state": "APPROVED", "commit_id": "b" * 40, "user": {"login": "stale-reviewer"}},
-        {"id": 2, "state": "APPROVED", "commit_id": head, "user": {"login": "pull-request-author"}},
-        {"id": 3, "state": "APPROVED", "commit_id": head, "user": {"login": "write-only"}},
-        {"id": 4, "state": "APPROVED", "commit_id": head, "user": {"login": "maintainer"}},
+        _review(1, "APPROVED", "b" * 40, "stale-reviewer"),
+        _review(2, "APPROVED", head, "pull-request-author"),
+        _review(3, "APPROVED", head, "write-only"),
+        _review(4, "APPROVED", head, "maintainer"),
     ]
     permissions = {
         "stale-reviewer": "admin",
@@ -255,23 +264,200 @@ def test_upgrade_approval_requires_a_distinct_exact_head_maintainer() -> None:
     reviewer = policy.select_upgrade_approver(
         reviews,
         head,
-        "pull-request-author",
+        {"pull-request-author", "commit-author", "commit-committer"},
         permissions.__getitem__,
     )
 
     assert reviewer == "maintainer"
 
 
-def test_dismissed_or_superseded_approval_does_not_authorize_upgrade() -> None:
+def test_bot_and_non_user_approvals_never_authorize_upgrade() -> None:
     head = "a" * 40
     reviews = [
-        {"id": 1, "state": "APPROVED", "commit_id": head, "user": {"login": "maintainer"}},
-        {"id": 2, "state": "DISMISSED", "commit_id": head, "user": {"login": "maintainer"}},
+        _review(1, "APPROVED", head, "release-bot", "Bot"),
+        _review(2, "APPROVED", head, "release-team", "Organization"),
     ]
 
-    reviewer = policy.select_upgrade_approver(reviews, head, "author", lambda _login: "admin")
+    reviewer = policy.select_upgrade_approver(reviews, head, {"author"}, lambda _login: "admin")
 
     assert reviewer is None
+
+
+def test_candidate_commit_authors_and_committers_cannot_approve_upgrade() -> None:
+    head = "a" * 40
+    reviews = [
+        _review(1, "APPROVED", head, "commit-author"),
+        _review(2, "APPROVED", head, "commit-committer"),
+        _review(3, "APPROVED", head, "independent-maintainer"),
+    ]
+
+    reviewer = policy.select_upgrade_approver(
+        reviews,
+        head,
+        {"pull-request-author", "commit-author", "commit-committer"},
+        lambda _login: "maintain",
+    )
+
+    assert reviewer == "independent-maintainer"
+
+
+def test_exact_head_changes_requested_by_any_eligible_maintainer_blocks_other_approval() -> None:
+    head = "a" * 40
+    reviews = [
+        _review(1, "APPROVED", head, "approver"),
+        _review(2, "CHANGES_REQUESTED", head, "blocker"),
+    ]
+
+    with pytest.raises(policy.PolicyError, match="changes requested"):
+        policy.select_upgrade_approver(reviews, head, set(), lambda _login: "admin")
+
+
+def test_latest_exact_head_decisive_review_controls_mixed_order() -> None:
+    head = "a" * 40
+    reviews = [
+        _review(1, "CHANGES_REQUESTED", head, "maintainer"),
+        _review(2, "COMMENTED", head, "maintainer"),
+        _review(3, "APPROVED", head, "maintainer"),
+    ]
+
+    reviewer = policy.select_upgrade_approver(reviews, head, set(), lambda _login: "maintain")
+
+    assert reviewer == "maintainer"
+
+
+def test_later_exact_head_changes_requested_supersedes_approval() -> None:
+    head = "a" * 40
+    reviews = [
+        _review(1, "APPROVED", head, "maintainer"),
+        _review(2, "APPROVED", head, "other-maintainer"),
+        _review(3, "CHANGES_REQUESTED", head, "maintainer"),
+    ]
+
+    with pytest.raises(policy.PolicyError, match="changes requested"):
+        policy.select_upgrade_approver(reviews, head, set(), lambda _login: "admin")
+
+
+def test_dismissed_approval_does_not_authorize_upgrade() -> None:
+    head = "a" * 40
+    reviews = [_review(1, "DISMISSED", head, "maintainer")]
+
+    reviewer = policy.select_upgrade_approver(reviews, head, set(), lambda _login: "admin")
+
+    assert reviewer is None
+
+
+def test_stale_and_dismissed_changes_requested_do_not_block_exact_head_approval() -> None:
+    head = "a" * 40
+    reviews = [
+        _review(1, "CHANGES_REQUESTED", "b" * 40, "stale-reviewer"),
+        _review(2, "DISMISSED", head, "dismissed-reviewer"),
+        _review(3, "APPROVED", head, "maintainer"),
+    ]
+
+    reviewer = policy.select_upgrade_approver(reviews, head, set(), lambda _login: "admin")
+
+    assert reviewer == "maintainer"
+
+
+def test_candidate_commit_api_is_bound_to_exact_local_range(tmp_path: Path) -> None:
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "policy upgrade")
+    api_commits = [
+        {
+            "sha": candidate_sha,
+            "author": {"login": "commit-author", "type": "User"},
+            "committer": {"login": "commit-committer", "type": "User"},
+        }
+    ]
+
+    participants = policy.candidate_commit_participants(repository, base_sha, candidate_sha, api_commits)
+
+    assert participants == {"commit-author", "commit-committer"}
+    with pytest.raises(policy.PolicyError, match="exact candidate commit range"):
+        policy.candidate_commit_participants(
+            repository,
+            base_sha,
+            candidate_sha,
+            [{**api_commits[0], "sha": "f" * 40}],
+        )
+
+
+def test_candidate_commit_identity_must_be_linked_to_github_users(tmp_path: Path) -> None:
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "policy upgrade")
+
+    with pytest.raises(policy.PolicyError, match="author and committer identities"):
+        policy.candidate_commit_participants(
+            repository,
+            base_sha,
+            candidate_sha,
+            [{"sha": candidate_sha, "author": None, "committer": {"login": "committer", "type": "User"}}],
+        )
+
+
+def test_live_upgrade_lookup_excludes_exact_candidate_commit_participants(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "policy upgrade")
+
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "commit-author", "type": "User"},
+                    "committer": {"login": "commit-committer", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return [
+                {
+                    "id": 1,
+                    "state": "APPROVED",
+                    "commit_id": candidate_sha,
+                    "user": {"login": "commit-author", "type": "User"},
+                },
+                {
+                    "id": 2,
+                    "state": "APPROVED",
+                    "commit_id": candidate_sha,
+                    "user": {"login": "independent-maintainer", "type": "User"},
+                },
+            ]
+        if "/collaborators/independent-maintainer/permission" in path:
+            return {"permission": "maintain"}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(policy, "_github_json", github_json)
+
+    reviewer = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        110,
+        base_sha,
+        candidate_sha,
+        "pull-request-author",
+        "token",
+    )
+
+    assert reviewer == "independent-maintainer"
+
+
+def test_codeowners_covers_every_release_policy_trust_root() -> None:
+    source = (ROOT / ".github/CODEOWNERS").read_text(encoding="utf-8")
+    rules = {line.split()[0]: line.split()[1:] for line in source.splitlines() if line and not line.startswith("#")}
+
+    for path in (*TRUST_ROOTS, RELEASE_PATH):
+        assert f"/{path.as_posix()}" in rules
+        assert rules[f"/{path.as_posix()}"] == ["@loonghao"]
 
 
 def test_upgrade_cannot_change_policy_and_release_candidate_together(tmp_path: Path) -> None:

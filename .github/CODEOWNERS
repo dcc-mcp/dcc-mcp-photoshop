@@ -1,0 +1,6 @@
+# Release policy trust roots. Native branch protection must require code-owner review.
+/.github/CODEOWNERS @loonghao
+/.github/workflows/trusted-release-policy.yml @loonghao
+/scripts/ci/check_trusted_release_policy.py @loonghao
+/scripts/ci/approved_release_workflow.yml @loonghao
+/.github/workflows/release.yml @loonghao
