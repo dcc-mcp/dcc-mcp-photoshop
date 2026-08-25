@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import hashlib
 import subprocess
 import sys
@@ -96,16 +98,13 @@ def test_trusted_gate_uses_only_base_code_and_pull_request_git_objects() -> None
     steps = job["steps"]
     checkout, setup, install, validate = steps
 
-    assert document["permissions"] == {"contents": "read"}
-    assert job["permissions"] == {"contents": "read"}
+    assert document["permissions"] == {"contents": "read", "pull-requests": "read"}
+    assert job["permissions"] == {"contents": "read", "pull-requests": "read"}
     assert job["timeout-minutes"] == 5
     assert trigger["branches"] == ["main"]
-    assert set(trigger["paths"]) == {
-        ".github/workflows/release.yml",
-        ".github/workflows/trusted-release-policy.yml",
-        "scripts/ci/check_trusted_release_policy.py",
-        "scripts/ci/approved_release_workflow.yml",
-    }
+    assert "paths" not in trigger
+    assert event["pull_request_review"] == {"types": ["submitted", "dismissed"]}
+    assert job["if"] == "github.event.pull_request.base.ref == 'main'"
     assert [step["name"] for step in steps] == [
         "Checkout the trusted base commit",
         "Set up trusted Python",
@@ -123,9 +122,13 @@ def test_trusted_gate_uses_only_base_code_and_pull_request_git_objects() -> None
     assert install["run"] == "python -m pip install --disable-pip-version-check PyYAML==6.0.3"
     assert "secrets." not in source
     assert "refs/pull/$PR_NUMBER/head:refs/dcc-mcp-policy/pr-head" in validate["run"]
-    assert 'git show "${FETCHED_SHA}:.github/workflows/release.yml"' in validate["run"]
+    assert "RELEASE_OID=$(python scripts/ci/check_trusted_release_policy.py" in validate["run"]
+    assert 'git show "$RELEASE_OID" > "$CANDIDATE"' in validate["run"]
     assert 'test "$(git rev-parse HEAD)" = "$BASE_SHA"' in validate["run"]
-    assert 'python scripts/ci/check_trusted_release_policy.py --candidate "$CANDIDATE"' in validate["run"]
+    assert '--candidate "$CANDIDATE"' in validate["run"]
+    assert '--base-sha "$BASE_SHA"' in validate["run"]
+    assert '--candidate-sha "$FETCHED_SHA"' in validate["run"]
+    assert '--repository-slug "$GITHUB_REPOSITORY"' in validate["run"]
     assert "git checkout" not in validate["run"]
     assert "git switch" not in validate["run"]
     assert "pull-request/scripts" not in source
