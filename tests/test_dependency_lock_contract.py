@@ -90,6 +90,32 @@ def test_lock_checker_rejects_dependency_metadata_drift(tmp_path: Path) -> None:
         validate(tmp_path)
 
 
+def test_lock_checker_rejects_a_manifest_directory(tmp_path: Path) -> None:
+    _copy_lock_inputs(tmp_path)
+    manifest_path = tmp_path / ".release-please-manifest.json"
+    manifest_path.unlink()
+    manifest_path.mkdir()
+
+    with pytest.raises(ValueError, match="release manifest must be a non-symlink regular file"):
+        validate(tmp_path)
+
+
+def test_lock_checker_rejects_a_same_bytes_manifest_symlink(tmp_path: Path) -> None:
+    _copy_lock_inputs(tmp_path)
+    manifest_path = tmp_path / ".release-please-manifest.json"
+    manifest_target = tmp_path / "manifest-target.json"
+    shutil.copy2(manifest_path, manifest_target)
+    manifest_path.unlink()
+    try:
+        manifest_path.symlink_to(manifest_target.name)
+    except OSError as exc:  # pragma: no cover - local Windows policy may deny symlink creation
+        pytest.skip(f"file symlinks are unavailable: {exc.__class__.__name__}")
+
+    assert manifest_path.read_bytes() == manifest_target.read_bytes()
+    with pytest.raises(ValueError, match="release manifest must be a non-symlink regular file"):
+        validate(tmp_path)
+
+
 def test_ci_resolves_core_floor_and_latest_and_checks_the_lock() -> None:
     document = yaml.safe_load((ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8"))
     jobs = document["jobs"]
