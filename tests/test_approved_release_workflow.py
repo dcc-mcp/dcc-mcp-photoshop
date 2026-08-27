@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import io
 import json
 import os
 import shutil
+import stat
 import subprocess
 import sys
 import tarfile
@@ -135,6 +137,104 @@ def _write_sdist(path: Path, *, metadata_name: str, metadata_version: str) -> No
         archive.addfile(info, io.BytesIO(metadata))
 
 
+def _append_wheel_member(path: Path, name: str, content: bytes = b"hostile") -> None:
+    with zipfile.ZipFile(path, "a") as archive:
+        archive.writestr(name, content)
+
+
+def _append_wheel_backslash_member(path: Path) -> None:
+    canonical = b"folder/escape.txt"
+    hostile = b"folder\\escape.txt"
+    _append_wheel_member(path, canonical.decode())
+    raw = path.read_bytes()
+    assert raw.count(canonical) == 2
+    path.write_bytes(raw.replace(canonical, hostile))
+
+
+def _append_wheel_with_divergent_local_name(path: Path) -> None:
+    central_name = b"safe-entry.txt"
+    local_name = b"../../evil.txt"
+    assert len(central_name) == len(local_name)
+    _append_wheel_member(path, central_name.decode())
+    raw = path.read_bytes()
+    assert raw.count(central_name) == 2
+    path.write_bytes(raw.replace(central_name, local_name, 1))
+
+
+def _write_archive_validator(tmp_path: Path) -> Path:
+    bind = _workflow()["jobs"]["bind-release-artifacts"]
+    result = subprocess.run(
+        [sys.executable, "-c", _step(bind, "Write shared fail-closed archive validator")["run"]],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stdout + result.stderr
+    return tmp_path / "policy" / "archive_validator.py"
+
+
+def _append_sdist_member(path: Path, member: tarfile.TarInfo, content: bytes = b"") -> None:
+    existing: list[tuple[tarfile.TarInfo, bytes]] = []
+    with tarfile.open(path, "r:gz") as archive:
+        for current in archive.getmembers():
+            extracted = archive.extractfile(current) if current.isfile() else None
+            existing.append((current, extracted.read() if extracted is not None else b""))
+    with tarfile.open(path, "w:gz") as archive:
+        for current, raw in existing:
+            archive.addfile(current, io.BytesIO(raw) if current.isfile() else None)
+        member.size = len(content) if member.isfile() else 0
+        archive.addfile(member, io.BytesIO(content) if member.isfile() else None)
+
+
+def _make_wheel_metadata_a_symlink(path: Path) -> None:
+    members: list[tuple[zipfile.ZipInfo, bytes]] = []
+    with zipfile.ZipFile(path) as archive:
+        for current in archive.infolist():
+            members.append((current, archive.read(current)))
+    with zipfile.ZipFile(path, "w") as archive:
+        for current, raw in members:
+            if current.filename.endswith(".dist-info/METADATA"):
+                current.create_system = 3
+                current.external_attr = (stat.S_IFLNK | 0o777) << 16
+            archive.writestr(current, raw)
+
+
+def _apply_archive_attack(assets: Path, attack: str) -> Path:
+    wheel = assets / "dcc_mcp_photoshop-1.2.3-py3-none-any.whl"
+    sdist = assets / "dcc_mcp_photoshop-1.2.3.tar.gz"
+    if attack == "wheel traversal":
+        _append_wheel_member(wheel, "../../outside.txt")
+        return wheel
+    if attack == "sdist second root":
+        info = tarfile.TarInfo("other-1.0/PKG-INFO")
+        _append_sdist_member(sdist, info, _package_metadata("dcc-mcp-photoshop", "1.2.3"))
+        return sdist
+    if attack == "wheel metadata symlink":
+        _make_wheel_metadata_a_symlink(wheel)
+        return wheel
+    if attack == "wheel shadow metadata":
+        _append_wheel_member(
+            wheel,
+            "other-1.0.dist-info/METADATA",
+            _package_metadata("dcc-mcp-photoshop", "1.2.3"),
+        )
+        return wheel
+    if attack == "wheel divergent local name":
+        _append_wheel_with_divergent_local_name(wheel)
+        return wheel
+    raise AssertionError(f"unknown attack: {attack}")
+
+
+def _refresh_manifest_entry(bundle: Path, changed: Path) -> None:
+    manifest_path = bundle / "release-manifest.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    changed_entry = next(entry for entry in manifest["files"] if entry["name"] == changed.name)
+    changed_entry["size"] = changed.stat().st_size
+    changed_entry["sha256"] = hashlib.sha256(changed.read_bytes()).hexdigest()
+    manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
+
+
 def _release_environment() -> dict[str, str]:
     return {
         **os.environ,
@@ -152,6 +252,7 @@ def _release_environment() -> dict[str, str]:
 
 def _run_manifest_builder(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     bind = _workflow()["jobs"]["bind-release-artifacts"]
+    _write_archive_validator(tmp_path)
     return subprocess.run(
         [sys.executable, "-c", _step(bind, "Bind every release file to its SHA-256 digest")["run"]],
         cwd=tmp_path,
@@ -164,6 +265,10 @@ def _run_manifest_builder(tmp_path: Path) -> subprocess.CompletedProcess[str]:
 
 def _run_publisher_preflight(tmp_path: Path) -> subprocess.CompletedProcess[str]:
     publish = _workflow()["jobs"]["publish"]
+    source_policy = tmp_path / "policy"
+    bundle_policy = tmp_path / "release-bundle" / "policy"
+    if source_policy.is_dir() and not bundle_policy.exists():
+        shutil.copytree(source_policy, bundle_policy)
     return subprocess.run(
         [sys.executable, "-c", _step(publish, "Verify exact per-file release manifest")["run"]],
         cwd=tmp_path,
@@ -357,6 +462,169 @@ def test_manifest_rejects_a_wheel_for_another_project_and_version(tmp_path: Path
     assert not (tmp_path / "release-manifest.json").exists()
 
 
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "wheel traversal",
+        "sdist second root",
+        "wheel metadata symlink",
+        "wheel shadow metadata",
+        "wheel divergent local name",
+    ],
+)
+def test_manifest_rejects_adversarial_archive_members(tmp_path: Path, attack: str) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    _apply_archive_attack(assets, attack)
+
+    result = _run_manifest_builder(tmp_path)
+
+    assert result.returncode != 0
+    assert not (tmp_path / "release-manifest.json").exists()
+
+
+@pytest.mark.parametrize(
+    "member_name",
+    [
+        "/absolute.txt",
+        "//server/share.txt",
+        "C:/escape.txt",
+        "folder\\escape.txt",
+        "bad\x01name",
+        "bad\u0085name",
+        "a/../b",
+        "fullwidth\uff0fslash",
+    ],
+)
+def test_manifest_rejects_unsafe_wheel_member_paths(tmp_path: Path, member_name: str) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    wheel = assets / "dcc_mcp_photoshop-1.2.3-py3-none-any.whl"
+    if "\\" in member_name:
+        _append_wheel_backslash_member(wheel)
+    else:
+        _append_wheel_member(wheel, member_name)
+
+    result = _run_manifest_builder(tmp_path)
+
+    assert result.returncode != 0
+    assert not (tmp_path / "release-manifest.json").exists()
+
+
+def test_manifest_rejects_duplicate_normalized_wheel_members(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    _append_wheel_member(
+        assets / "dcc_mcp_photoshop-1.2.3-py3-none-any.whl",
+        "DCC_MCP_PHOTOSHOP-1.2.3.DIST-INFO/metadata",
+        _package_metadata("dcc-mcp-photoshop", "1.2.3"),
+    )
+
+    result = _run_manifest_builder(tmp_path)
+
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize(
+    "member_type",
+    [tarfile.SYMTYPE, tarfile.LNKTYPE, tarfile.CHRTYPE, tarfile.BLKTYPE, tarfile.FIFOTYPE],
+)
+def test_manifest_rejects_non_regular_sdist_members(tmp_path: Path, member_type: bytes) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/unsafe")
+    member.type = member_type
+    member.linkname = "dcc_mcp_photoshop-1.2.3/PKG-INFO"
+    _append_sdist_member(assets / "dcc_mcp_photoshop-1.2.3.tar.gz", member)
+
+    result = _run_manifest_builder(tmp_path)
+
+    assert result.returncode != 0
+
+
+def test_manifest_rejects_wheel_compression_bomb_ratio(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    wheel = assets / "dcc_mcp_photoshop-1.2.3-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "a", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("dcc_mcp_photoshop/payload.bin", b"0" * (1024 * 1024))
+
+    result = _run_manifest_builder(tmp_path)
+
+    assert result.returncode != 0
+
+
+def test_manifest_rejects_excessive_wheel_member_count(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    wheel = assets / "dcc_mcp_photoshop-1.2.3-py3-none-any.whl"
+    with zipfile.ZipFile(wheel, "a") as archive:
+        for index in range(4096):
+            archive.writestr(f"dcc_mcp_photoshop/data/{index}", b"")
+
+    result = _run_manifest_builder(tmp_path)
+
+    assert result.returncode != 0
+
+
+@pytest.mark.parametrize("invalid_name", ["bad\x00name", "bad\udcffname"])
+def test_shared_validator_rejects_nul_and_malformed_member_encoding(tmp_path: Path, invalid_name: str) -> None:
+    validator_path = _write_archive_validator(tmp_path)
+    spec = importlib.util.spec_from_file_location("archive_validator", validator_path)
+    assert spec is not None and spec.loader is not None
+    validator = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(validator)
+
+    with pytest.raises((AssertionError, UnicodeEncodeError)):
+        validator._member_path(invalid_name, set())
+
+
+def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
+    document = _workflow()
+    bind = document["jobs"]["bind-release-artifacts"]
+    publish = document["jobs"]["publish"]
+    builder = _step(bind, "Bind every release file to its SHA-256 digest")["run"]
+    preflight = _step(publish, "Verify exact per-file release manifest")["run"]
+    upload = _step(bind, "Upload exact release bundle")["with"]["path"]
+    validator = _step(bind, "Write shared fail-closed archive validator")["run"]
+
+    assert "def validate_release_distributions" in validator
+    assert "MAX_MEMBERS = 4096" in validator
+    assert "MAX_MEMBER_SIZE = 64 * 1024 * 1024" in validator
+    assert "MAX_TOTAL_SIZE = 256 * 1024 * 1024" in validator
+    assert "MAX_COMPRESSION_RATIO = 200" in validator
+    assert "from archive_validator import validate_release_distributions" in builder
+    assert "from archive_validator import validate_release_distributions" in preflight
+    assert "policy/archive_validator.py" in upload
+
+
+@pytest.mark.parametrize(
+    "attack",
+    [
+        "wheel traversal",
+        "sdist second root",
+        "wheel metadata symlink",
+        "wheel shadow metadata",
+        "wheel divergent local name",
+    ],
+)
+def test_publisher_rejects_self_consistent_adversarial_archive_members(tmp_path: Path, attack: str) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    manifest_result = _run_manifest_builder(tmp_path)
+    assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
+    bundle = tmp_path / "release-bundle"
+    shutil.copytree(assets, bundle)
+    shutil.copy2(tmp_path / "release-manifest.json", bundle / "release-manifest.json")
+    changed = _apply_archive_attack(bundle, attack)
+    _refresh_manifest_entry(bundle, changed)
+
+    result = _run_publisher_preflight(tmp_path)
+
+    assert result.returncode != 0
+    assert not (tmp_path / "dist").exists()
+
+
 def test_manifest_rejects_an_sdist_with_the_wrong_filename_identity(tmp_path: Path) -> None:
     assets = tmp_path / "release-assets"
     _write_release_assets(assets)
@@ -440,7 +708,6 @@ def test_publisher_preflight_rejects_semantically_wrong_distribution(
 
 def test_manifest_and_publisher_scripts_bind_the_real_release_file_names(tmp_path: Path) -> None:
     document = _workflow()
-    bind = document["jobs"]["bind-release-artifacts"]
     publish = document["jobs"]["publish"]
     assets = tmp_path / "release-assets"
     _write_release_assets(assets)
@@ -451,14 +718,7 @@ def test_manifest_and_publisher_scripts_bind_the_real_release_file_names(tmp_pat
     }
     environment = _release_environment()
 
-    manifest_result = subprocess.run(
-        [sys.executable, "-c", _step(bind, "Bind every release file to its SHA-256 digest")["run"]],
-        cwd=tmp_path,
-        env=environment,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
+    manifest_result = _run_manifest_builder(tmp_path)
     assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
     manifest = json.loads((tmp_path / "release-manifest.json").read_text(encoding="utf-8"))
     assert {entry["name"] for entry in manifest["files"]} == names
@@ -472,6 +732,7 @@ def test_manifest_and_publisher_scripts_bind_the_real_release_file_names(tmp_pat
     for source in assets.iterdir():
         (bundle / source.name).write_bytes(source.read_bytes())
     (bundle / "release-manifest.json").write_text(json.dumps(manifest), encoding="utf-8")
+    shutil.copytree(tmp_path / "policy", bundle / "policy")
     publish_result = subprocess.run(
         [sys.executable, "-c", _step(publish, "Verify exact per-file release manifest")["run"]],
         cwd=tmp_path,

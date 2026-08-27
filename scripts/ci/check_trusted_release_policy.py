@@ -24,7 +24,7 @@ from yaml.nodes import MappingNode
 
 ROOT = Path(__file__).resolve().parents[2]
 APPROVED_RELEASE_WORKFLOW = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
-APPROVED_RELEASE_WORKFLOW_SHA256 = "93c2722013a888ddb6e6ea01dfb0cfb28ebedf74012c7c6d99c672d6c0d12e91"
+APPROVED_RELEASE_WORKFLOW_SHA256 = "ec9c928560e975d21d44b71f3ea6e5c3c2f1445cfbceb3f553a57f0a2256bd7a"
 MAX_WORKFLOW_BYTES = 256 * 1024
 GIT_TIMEOUT_SECONDS = 30
 MAX_CANDIDATE_COMMITS = 250

@@ -371,6 +371,174 @@ jobs:
           artifact-ids: ${{ steps.resolve.outputs.macos_id }}
           path: release-assets
           digest-mismatch: error
+      - name: Write shared fail-closed archive validator
+        shell: python
+        run: |
+          from pathlib import Path
+
+          source = r'''from __future__ import annotations
+
+          import re
+          import stat
+          import tarfile
+          import unicodedata
+          import zipfile
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path
+
+          MAX_MEMBERS = 4096
+          MAX_MEMBER_SIZE = 64 * 1024 * 1024
+          MAX_TOTAL_SIZE = 256 * 1024 * 1024
+          MAX_COMPRESSION_RATIO = 200
+          MAX_METADATA_SIZE = 1024 * 1024
+
+
+          def _normalized_project(name: str) -> str:
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+
+          def _member_path(name: str, seen: set[str]) -> tuple[str, ...]:
+              assert isinstance(name, str) and name
+              name.encode("utf-8", errors="strict")
+              assert "\\" not in name
+              assert not name.startswith(("/", "//"))
+              assert re.match(r"^[A-Za-z]:", name) is None
+              assert not any(unicodedata.category(character).startswith("C") for character in name)
+              clean = name[:-1] if name.endswith("/") else name
+              parts = tuple(clean.split("/"))
+              assert clean and all(part not in {"", ".", ".."} for part in parts)
+              normalized_text = unicodedata.normalize("NFKC", clean)
+              assert normalized_text == clean
+              normalized = normalized_text.casefold()
+              assert normalized not in seen
+              seen.add(normalized)
+              return parts
+
+
+          def _metadata(raw: bytes, project: str, version: str) -> None:
+              assert 0 < len(raw) <= MAX_METADATA_SIZE
+              raw.decode("utf-8", errors="strict")
+              metadata = BytesParser(policy=default).parsebytes(raw)
+              names = metadata.get_all("Name", [])
+              versions = metadata.get_all("Version", [])
+              assert len(names) == 1 and _normalized_project(names[0]) == _normalized_project(project)
+              assert versions == [version]
+
+
+          def _read_member(stream, expected_size: int, capture: bool = False) -> bytes:
+              chunks = []
+              actual_size = 0
+              while True:
+                  chunk = stream.read(min(1024 * 1024, expected_size - actual_size + 1))
+                  if not chunk:
+                      break
+                  actual_size += len(chunk)
+                  assert actual_size <= expected_size
+                  if capture:
+                      chunks.append(chunk)
+              assert actual_size == expected_size
+              return b"".join(chunks)
+
+
+          def _validate_wheel(path: Path, project: str, version: str) -> None:
+              expected_root = f"dcc_mcp_photoshop-{version}.dist-info"
+              metadata_path = f"{expected_root}/METADATA"
+              seen: set[str] = set()
+              total_size = 0
+              metadata_members = []
+              regular_members = []
+              dist_info_roots = set()
+              with zipfile.ZipFile(path) as archive:
+                  members = archive.infolist()
+                  assert 0 < len(members) <= MAX_MEMBERS
+                  for member in members:
+                      parts = _member_path(member.orig_filename, seen)
+                      mode = (member.external_attr >> 16) & 0xFFFF
+                      member_type = stat.S_IFMT(mode)
+                      if member.is_dir():
+                          assert member_type in {0, stat.S_IFDIR}
+                          assert member.file_size == 0
+                      else:
+                          assert member_type in {0, stat.S_IFREG}
+                          assert not (member.flag_bits & 0x1)
+                          assert 0 <= member.file_size <= MAX_MEMBER_SIZE
+                          total_size += member.file_size
+                          assert total_size <= MAX_TOTAL_SIZE
+                          assert member.file_size / max(member.compress_size, 1) <= MAX_COMPRESSION_RATIO
+                          regular_members.append(member)
+                      for index, part in enumerate(parts):
+                          if part.endswith(".dist-info"):
+                              assert index == 0
+                              dist_info_roots.add(part)
+                      if member.filename == metadata_path:
+                          assert not member.is_dir()
+                          metadata_members.append(member)
+                  assert dist_info_roots == {expected_root}
+                  assert len(metadata_members) == 1
+                  metadata_raw = None
+                  for member in regular_members:
+                      is_metadata = member is metadata_members[0]
+                      with archive.open(member) as extracted:
+                          raw = _read_member(extracted, member.file_size, capture=is_metadata)
+                      if is_metadata:
+                          metadata_raw = raw
+                  assert metadata_raw is not None
+                  _metadata(metadata_raw, project, version)
+
+
+          def _validate_sdist(path: Path, project: str, version: str) -> None:
+              expected_root = f"dcc_mcp_photoshop-{version}"
+              metadata_path = f"{expected_root}/PKG-INFO"
+              seen: set[str] = set()
+              total_size = 0
+              metadata_members = []
+              regular_members = []
+              with tarfile.open(path, "r:gz", encoding="utf-8", errors="strict") as archive:
+                  members = archive.getmembers()
+                  assert 0 < len(members) <= MAX_MEMBERS
+                  for member in members:
+                      parts = _member_path(member.name, seen)
+                      assert parts[0] == expected_root
+                      assert member.isfile() or member.isdir()
+                      if member.isfile():
+                          assert 0 <= member.size <= MAX_MEMBER_SIZE
+                          total_size += member.size
+                          assert total_size <= MAX_TOTAL_SIZE
+                          regular_members.append(member)
+                      else:
+                          assert member.size == 0
+                      if parts[-1] == "PKG-INFO":
+                          assert member.name == metadata_path
+                          assert member.isfile()
+                          metadata_members.append(member)
+                  assert total_size / max(path.stat().st_size, 1) <= MAX_COMPRESSION_RATIO
+                  assert len(metadata_members) == 1
+                  metadata_raw = None
+                  for member in regular_members:
+                      is_metadata = member is metadata_members[0]
+                      extracted = archive.extractfile(member)
+                      assert extracted is not None
+                      with extracted:
+                          raw = _read_member(extracted, member.size, capture=is_metadata)
+                      if is_metadata:
+                          metadata_raw = raw
+                  assert metadata_raw is not None
+                  _metadata(metadata_raw, project, version)
+
+
+          def validate_release_distributions(root: Path, project: str, version: str) -> tuple[Path, Path]:
+              wheel = root / f"dcc_mcp_photoshop-{version}-py3-none-any.whl"
+              sdist = root / f"dcc_mcp_photoshop-{version}.tar.gz"
+              assert wheel.is_file() and sdist.is_file()
+              _validate_wheel(wheel, project, version)
+              _validate_sdist(sdist, project, version)
+              return wheel, sdist
+          '''
+
+          policy = Path("policy")
+          policy.mkdir(exist_ok=True)
+          (policy / "archive_validator.py").write_text(source, encoding="utf-8")
       - name: Bind every release file to its SHA-256 digest
         env:
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
@@ -390,12 +558,11 @@ jobs:
           import hashlib
           import json
           import os
-          import re
-          import tarfile
-          import zipfile
-          from email.parser import BytesParser
-          from email.policy import default
+          import sys
           from pathlib import Path
+
+          sys.path.insert(0, str(Path("policy").resolve()))
+          from archive_validator import validate_release_distributions
 
           root = Path("release-assets")
           files = sorted(path for path in root.iterdir() if path.is_file())
@@ -409,32 +576,7 @@ jobs:
           }
           assert names == expected
           version = os.environ["VERSION"]
-          wheel = root / f"dcc_mcp_photoshop-{version}-py3-none-any.whl"
-          wheel_metadata_path = f"dcc_mcp_photoshop-{version}.dist-info/METADATA"
-          with zipfile.ZipFile(wheel) as archive:
-              assert archive.namelist().count(wheel_metadata_path) == 1
-              wheel_metadata_info = archive.getinfo(wheel_metadata_path)
-              assert not wheel_metadata_info.is_dir() and 0 < wheel_metadata_info.file_size <= 1024 * 1024
-              wheel_metadata = BytesParser(policy=default).parsebytes(archive.read(wheel_metadata_path))
-          wheel_names = wheel_metadata.get_all("Name", [])
-          assert len(wheel_names) == 1
-          assert re.sub(r"[-_.]+", "-", wheel_names[0]).lower() == "dcc-mcp-photoshop"
-          wheel_versions = wheel_metadata.get_all("Version", [])
-          assert wheel_versions == [version]
-          sdist = root / f"dcc_mcp_photoshop-{version}.tar.gz"
-          sdist_metadata_path = f"dcc_mcp_photoshop-{version}/PKG-INFO"
-          with tarfile.open(sdist, "r:gz") as archive:
-              assert archive.getnames().count(sdist_metadata_path) == 1
-              member = archive.getmember(sdist_metadata_path)
-              assert member.isfile() and 0 < member.size <= 1024 * 1024
-              extracted = archive.extractfile(member)
-              assert extracted is not None
-              sdist_metadata = BytesParser(policy=default).parsebytes(extracted.read())
-          sdist_names = sdist_metadata.get_all("Name", [])
-          assert len(sdist_names) == 1
-          assert re.sub(r"[-_.]+", "-", sdist_names[0]).lower() == "dcc-mcp-photoshop"
-          sdist_versions = sdist_metadata.get_all("Version", [])
-          assert sdist_versions == [version]
+          validate_release_distributions(root, "dcc-mcp-photoshop", version)
           manifest = {
               "schema_version": 1,
               "tag_name": os.environ["TAG_NAME"],
@@ -468,6 +610,7 @@ jobs:
           path: |
             release-assets/*
             release-manifest.json
+            policy/archive_validator.py
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -501,13 +644,12 @@ jobs:
           import hashlib
           import json
           import os
-          import re
           import shutil
-          import tarfile
-          import zipfile
-          from email.parser import BytesParser
-          from email.policy import default
+          import sys
           from pathlib import Path
+
+          sys.path.insert(0, str((Path("release-bundle") / "policy").resolve()))
+          from archive_validator import validate_release_distributions
 
           root = Path("release-bundle")
           manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
@@ -529,30 +671,7 @@ jobs:
               assert path.stat().st_size == expected[name]["size"]
               assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]["sha256"]
           version = os.environ["VERSION"]
-          wheel = actual[f"dcc_mcp_photoshop-{version}-py3-none-any.whl"]
-          wheel_metadata_path = f"dcc_mcp_photoshop-{version}.dist-info/METADATA"
-          with zipfile.ZipFile(wheel) as archive:
-              assert archive.namelist().count(wheel_metadata_path) == 1
-              wheel_metadata_info = archive.getinfo(wheel_metadata_path)
-              assert not wheel_metadata_info.is_dir() and 0 < wheel_metadata_info.file_size <= 1024 * 1024
-              wheel_metadata = BytesParser(policy=default).parsebytes(archive.read(wheel_metadata_path))
-          wheel_names = wheel_metadata.get_all("Name", [])
-          assert len(wheel_names) == 1
-          assert re.sub(r"[-_.]+", "-", wheel_names[0]).lower() == "dcc-mcp-photoshop"
-          assert wheel_metadata.get_all("Version", []) == [version]
-          sdist = actual[f"dcc_mcp_photoshop-{version}.tar.gz"]
-          sdist_metadata_path = f"dcc_mcp_photoshop-{version}/PKG-INFO"
-          with tarfile.open(sdist, "r:gz") as archive:
-              assert archive.getnames().count(sdist_metadata_path) == 1
-              member = archive.getmember(sdist_metadata_path)
-              assert member.isfile() and 0 < member.size <= 1024 * 1024
-              extracted = archive.extractfile(member)
-              assert extracted is not None
-              sdist_metadata = BytesParser(policy=default).parsebytes(extracted.read())
-          sdist_names = sdist_metadata.get_all("Name", [])
-          assert len(sdist_names) == 1
-          assert re.sub(r"[-_.]+", "-", sdist_names[0]).lower() == "dcc-mcp-photoshop"
-          assert sdist_metadata.get_all("Version", []) == [version]
+          wheel, sdist = validate_release_distributions(root, "dcc-mcp-photoshop", version)
           distributions = Path("dist")
           distributions.mkdir()
           for path in (wheel, sdist):
@@ -674,6 +793,7 @@ jobs:
             test "$(jq -r '.immutable' <<< "$release")" = "$RELEASE_IMMUTABLE"
           }
           for asset in release-bundle/*; do
+            test -f "$asset" || continue
             test "$(basename "$asset")" != "release-manifest.json" || continue
             name=$(basename "$asset")
             recapture_release
