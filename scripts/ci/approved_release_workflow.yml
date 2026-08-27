@@ -112,6 +112,11 @@ jobs:
       contents: read
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
+      release_id: ${{ steps.source.outputs.release_id }}
+      release_created_at: ${{ steps.source.outputs.release_created_at }}
+      release_published_at: ${{ steps.source.outputs.release_published_at }}
+      release_draft: ${{ steps.source.outputs.release_draft }}
+      release_prerelease: ${{ steps.source.outputs.release_prerelease }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -134,12 +139,28 @@ jobs:
             echo "::error::refs/tags/$TAG_NAME does not resolve directly to the checked-out source"
             exit 1
           fi
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
+          RELEASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME")
+          RELEASE_ID=$(jq -r '.id' <<< "$RELEASE")
+          RELEASE_TAG=$(jq -r '.tag_name' <<< "$RELEASE")
+          RELEASE_TARGET=$(jq -r '.target_commitish' <<< "$RELEASE")
+          RELEASE_CREATED_AT=$(jq -r '.created_at' <<< "$RELEASE")
+          RELEASE_PUBLISHED_AT=$(jq -r '.published_at // ""' <<< "$RELEASE")
+          RELEASE_DRAFT=$(jq -r '.draft' <<< "$RELEASE")
+          RELEASE_PRERELEASE=$(jq -r '.prerelease' <<< "$RELEASE")
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$RELEASE_TAG" = "$TAG_NAME"
           if [ "$RELEASE_TARGET" != "$SOURCE_SHA" ]; then
             echo "::error::release target does not match tag source"
             exit 1
           fi
+          test "$RELEASE_DRAFT" = "false"
+          test "$RELEASE_PRERELEASE" = "false"
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "release_created_at=$RELEASE_CREATED_AT" >> "$GITHUB_OUTPUT"
+          echo "release_published_at=$RELEASE_PUBLISHED_AT" >> "$GITHUB_OUTPUT"
+          echo "release_draft=$RELEASE_DRAFT" >> "$GITHUB_OUTPUT"
+          echo "release_prerelease=$RELEASE_PRERELEASE" >> "$GITHUB_OUTPUT"
 
   build-binary:
     needs: [decide, validate-release-version, verify-release-source]
@@ -273,8 +294,150 @@ jobs:
           echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_STEP_SUMMARY"
           echo "artifact_digest=$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
+  bind-release-artifacts:
+    name: Bind exact release artifacts
+    needs: [decide, verify-release-source, build, build-binary]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-bundle.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-bundle.outputs.artifact-digest }}
+    steps:
+      - name: Resolve exact build artifact identities
+        id: resolve
+        env:
+          GH_HOST: github.com
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          VERSION: ${{ needs.decide.outputs.version }}
+          PYTHON_ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+          PYTHON_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACTS=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")
+          test "$(jq -r '.total_count' <<< "$ARTIFACTS")" = "4"
+          resolve_artifact() {
+            local key="$1"
+            local name="$2"
+            local count id digest head_sha expired
+            count=$(jq --arg name "$name" '[.artifacts[] | select(.name == $name)] | length' <<< "$ARTIFACTS")
+            test "$count" = "1"
+            id=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .id' <<< "$ARTIFACTS")
+            digest=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .digest' <<< "$ARTIFACTS")
+            head_sha=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .workflow_run.head_sha' <<< "$ARTIFACTS")
+            expired=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .expired' <<< "$ARTIFACTS")
+            [[ "$id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$head_sha" = "$VERIFIED_SOURCE_SHA"
+            test "$expired" = "false"
+            echo "${key}_id=$id" >> "$GITHUB_OUTPUT"
+            echo "${key}_digest=$digest" >> "$GITHUB_OUTPUT"
+          }
+          resolve_artifact python "python-dist-$VERSION-$GITHUB_RUN_ID"
+          resolve_artifact windows "dcc-mcp-photoshop-windows-$VERSION-$GITHUB_RUN_ID"
+          resolve_artifact linux "dcc-mcp-photoshop-linux-$VERSION-$GITHUB_RUN_ID"
+          resolve_artifact macos "dcc-mcp-photoshop-macos-$VERSION-$GITHUB_RUN_ID"
+          test "$(jq -r --arg name "python-dist-$VERSION-$GITHUB_RUN_ID" '.artifacts[] | select(.name == $name) | .id' <<< "$ARTIFACTS")" = "$PYTHON_ARTIFACT_ID"
+          test "$(jq -r --arg name "python-dist-$VERSION-$GITHUB_RUN_ID" '.artifacts[] | select(.name == $name) | .digest' <<< "$ARTIFACTS")" = "$PYTHON_ARTIFACT_DIGEST"
+      - name: Download exact Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.python_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Download exact Windows standalone archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.windows_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Download exact Linux standalone archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.linux_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Download exact macOS standalone archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.macos_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Bind every release file to its SHA-256 digest
+        env:
+          TAG_NAME: ${{ needs.decide.outputs.tag_name }}
+          VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+          PYTHON_ID: ${{ steps.resolve.outputs.python_id }}
+          PYTHON_DIGEST: ${{ steps.resolve.outputs.python_digest }}
+          WINDOWS_ID: ${{ steps.resolve.outputs.windows_id }}
+          WINDOWS_DIGEST: ${{ steps.resolve.outputs.windows_digest }}
+          LINUX_ID: ${{ steps.resolve.outputs.linux_id }}
+          LINUX_DIGEST: ${{ steps.resolve.outputs.linux_digest }}
+          MACOS_ID: ${{ steps.resolve.outputs.macos_id }}
+          MACOS_DIGEST: ${{ steps.resolve.outputs.macos_digest }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("release-assets")
+          files = sorted(path for path in root.iterdir() if path.is_file())
+          names = {path.name for path in files}
+          fixed = {
+              "dcc-mcp-photoshop-windows.tar.gz",
+              "dcc-mcp-photoshop-linux.tar.gz",
+              "dcc-mcp-photoshop-macos.tar.gz",
+          }
+          assert fixed <= names
+          assert len([name for name in names if name.endswith(".whl")]) == 1
+          assert len([name for name in names if name.endswith(".tar.gz")]) == 4
+          assert len(files) == 5
+          manifest = {
+              "schema_version": 1,
+              "tag_name": os.environ["TAG_NAME"],
+              "source_sha": os.environ["VERIFIED_SOURCE_SHA"],
+              "release_id": int(os.environ["RELEASE_ID"]),
+              "source_artifacts": {
+                  platform: {
+                      "id": int(os.environ[f"{platform.upper()}_ID"]),
+                      "digest": os.environ[f"{platform.upper()}_DIGEST"],
+                  }
+                  for platform in ("python", "windows", "linux", "macos")
+              },
+              "files": [
+                  {
+                      "name": path.name,
+                      "size": path.stat().st_size,
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  }
+                  for path in files
+              ],
+          }
+          Path("release-manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+      - name: Upload exact release bundle
+        id: upload-bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-bundle-${{ needs.decide.outputs.version }}-${{ github.run_id }}
+          path: |
+            release-assets/*
+            release-manifest.json
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   publish:
-    needs: [decide, validate-release-version, verify-release-source, build]
+    needs: [decide, validate-release-version, verify-release-source, bind-release-artifacts]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     environment:
@@ -285,33 +448,81 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Download immutable Python distributions
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download exact release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          path: dist
-      - name: Verify immutable artifact identity
+          artifact-ids: ${{ needs.bind-release-artifacts.outputs.artifact_id }}
+          path: release-bundle
+          digest-mismatch: error
+      - name: Verify exact per-file release manifest
+        env:
+          TAG_NAME: ${{ needs.decide.outputs.tag_name }}
+          VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          import shutil
+          from pathlib import Path
+
+          root = Path("release-bundle")
+          manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["schema_version"] == 1
+          assert manifest["tag_name"] == os.environ["TAG_NAME"]
+          assert manifest["source_sha"] == os.environ["VERIFIED_SOURCE_SHA"]
+          assert manifest["release_id"] == int(os.environ["RELEASE_ID"])
+          source_artifacts = manifest["source_artifacts"]
+          assert set(source_artifacts) == {"python", "windows", "linux", "macos"}
+          for identity in source_artifacts.values():
+              assert isinstance(identity["id"], int) and identity["id"] > 0
+              assert len(identity["digest"]) == 71 and identity["digest"].startswith("sha256:")
+          expected = {entry["name"]: entry for entry in manifest["files"]}
+          actual = {path.name: path for path in root.iterdir() if path.is_file() and path.name != "release-manifest.json"}
+          assert len(manifest["files"]) == len(expected) == 5
+          assert expected.keys() == actual.keys()
+          assert len(actual) == 5
+          for name, path in actual.items():
+              assert path.stat().st_size == expected[name]["size"]
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]["sha256"]
+          distributions = Path("dist")
+          distributions.mkdir()
+          python_files = [
+              path
+              for path in actual.values()
+              if path.suffix == ".whl"
+              or path.name.startswith("dcc_mcp_photoshop-")
+              and path.name.endswith(".tar.gz")
+          ]
+          assert len(python_files) == 2
+          for path in python_files:
+              shutil.copy2(path, distributions / path.name)
+      - name: Recapture exact tag source and release state
         env:
           GH_HOST: github.com
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
-          BUILD_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
-          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+          RELEASE_CREATED_AT: ${{ needs.verify-release-source.outputs.release_created_at }}
+          RELEASE_PUBLISHED_AT: ${{ needs.verify-release-source.outputs.release_published_at }}
+          RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
+          RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$BUILD_SOURCE_SHA" = "$VERIFIED_SOURCE_SHA"
-          test -n "$ARTIFACT_ID"
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
-          test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
-          test "$RELEASE_TARGET" = "$VERIFIED_SOURCE_SHA"
-          test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
-          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2
+          TAG=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME")
+          RELEASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME")
+          test "$(jq -r '.object.type' <<< "$TAG")" = "commit"
+          test "$(jq -r '.object.sha' <<< "$TAG")" = "$VERIFIED_SOURCE_SHA"
+          test "$(jq -r '.id' <<< "$RELEASE")" = "$RELEASE_ID"
+          test "$(jq -r '.tag_name' <<< "$RELEASE")" = "$TAG_NAME"
+          test "$(jq -r '.target_commitish' <<< "$RELEASE")" = "$VERIFIED_SOURCE_SHA"
+          test "$(jq -r '.created_at' <<< "$RELEASE")" = "$RELEASE_CREATED_AT"
+          test "$(jq -r '.published_at // ""' <<< "$RELEASE")" = "$RELEASE_PUBLISHED_AT"
+          test "$(jq -r '.draft' <<< "$RELEASE")" = "$RELEASE_DRAFT"
+          test "$(jq -r '.prerelease' <<< "$RELEASE")" = "$RELEASE_PRERELEASE"
       - name: Publish to PyPI with Trusted Publishing
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -320,75 +531,101 @@ jobs:
           print-hash: true
 
   attach-release-assets:
-    needs: [decide, validate-release-version, verify-release-source, build, build-binary]
-    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    needs: [decide, validate-release-version, verify-release-source, bind-release-artifacts, publish]
+    if: >-
+      always() && !cancelled() &&
+      needs.decide.result == 'success' &&
+      needs.validate-release-version.result == 'success' &&
+      needs.verify-release-source.result == 'success' &&
+      needs.bind-release-artifacts.result == 'success' &&
+      ((github.ref_type == 'tag' && needs.publish.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.tag_name != '' && needs.publish.result == 'skipped'))
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
     steps:
-      - name: Download immutable Python distributions
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download exact release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          path: release-assets
-      - name: Download Windows standalone archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dcc-mcp-photoshop-windows-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: release-assets
-      - name: Download Linux standalone archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dcc-mcp-photoshop-linux-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: release-assets
-      - name: Download macOS standalone archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dcc-mcp-photoshop-macos-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: release-assets
-      - name: Verify immutable artifact identity
+          artifact-ids: ${{ needs.bind-release-artifacts.outputs.artifact_id }}
+          path: release-bundle
+          digest-mismatch: error
+      - name: Verify exact per-file release manifest
         env:
-          GH_HOST: github.com
-          GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
-          BUILD_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
-          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
-        shell: bash
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+        shell: python
         run: |
-          set -euo pipefail
-          test "$BUILD_SOURCE_SHA" = "$VERIFIED_SOURCE_SHA"
-          test -n "$ARTIFACT_ID"
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
-          test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
-          test "$RELEASE_TARGET" = "$VERIFIED_SOURCE_SHA"
-          test "$(find release-assets -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
-          test "$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 4
-          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 5
-      - name: Attach assets without clobbering
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("release-bundle")
+          manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["schema_version"] == 1
+          assert manifest["tag_name"] == os.environ["TAG_NAME"]
+          assert manifest["source_sha"] == os.environ["VERIFIED_SOURCE_SHA"]
+          assert manifest["release_id"] == int(os.environ["RELEASE_ID"])
+          source_artifacts = manifest["source_artifacts"]
+          assert set(source_artifacts) == {"python", "windows", "linux", "macos"}
+          for identity in source_artifacts.values():
+              assert isinstance(identity["id"], int) and identity["id"] > 0
+              assert len(identity["digest"]) == 71 and identity["digest"].startswith("sha256:")
+          expected = {entry["name"]: entry for entry in manifest["files"]}
+          actual = {path.name: path for path in root.iterdir() if path.is_file() and path.name != "release-manifest.json"}
+          assert len(manifest["files"]) == len(expected) == 5
+          assert expected.keys() == actual.keys()
+          assert len(actual) == 5
+          for name, path in actual.items():
+              assert path.stat().st_size == expected[name]["size"]
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]["sha256"]
+      - name: Attach exact assets without clobbering
         env:
           GH_HOST: github.com
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+          RELEASE_CREATED_AT: ${{ needs.verify-release-source.outputs.release_created_at }}
+          RELEASE_PUBLISHED_AT: ${{ needs.verify-release-source.outputs.release_published_at }}
+          RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
+          RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
         shell: bash
         run: |
           set -euo pipefail
-          TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
-          RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.id')
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
-          test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
-          test "$RELEASE_TARGET" = "$VERIFIED_SOURCE_SHA"
-          EXISTING=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
-          for asset in release-assets/*; do
+          recapture_release() {
+            local tag release
+            tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME")
+            release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME")
+            test "$(jq -r '.object.type' <<< "$tag")" = "commit"
+            test "$(jq -r '.object.sha' <<< "$tag")" = "$VERIFIED_SOURCE_SHA"
+            test "$(jq -r '.id' <<< "$release")" = "$RELEASE_ID"
+            test "$(jq -r '.tag_name' <<< "$release")" = "$TAG_NAME"
+            test "$(jq -r '.target_commitish' <<< "$release")" = "$VERIFIED_SOURCE_SHA"
+            test "$(jq -r '.created_at' <<< "$release")" = "$RELEASE_CREATED_AT"
+            test "$(jq -r '.published_at // ""' <<< "$release")" = "$RELEASE_PUBLISHED_AT"
+            test "$(jq -r '.draft' <<< "$release")" = "$RELEASE_DRAFT"
+            test "$(jq -r '.prerelease' <<< "$release")" = "$RELEASE_PRERELEASE"
+          }
+          for asset in release-bundle/*; do
+            test "$(basename "$asset")" != "release-manifest.json" || continue
             name=$(basename "$asset")
+            recapture_release
+            EXISTING=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
             if grep -Fqx "$name" <<< "$EXISTING"; then
               echo "::error::existing release asset refuses no-clobber publication: $name"
               exit 1
             fi
+            encoded_name=$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$name")
+            response=$(gh api --hostname uploads.github.com --method POST \
+              -H "Content-Type: application/octet-stream" \
+              --input "$asset" \
+              "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$encoded_name")
+            expected_digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
+            test "$(jq -r '.name' <<< "$response")" = "$name"
+            test "$(jq -r '.size' <<< "$response")" = "$(wc -c < "$asset" | tr -d ' ')"
+            test "$(jq -r '.digest' <<< "$response")" = "$expected_digest"
           done
-          gh release upload "$TAG_NAME" release-assets/* --repo "$GITHUB_REPOSITORY"
