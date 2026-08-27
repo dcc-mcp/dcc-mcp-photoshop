@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts" / "ci" / "check_trusted_release_policy.py"
 APPROVED = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "trusted-release-policy.yml"
-APPROVED_DIGEST = "3fa27668fcf36339f0e449bfe8c51952e3729f3f1442ec89a8c78981c552ce3c"
+APPROVED_DIGEST = "93c2722013a888ddb6e6ea01dfb0cfb28ebedf74012c7c6d99c672d6c0d12e91"
 
 
 def _run_checker(candidate: Path, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:

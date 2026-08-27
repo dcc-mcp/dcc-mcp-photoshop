@@ -117,6 +117,7 @@ jobs:
       release_published_at: ${{ steps.source.outputs.release_published_at }}
       release_draft: ${{ steps.source.outputs.release_draft }}
       release_prerelease: ${{ steps.source.outputs.release_prerelease }}
+      release_immutable: ${{ steps.source.outputs.release_immutable }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -147,6 +148,7 @@ jobs:
           RELEASE_PUBLISHED_AT=$(jq -r '.published_at // ""' <<< "$RELEASE")
           RELEASE_DRAFT=$(jq -r '.draft' <<< "$RELEASE")
           RELEASE_PRERELEASE=$(jq -r '.prerelease' <<< "$RELEASE")
+          RELEASE_IMMUTABLE=$(jq -r '.immutable' <<< "$RELEASE")
           [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
           test "$RELEASE_TAG" = "$TAG_NAME"
           if [ "$RELEASE_TARGET" != "$SOURCE_SHA" ]; then
@@ -155,12 +157,14 @@ jobs:
           fi
           test "$RELEASE_DRAFT" = "false"
           test "$RELEASE_PRERELEASE" = "false"
+          test "$RELEASE_IMMUTABLE" = "false"
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
           echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
           echo "release_created_at=$RELEASE_CREATED_AT" >> "$GITHUB_OUTPUT"
           echo "release_published_at=$RELEASE_PUBLISHED_AT" >> "$GITHUB_OUTPUT"
           echo "release_draft=$RELEASE_DRAFT" >> "$GITHUB_OUTPUT"
           echo "release_prerelease=$RELEASE_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "release_immutable=$RELEASE_IMMUTABLE" >> "$GITHUB_OUTPUT"
 
   build-binary:
     needs: [decide, validate-release-version, verify-release-source]
@@ -370,6 +374,7 @@ jobs:
       - name: Bind every release file to its SHA-256 digest
         env:
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
+          VERSION: ${{ needs.decide.outputs.version }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
           RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
           PYTHON_ID: ${{ steps.resolve.outputs.python_id }}
@@ -385,20 +390,51 @@ jobs:
           import hashlib
           import json
           import os
+          import re
+          import tarfile
+          import zipfile
+          from email.parser import BytesParser
+          from email.policy import default
           from pathlib import Path
 
           root = Path("release-assets")
           files = sorted(path for path in root.iterdir() if path.is_file())
           names = {path.name for path in files}
-          fixed = {
+          expected = {
+              f"dcc_mcp_photoshop-{os.environ['VERSION']}-py3-none-any.whl",
+              f"dcc_mcp_photoshop-{os.environ['VERSION']}.tar.gz",
               "dcc-mcp-photoshop-windows.tar.gz",
               "dcc-mcp-photoshop-linux.tar.gz",
               "dcc-mcp-photoshop-macos.tar.gz",
           }
-          assert fixed <= names
-          assert len([name for name in names if name.endswith(".whl")]) == 1
-          assert len([name for name in names if name.endswith(".tar.gz")]) == 4
-          assert len(files) == 5
+          assert names == expected
+          version = os.environ["VERSION"]
+          wheel = root / f"dcc_mcp_photoshop-{version}-py3-none-any.whl"
+          wheel_metadata_path = f"dcc_mcp_photoshop-{version}.dist-info/METADATA"
+          with zipfile.ZipFile(wheel) as archive:
+              assert archive.namelist().count(wheel_metadata_path) == 1
+              wheel_metadata_info = archive.getinfo(wheel_metadata_path)
+              assert not wheel_metadata_info.is_dir() and 0 < wheel_metadata_info.file_size <= 1024 * 1024
+              wheel_metadata = BytesParser(policy=default).parsebytes(archive.read(wheel_metadata_path))
+          wheel_names = wheel_metadata.get_all("Name", [])
+          assert len(wheel_names) == 1
+          assert re.sub(r"[-_.]+", "-", wheel_names[0]).lower() == "dcc-mcp-photoshop"
+          wheel_versions = wheel_metadata.get_all("Version", [])
+          assert wheel_versions == [version]
+          sdist = root / f"dcc_mcp_photoshop-{version}.tar.gz"
+          sdist_metadata_path = f"dcc_mcp_photoshop-{version}/PKG-INFO"
+          with tarfile.open(sdist, "r:gz") as archive:
+              assert archive.getnames().count(sdist_metadata_path) == 1
+              member = archive.getmember(sdist_metadata_path)
+              assert member.isfile() and 0 < member.size <= 1024 * 1024
+              extracted = archive.extractfile(member)
+              assert extracted is not None
+              sdist_metadata = BytesParser(policy=default).parsebytes(extracted.read())
+          sdist_names = sdist_metadata.get_all("Name", [])
+          assert len(sdist_names) == 1
+          assert re.sub(r"[-_.]+", "-", sdist_names[0]).lower() == "dcc-mcp-photoshop"
+          sdist_versions = sdist_metadata.get_all("Version", [])
+          assert sdist_versions == [version]
           manifest = {
               "schema_version": 1,
               "tag_name": os.environ["TAG_NAME"],
@@ -457,6 +493,7 @@ jobs:
       - name: Verify exact per-file release manifest
         env:
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
+          VERSION: ${{ needs.decide.outputs.version }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
           RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
         shell: python
@@ -464,7 +501,12 @@ jobs:
           import hashlib
           import json
           import os
+          import re
           import shutil
+          import tarfile
+          import zipfile
+          from email.parser import BytesParser
+          from email.policy import default
           from pathlib import Path
 
           root = Path("release-bundle")
@@ -486,17 +528,34 @@ jobs:
           for name, path in actual.items():
               assert path.stat().st_size == expected[name]["size"]
               assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]["sha256"]
+          version = os.environ["VERSION"]
+          wheel = actual[f"dcc_mcp_photoshop-{version}-py3-none-any.whl"]
+          wheel_metadata_path = f"dcc_mcp_photoshop-{version}.dist-info/METADATA"
+          with zipfile.ZipFile(wheel) as archive:
+              assert archive.namelist().count(wheel_metadata_path) == 1
+              wheel_metadata_info = archive.getinfo(wheel_metadata_path)
+              assert not wheel_metadata_info.is_dir() and 0 < wheel_metadata_info.file_size <= 1024 * 1024
+              wheel_metadata = BytesParser(policy=default).parsebytes(archive.read(wheel_metadata_path))
+          wheel_names = wheel_metadata.get_all("Name", [])
+          assert len(wheel_names) == 1
+          assert re.sub(r"[-_.]+", "-", wheel_names[0]).lower() == "dcc-mcp-photoshop"
+          assert wheel_metadata.get_all("Version", []) == [version]
+          sdist = actual[f"dcc_mcp_photoshop-{version}.tar.gz"]
+          sdist_metadata_path = f"dcc_mcp_photoshop-{version}/PKG-INFO"
+          with tarfile.open(sdist, "r:gz") as archive:
+              assert archive.getnames().count(sdist_metadata_path) == 1
+              member = archive.getmember(sdist_metadata_path)
+              assert member.isfile() and 0 < member.size <= 1024 * 1024
+              extracted = archive.extractfile(member)
+              assert extracted is not None
+              sdist_metadata = BytesParser(policy=default).parsebytes(extracted.read())
+          sdist_names = sdist_metadata.get_all("Name", [])
+          assert len(sdist_names) == 1
+          assert re.sub(r"[-_.]+", "-", sdist_names[0]).lower() == "dcc-mcp-photoshop"
+          assert sdist_metadata.get_all("Version", []) == [version]
           distributions = Path("dist")
           distributions.mkdir()
-          python_files = [
-              path
-              for path in actual.values()
-              if path.suffix == ".whl"
-              or path.name.startswith("dcc_mcp_photoshop-")
-              and path.name.endswith(".tar.gz")
-          ]
-          assert len(python_files) == 2
-          for path in python_files:
+          for path in (wheel, sdist):
               shutil.copy2(path, distributions / path.name)
       - name: Recapture exact tag source and release state
         env:
@@ -509,6 +568,7 @@ jobs:
           RELEASE_PUBLISHED_AT: ${{ needs.verify-release-source.outputs.release_published_at }}
           RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
           RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
+          RELEASE_IMMUTABLE: ${{ needs.verify-release-source.outputs.release_immutable }}
         shell: bash
         run: |
           set -euo pipefail
@@ -523,6 +583,7 @@ jobs:
           test "$(jq -r '.published_at // ""' <<< "$RELEASE")" = "$RELEASE_PUBLISHED_AT"
           test "$(jq -r '.draft' <<< "$RELEASE")" = "$RELEASE_DRAFT"
           test "$(jq -r '.prerelease' <<< "$RELEASE")" = "$RELEASE_PRERELEASE"
+          test "$(jq -r '.immutable' <<< "$RELEASE")" = "$RELEASE_IMMUTABLE"
       - name: Publish to PyPI with Trusted Publishing
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -593,6 +654,7 @@ jobs:
           RELEASE_PUBLISHED_AT: ${{ needs.verify-release-source.outputs.release_published_at }}
           RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
           RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
+          RELEASE_IMMUTABLE: ${{ needs.verify-release-source.outputs.release_immutable }}
         shell: bash
         run: |
           set -euo pipefail
@@ -609,6 +671,7 @@ jobs:
             test "$(jq -r '.published_at // ""' <<< "$release")" = "$RELEASE_PUBLISHED_AT"
             test "$(jq -r '.draft' <<< "$release")" = "$RELEASE_DRAFT"
             test "$(jq -r '.prerelease' <<< "$release")" = "$RELEASE_PRERELEASE"
+            test "$(jq -r '.immutable' <<< "$release")" = "$RELEASE_IMMUTABLE"
           }
           for asset in release-bundle/*; do
             test "$(basename "$asset")" != "release-manifest.json" || continue
