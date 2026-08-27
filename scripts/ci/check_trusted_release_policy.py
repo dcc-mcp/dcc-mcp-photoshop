@@ -23,9 +23,8 @@ from yaml.events import AliasEvent
 from yaml.nodes import MappingNode
 
 ROOT = Path(__file__).resolve().parents[2]
-APPROVED_RELEASE_HEAD = "9a7fd52009000b6f56649b4113cbc453edaab1a5"
 APPROVED_RELEASE_WORKFLOW = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
-APPROVED_RELEASE_WORKFLOW_SHA256 = "a3b38a10c6caab17219f3eeea2a8fab0a1f6c3a93d770a00d5280f74a5e40da1"
+APPROVED_RELEASE_WORKFLOW_SHA256 = "3fa27668fcf36339f0e449bfe8c51952e3729f3f1442ec89a8c78981c552ce3c"
 MAX_WORKFLOW_BYTES = 256 * 1024
 GIT_TIMEOUT_SECONDS = 30
 MAX_CANDIDATE_COMMITS = 250
@@ -528,7 +527,7 @@ def main() -> int:
     except PolicyError as exc:
         print(f"trusted release policy failed: {exc}", file=sys.stderr)
         return 1
-    print(f"trusted release policy passed for approved target {APPROVED_RELEASE_HEAD}")
+    print(f"trusted release policy passed for approved digest {APPROVED_RELEASE_WORKFLOW_SHA256}")
     return 0
 
 
