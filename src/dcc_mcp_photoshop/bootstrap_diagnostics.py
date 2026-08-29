@@ -65,7 +65,10 @@ def redact_bootstrap_message(message: str) -> str:
         # of leaking a partial path or swallowing surrounding diagnostics.
         tail = protected[match.end() :]
         next_path = _WINDOWS_PATH_START.search(tail)
-        candidate_tail = tail[: next_path.start()] if next_path else tail.splitlines()[0]
+        if next_path:
+            candidate_tail = tail[: next_path.start()]
+        else:
+            candidate_tail = tail.splitlines()[0] if tail else ""
         if re.search(r"\s", candidate_tail) and re.search(r"[\\/]", candidate_tail):
             return match.group(0)
         return "<redacted-path>"
