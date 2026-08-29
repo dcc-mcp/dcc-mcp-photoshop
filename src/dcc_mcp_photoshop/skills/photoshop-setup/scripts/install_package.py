@@ -7,6 +7,8 @@ import sys
 
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
 
 def _pip_install(args: list[str]) -> dict:
     """Run pip install with the given arguments and return result."""
@@ -16,22 +18,22 @@ def _pip_install(args: list[str]) -> dict:
         success = result.returncode == 0
         return {
             "success": success,
-            "stdout": result.stdout.strip(),
-            "stderr": result.stderr.strip(),
+            "stdout": redact_bootstrap_message(result.stdout.strip()),
+            "stderr": redact_bootstrap_message(result.stderr.strip()),
             "command": " ".join(cmd),
         }
     except subprocess.TimeoutExpired:
         return {
             "success": False,
             "stdout": "",
-            "stderr": "pip install timed out after 120 seconds",
+            "stderr": redact_bootstrap_message("pip install timed out after 120 seconds"),
             "command": " ".join(cmd),
         }
     except FileNotFoundError:
         return {
             "success": False,
             "stdout": "",
-            "stderr": "pip not found",
+            "stderr": redact_bootstrap_message("pip not found"),
             "command": " ".join(cmd),
         }
 

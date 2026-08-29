@@ -41,6 +41,23 @@ def _load_verify_module():
     return module
 
 
+def _load_install_module():
+    path = (
+        Path(__file__).parent.parent
+        / "src"
+        / "dcc_mcp_photoshop"
+        / "skills"
+        / "photoshop-setup"
+        / "scripts"
+        / "install_package.py"
+    )
+    spec = importlib.util.spec_from_file_location("install_package", path)
+    assert spec and spec.loader
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_legacy_setup_tool_routes_to_the_canonical_install_contract(tmp_path: Path) -> None:
     module = _load_setup_module()
     result = module.setup_uxp_plugin(bridge_dir=str(tmp_path / "bridge"))
@@ -87,3 +104,20 @@ def test_verify_executes_real_host_probe_after_broker_session_connects() -> None
 
     assert result["success"] is True
     photoshop.assert_called_once_with("http://broker:47391", 3.0)
+
+
+def test_legacy_package_skill_redacts_pip_paths_and_secrets(monkeypatch) -> None:
+    module = _load_install_module()
+    monkeypatch.setenv("ADOBEPY_TOKEN", "skill-secret")
+
+    completed = type(
+        "Completed",
+        (),
+        {"returncode": 1, "stdout": r"failed C:\Users\alice\pkg token=skill-secret", "stderr": ""},
+    )()
+    with patch.object(module.subprocess, "run", return_value=completed):
+        result = module.install_package()
+
+    assert result["success"] is False
+    assert "skill-secret" not in result["details"]["pip_stdout"]
+    assert "C:\\Users\\alice" not in result["details"]["pip_stdout"]

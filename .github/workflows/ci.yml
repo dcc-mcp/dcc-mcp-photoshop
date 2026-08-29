@@ -30,7 +30,7 @@ jobs:
           pip install -e ".[dev]"
 
       - name: Install lifecycle contract smoke
-        run: python -m pytest tests/test_install_lifecycle.py tests/test_install_docs.py -q
+        run: python -m pytest tests/test_install_lifecycle.py tests/test_install_docs.py tests/test_package_smoke.py -q
 
       - name: Run tests with coverage
         run: |
@@ -169,6 +169,13 @@ jobs:
         run: |
           dcc-mcp-photoshop --help
           python -m dcc_mcp_photoshop --help
+          python -m pytest tests/test_package_smoke.py -q
+
+      - name: Build and inspect wheel
+        run: |
+          python -m pip install build
+          python -m build --wheel --no-isolation
+          python -c "import glob, zipfile; wheel = glob.glob('dist/*.whl'); assert len(wheel) == 1, wheel; names = set(zipfile.ZipFile(wheel[0]).namelist()); assert 'dcc_mcp_photoshop/schemas/adapter-install-sop-v1.schema.json' in names; assert 'dcc_mcp_photoshop/skills/photoshop-setup/SKILL.md' in names"
 
       - name: Start server briefly and verify it responds
         run: |

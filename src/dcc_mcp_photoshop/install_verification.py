@@ -12,9 +12,13 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Mapping
 
 from dcc_mcp_photoshop.install_contract import (
+    ADOBEPY_SPECIFIER,
+    CORE_SPECIFIER,
     INSTALL_SOP_SCHEMA_ID,
     INSTALL_SOP_SCHEMA_SHA256,
     INSTALL_SOP_SCHEMA_SIZE,
+    satisfies_adobepy_specifier,
+    satisfies_core_specifier,
     version_tuple,
 )
 from dcc_mcp_photoshop.runtime_probe import probe_broker, probe_photoshop
@@ -207,8 +211,8 @@ def _failure(stage: str, reason: str, error_type: str) -> dict[str, Any]:
     }
 
 
-def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
-    """Prove target imports belong to their selected distributions."""
+def _probe_target_import_payload(executable: str, timeout: float) -> dict[str, Any]:
+    """Run the target interpreter probe and return a bounded payload/error."""
     env = os.environ.copy()
     for name in ("ADOBEPY_TOKEN", "ADOBE_TOKEN"):
         env.pop(name, None)
@@ -304,20 +308,30 @@ print(json.dumps({
             timeout=timeout,
         )
     except OSError:
-        return {"ok": False, "error_type": "invalid_executable"}
+        return {"__error_type": "invalid_executable"}
     except subprocess.TimeoutExpired:
-        return {"ok": False, "error_type": "timeout"}
+        return {"__error_type": "timeout"}
     except subprocess.SubprocessError:
-        return {"ok": False, "error_type": "probe_failed"}
+        return {"__error_type": "probe_failed"}
     if result.returncode != 0:
-        return {"ok": False, "error_type": "import_failed"}
+        return {"__error_type": "import_failed"}
     stdout = result.stdout or ""
     if len(stdout.encode("utf-8", errors="replace")) > 262_144:
-        return {"ok": False, "error_type": "unbounded_output"}
+        return {"__error_type": "unbounded_output"}
     try:
         payload = json.loads(stdout)
     except (json.JSONDecodeError, UnicodeError):
-        return {"ok": False, "error_type": "invalid_json"}
+        return {"__error_type": "invalid_json"}
+    if not isinstance(payload, dict) or not isinstance(payload.get("modules"), dict):
+        return {"__error_type": "invalid_payload"}
+    return payload
+
+
+def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
+    """Prove target imports belong to their selected distributions and bounds."""
+    payload = _probe_target_import_payload(executable, timeout)
+    if "__error_type" in payload:
+        return {"ok": False, "error_type": payload["__error_type"]}
     if not isinstance(payload, dict) or not isinstance(payload.get("modules"), dict):
         return {"ok": False, "error_type": "invalid_payload"}
     core_schema = payload.get("core_schema")
@@ -358,11 +372,21 @@ print(json.dumps({
             return {"ok": False, "error_type": "invalid_payload"}
         if not module_path.is_file():
             return {"ok": False, "error_type": "untrusted_module_origin"}
+    core_version = payload["modules"]["core"]["version"]
+    if not satisfies_core_specifier(core_version):
+        return {"ok": False, "error_type": "core_version_out_of_range"}
+    adobepy_version = payload["modules"]["adobepy"]["version"]
+    if not satisfies_adobepy_specifier(adobepy_version):
+        return {"ok": False, "error_type": "adobepy_version_mismatch"}
     return {
         "ok": True,
         "python_executable": str(reported_python),
         "modules": payload["modules"],
         "core_schema": core_schema,
+        "requirements": {
+            "core": CORE_SPECIFIER,
+            "adobepy": ADOBEPY_SPECIFIER,
+        },
     }
 
 

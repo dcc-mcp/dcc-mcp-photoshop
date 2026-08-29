@@ -13,12 +13,16 @@ from typing import Any
 from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
+    ADOBEPY_SPECIFIER,
+    CORE_SPECIFIER,
     INSTALL_EXIT_ACQUIRE,
     INSTALL_EXIT_OK,
     INSTALL_EXIT_PREFLIGHT,
     MIN_CORE_VERSION,
     MIN_PYTHON_VERSION,
     package_version,
+    satisfies_adobepy_specifier,
+    satisfies_core_specifier,
     state_dir,
     version_tuple,
 )
@@ -155,25 +159,37 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
     receipt_python = receipt_python if isinstance(receipt_python, dict) else {}
     if dcc_path:
         host = Path(dcc_path).expanduser()
+        host_source = "flag"
     elif verb == "upgrade" and receipt:
         host = Path(receipt_host.get("executable", "")).expanduser()
+        host_source = "receipt"
     else:
         discovered_host, _layout_version = discover_photoshop_executable()
         host = discovered_host or Path()
+        host_source = "discovery"
     host_identity = attest_photoshop_executable(host) if host.is_file() else None
     detected_host_version = host_identity.get("version") if host_identity else None
     if python:
         interpreter = Path(python).expanduser()
+        python_source = "flag"
+    elif os.environ.get("DCC_MCP_INSTALL_PYTHON"):
+        interpreter = Path(os.environ["DCC_MCP_INSTALL_PYTHON"]).expanduser()
+        python_source = "environment"
     elif verb == "upgrade" and receipt:
         interpreter = Path(receipt_python.get("executable", sys.executable)).expanduser()
+        python_source = "receipt"
     else:
         interpreter = Path(sys.executable)
+        python_source = "current_process"
     python_version = _python_version(interpreter) if interpreter.is_file() else None
-    core_version = package_version("dcc-mcp-core")
+    process_core_version = package_version("dcc-mcp-core")
     target_import = probe_target_import(str(interpreter), 10.0) if python_version else {"ok": False}
     adobepy_cli_value = os.environ.get("ADOBEPY_CLI", "")
     adobepy_cli = Path(adobepy_cli_value).expanduser() if adobepy_cli_value else None
     target_modules = target_import.get("modules") if isinstance(target_import, dict) else None
+    target_core = target_modules.get("core") if isinstance(target_modules, dict) else None
+    target_core_version = target_core.get("version") if isinstance(target_core, dict) else None
+    core_version = target_core_version or process_core_version
     adobepy_module = target_modules.get("adobepy") if isinstance(target_modules, dict) else None
     adobepy_sdk_version = adobepy_module.get("version") if isinstance(adobepy_module, dict) else None
     adobepy_identity = _adobepy_cli_identity(adobepy_cli, adobepy_sdk_version)
@@ -189,8 +205,13 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
     parsed_broker = urlparse(broker_url)
     if parsed_broker.username is not None or parsed_broker.password is not None:
         failures.append(("security", "Broker URL credentials are not supported; configure authentication separately"))
-    if version_tuple(core_version) < version_tuple(MIN_CORE_VERSION):
-        failures.append(("core_version", f"dcc-mcp-core {MIN_CORE_VERSION} or newer is required"))
+    target_import_error = target_import.get("error_type") if isinstance(target_import, dict) else None
+    if (
+        not satisfies_core_specifier(process_core_version)
+        or not satisfies_core_specifier(core_version)
+        or target_import_error == "core_version_out_of_range"
+    ):
+        failures.append(("core_version", f"dcc-mcp-core {CORE_SPECIFIER} is required"))
     if not host.is_file():
         failures.append(("preflight", "Photoshop executable was not found"))
     elif host_identity is None:
@@ -205,6 +226,8 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         failures.append(("preflight", "Target Python imports are not owned by their selected distributions"))
     if adobepy_identity is None:
         failures.append(("acquire", "A supported adobepy CLI is required to stage the UXP bridge"))
+    elif adobepy_sdk_version and not satisfies_adobepy_specifier(adobepy_sdk_version):
+        failures.append(("acquire", f"adobepy {ADOBEPY_SPECIFIER} is required"))
     if not os.environ.get("ADOBEPY_TOKEN"):
         failures.append(("preflight", "ADOBEPY_TOKEN must be configured in the environment"))
 
@@ -218,6 +241,14 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
     )
     status = "failed" if failure_stage else "planned"
     next_steps: list[dict[str, Any]] = []
+    host_plan = dict(
+        host_identity
+        or {
+            "executable": str(host.resolve()) if host.is_file() else str(host),
+            "version": detected_host_version,
+        }
+    )
+    host_plan["resolution_source"] = host_source
     report: dict[str, Any] = {
         "schema_version": 1,
         "status": status,
@@ -242,14 +273,11 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         "installed_state": installed_state,
         "plan": {
             "action": "upgrade" if verb == "upgrade" else "repair" if installed_state != "fresh" else "install",
-            "host": host_identity
-            or {
-                "executable": str(host.resolve()) if host.is_file() else str(host),
-                "version": detected_host_version,
-            },
+            "host": host_plan,
             "python": {
                 "executable": str(interpreter.resolve()) if interpreter.is_file() else str(interpreter),
                 "version": python_version,
+                "resolution_source": python_source,
                 "modules": target_import.get("modules", {}),
             },
             "bridge": {
@@ -271,6 +299,8 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
                 "destination": str(bridge_root),
             },
             "requirements": {
+                "core_specifier": CORE_SPECIFIER,
+                "adobepy_specifier": ADOBEPY_SPECIFIER,
                 "minimum_core_version": MIN_CORE_VERSION,
                 "minimum_python_version": "3.8",
                 "minimum_photoshop_version": "2022",
