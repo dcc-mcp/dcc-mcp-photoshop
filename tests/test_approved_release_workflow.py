@@ -919,6 +919,26 @@ def test_shared_validator_rejects_nul_and_malformed_member_encoding(tmp_path: Pa
         validator._member_path(invalid_name, set())
 
 
+def test_shared_validator_refuses_optimized_python(tmp_path: Path) -> None:
+    validator_path = _write_archive_validator(tmp_path)
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-O",
+            "-c",
+            "import runpy; runpy.run_path(__import__('sys').argv[1])",
+            str(validator_path),
+        ],
+        cwd=tmp_path,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "optimized Python" in result.stderr
+
+
 def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
     document = _workflow()
     bind = document["jobs"]["bind-release-artifacts"]
@@ -940,6 +960,7 @@ def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
     assert "def _validate_raw_tar" in validator
     assert "def _validate_standalone" in validator
     assert "def _validate_pax_paths" in validator
+    assert "archive validator refuses optimized Python" in validator
     assert "from archive_validator import validate_release_distributions" in builder
     assert "from archive_validator import validate_release_distributions" in preflight
     assert "policy/archive_validator.py" in upload

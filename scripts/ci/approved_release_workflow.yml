@@ -389,6 +389,9 @@ jobs:
           from email.policy import default
           from pathlib import Path
 
+          if not __debug__:
+              raise RuntimeError("archive validator refuses optimized Python")
+
           MAX_MEMBERS = 4096
           MAX_MEMBER_SIZE = 64 * 1024 * 1024
           MAX_TOTAL_SIZE = 256 * 1024 * 1024
