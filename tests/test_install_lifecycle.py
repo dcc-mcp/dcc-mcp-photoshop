@@ -357,6 +357,26 @@ def test_bootstrap_diagnostics_redacts_local_paths_and_credentials(monkeypatch) 
     assert "<redacted-path>" in redacted
 
 
+def test_bootstrap_diagnostics_redacts_all_absolute_posix_paths_without_touching_urls() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    paths = (
+        "/Applications/Adobe Photoshop 2025/Plug-ins/plugin.js",
+        "/Volumes/Work/Photoshop/plugin.js",
+        "/mnt/secret/plugin.js",
+        "/root/.config/adobepy/token",
+    )
+    url = "https://example.com/Applications/Adobe-Photoshop/plugin.js"
+    message = " ".join((*paths, url))
+
+    redacted = redact_bootstrap_message(message)
+
+    for path in paths:
+        assert path not in redacted
+    assert url in redacted
+    assert redacted.count("<redacted-path>") == len(paths)
+
+
 def test_runtime_identity_rejects_an_unbounded_target(monkeypatch) -> None:
     monkeypatch.setenv("ADOBEPY_TARGET", "x" * 129)
 

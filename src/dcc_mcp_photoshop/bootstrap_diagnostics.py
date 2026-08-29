@@ -8,6 +8,11 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+_LOCAL_PATH_OR_URL = re.compile(
+    r"https?://[^\s\"'<>]+|(?<![A-Za-z0-9])/(?!/)(?![^\s\"'<>]*://)[^\s\"'<>]+",
+    re.IGNORECASE,
+)
+
 
 def _diagnostic_path() -> Path:
     configured = os.environ.get("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR")
@@ -32,12 +37,14 @@ def redact_bootstrap_message(message: str) -> str:
         "<redacted-path>",
         redacted,
     )
-    redacted = re.sub(
-        r"(?<![A-Za-z0-9])/(?:Users|home|private|tmp|var|opt|workspace)/[^\s\"'<>]+",
-        "<redacted-path>",
-        redacted,
-    )
-    return redacted
+
+    def redact_local_path_or_preserve_url(match: re.Match[str]) -> str:
+        value = match.group(0)
+        if value.lower().startswith(("http://", "https://")):
+            return value
+        return "<redacted-path>"
+
+    return _LOCAL_PATH_OR_URL.sub(redact_local_path_or_preserve_url, redacted)
 
 
 def capture_bootstrap_error(stage: str, message: str) -> str:
