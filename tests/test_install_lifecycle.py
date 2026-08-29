@@ -433,6 +433,21 @@ def test_bootstrap_diagnostics_does_not_swallow_multiple_unquoted_windows_paths(
     assert "<redacted-path>" not in redacted
 
 
+def test_bootstrap_diagnostics_redacts_unique_windows_paths_at_line_end() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    messages = (
+        r"C:\Adobe\Photoshop.exe",
+        r"path=C:\Adobe\Photoshop.exe",
+        "first line\n" + r"\\server\share\plugin.dll",
+    )
+
+    for message in messages:
+        redacted = redact_bootstrap_message(message)
+        assert "<redacted-path>" in redacted
+        assert message not in redacted
+
+
 def test_runtime_identity_rejects_an_unbounded_target(monkeypatch) -> None:
     monkeypatch.setenv("ADOBEPY_TARGET", "x" * 129)
 
