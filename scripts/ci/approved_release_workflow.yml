@@ -224,7 +224,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/archive
-          tar -C dist/binary -czf "dist/archive/${{ matrix.artifact }}.tar.gz" .
+          tar -C dist/binary -czf "dist/archive/${{ matrix.artifact }}.tar.gz" "${{ matrix.binary_name }}"
       - name: Upload immutable standalone archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -378,8 +378,10 @@ jobs:
 
           source = r'''from __future__ import annotations
 
+          import gzip
           import re
           import stat
+          import struct
           import tarfile
           import unicodedata
           import zipfile
@@ -392,6 +394,10 @@ jobs:
           MAX_TOTAL_SIZE = 256 * 1024 * 1024
           MAX_COMPRESSION_RATIO = 200
           MAX_METADATA_SIZE = 1024 * 1024
+          MAX_PATH_DEPTH = 64
+          MAX_PATH_BYTES = 1024
+          MAX_PATH_SEGMENT_BYTES = 255
+          WINDOWS_RESERVED_NAMES = {"AUX", "CON", "CONIN$", "CONOUT$", "NUL", "PRN"}
 
 
           def _normalized_project(name: str) -> str:
@@ -408,6 +414,15 @@ jobs:
               clean = name[:-1] if name.endswith("/") else name
               parts = tuple(clean.split("/"))
               assert clean and all(part not in {"", ".", ".."} for part in parts)
+              assert len(clean.encode("utf-8")) <= MAX_PATH_BYTES
+              assert len(parts) <= MAX_PATH_DEPTH
+              assert all(len(part.encode("utf-8")) <= MAX_PATH_SEGMENT_BYTES for part in parts)
+              assert all(":" not in part for part in parts)
+              for part in parts:
+                  assert not part.endswith((".", " "))
+                  stem = part.split(".", 1)[0].upper()
+                  assert stem not in WINDOWS_RESERVED_NAMES
+                  assert re.fullmatch(r"(?:COM|LPT)[1-9]", stem) is None
               normalized_text = unicodedata.normalize("NFKC", clean)
               assert normalized_text == clean
               normalized = normalized_text.casefold()
@@ -441,6 +456,158 @@ jobs:
               return b"".join(chunks)
 
 
+          def _read_exact(stream, size: int, capture: bool = False) -> bytes:
+              chunks = []
+              remaining = size
+              while remaining:
+                  chunk = stream.read(min(1024 * 1024, remaining))
+                  assert chunk
+                  remaining -= len(chunk)
+                  if capture:
+                      chunks.append(chunk)
+              return b"".join(chunks)
+
+
+          def _tar_text(field: bytes) -> str:
+              value, separator, padding = field.partition(b"\0")
+              if separator:
+                  assert not padding.strip(b"\0")
+              return value.decode("utf-8", errors="strict")
+
+
+          def _tar_number(field: bytes) -> int:
+              assert not (field[0] & 0x80)
+              value = field.strip(b"\0 ")
+              assert not value or all(48 <= character <= 55 for character in value)
+              return int(value or b"0", 8)
+
+
+          def _validate_pax_paths(payload: bytes) -> None:
+              position = 0
+              keys = set()
+              while position < len(payload):
+                  separator = payload.find(b" ", position)
+                  assert separator > position
+                  length_raw = payload[position:separator]
+                  assert length_raw.isdigit() and not length_raw.startswith(b"0")
+                  end = position + int(length_raw)
+                  assert end <= len(payload) and payload[end - 1 : end] == b"\n"
+                  key_raw, delimiter, value_raw = payload[separator + 1 : end - 1].partition(b"=")
+                  assert delimiter and key_raw
+                  key = key_raw.decode("ascii", errors="strict")
+                  assert key not in keys
+                  keys.add(key)
+                  if key in {"path", "linkpath"}:
+                      _member_path(value_raw.decode("utf-8", errors="strict"), set())
+                  position = end
+              assert position == len(payload)
+
+
+          def _validate_raw_tar(path: Path) -> None:
+              with gzip.open(path, "rb") as stream:
+                  raw_members = 0
+                  raw_total_size = 0
+                  while True:
+                      header = _read_exact(stream, 512, capture=True)
+                      if header == bytes(512):
+                          assert _read_exact(stream, 512, capture=True) == bytes(512)
+                          trailing_size = 0
+                          while True:
+                              trailing = stream.read(1024 * 1024)
+                              if not trailing:
+                                  break
+                              trailing_size += len(trailing)
+                              assert trailing_size <= MAX_TOTAL_SIZE
+                              assert not trailing.strip(b"\0")
+                          break
+                      raw_members += 1
+                      assert raw_members <= MAX_MEMBERS
+                      stored_checksum = _tar_number(header[148:156])
+                      assert stored_checksum == sum(header[:148]) + 8 * 32 + sum(header[156:])
+                      name = _tar_text(header[:100])
+                      prefix = _tar_text(header[345:500])
+                      raw_name = f"{prefix}/{name}" if prefix else name
+                      linkname = _tar_text(header[157:257])
+                      member_type = header[156:157] or b"0"
+                      size = _tar_number(header[124:136])
+                      assert 0 <= size <= MAX_MEMBER_SIZE
+                      raw_total_size += size
+                      assert raw_total_size <= MAX_TOTAL_SIZE
+                      capture = member_type in {b"x", b"g", b"L", b"K"}
+                      payload = _read_exact(stream, size, capture=capture)
+                      padding = (-size) % 512
+                      assert _read_exact(stream, padding, capture=True) == bytes(padding)
+                      if member_type in {b"x", b"g"}:
+                          _validate_pax_paths(payload)
+                      elif member_type in {b"L", b"K"}:
+                          override = payload.rstrip(b"\0").decode("utf-8", errors="strict")
+                          _member_path(override, set())
+                      else:
+                          _member_path(raw_name, set())
+                      if linkname:
+                          _member_path(linkname, set())
+                  assert raw_members > 0
+
+
+          def _validate_zip_extra(extra: bytes) -> None:
+              position = 0
+              identifiers = set()
+              while position < len(extra):
+                  assert position + 4 <= len(extra)
+                  identifier, size = struct.unpack_from("<HH", extra, position)
+                  position += 4
+                  assert identifier not in identifiers and identifier != 0x0001
+                  identifiers.add(identifier)
+                  position += size
+                  assert position <= len(extra)
+              assert position == len(extra)
+
+
+          def _validate_zip_local_record(
+              raw: bytes, member: zipfile.ZipInfo, next_offset: int
+          ) -> None:
+              signature, flags, method, crc, compressed_size, file_size = struct.unpack_from(
+                  "<I2xHH4xIII", raw, member.header_offset
+              )
+              assert signature == 0x04034B50
+              assert flags == member.flag_bits
+              assert method == member.compress_type
+              assert compressed_size != 0xFFFFFFFF and file_size != 0xFFFFFFFF
+              name_length, extra_length = struct.unpack_from("<HH", raw, member.header_offset + 26)
+              name_start = member.header_offset + 30
+              name_end = name_start + name_length
+              extra_end = name_end + extra_length
+              encoding = "utf-8" if flags & 0x800 else "cp437"
+              assert raw[name_start:name_end] == member.orig_filename.encode(encoding, errors="strict")
+              _validate_zip_extra(raw[name_end:extra_end])
+              _validate_zip_extra(member.extra)
+              data_end = extra_end + member.compress_size
+              if flags & 0x8:
+                  assert (crc, compressed_size, file_size) == (0, 0, 0)
+                  descriptor_signature, descriptor_crc, descriptor_compressed, descriptor_size = struct.unpack_from(
+                      "<IIII", raw, data_end
+                  )
+                  assert descriptor_signature == 0x08074B50
+                  assert descriptor_crc == member.CRC
+                  assert descriptor_compressed == member.compress_size
+                  assert descriptor_size == member.file_size
+                  data_end += 16
+              else:
+                  assert crc == member.CRC
+                  assert compressed_size == member.compress_size
+                  assert file_size == member.file_size
+              assert data_end == next_offset
+
+
+          def _validate_zip_records(raw: bytes, archive: zipfile.ZipFile, members: list[zipfile.ZipInfo]) -> None:
+              ordered = sorted(members, key=lambda member: member.header_offset)
+              assert len({member.header_offset for member in ordered}) == len(ordered)
+              assert ordered[0].header_offset == 0
+              for index, member in enumerate(ordered):
+                  next_offset = ordered[index + 1].header_offset if index + 1 < len(ordered) else archive.start_dir
+                  _validate_zip_local_record(raw, member, next_offset)
+
+
           def _validate_wheel(path: Path, project: str, version: str) -> None:
               expected_root = f"dcc_mcp_photoshop-{version}.dist-info"
               metadata_path = f"{expected_root}/METADATA"
@@ -449,6 +616,7 @@ jobs:
               metadata_members = []
               regular_members = []
               dist_info_roots = set()
+              raw_archive = path.read_bytes()
               with zipfile.ZipFile(path) as archive:
                   members = archive.infolist()
                   assert 0 < len(members) <= MAX_MEMBERS
@@ -468,12 +636,13 @@ jobs:
                           assert member.file_size / max(member.compress_size, 1) <= MAX_COMPRESSION_RATIO
                           regular_members.append(member)
                       for index, part in enumerate(parts):
-                          if part.endswith(".dist-info"):
+                          if unicodedata.normalize("NFKC", part).casefold().endswith(".dist-info"):
                               assert index == 0
                               dist_info_roots.add(part)
                       if member.filename == metadata_path:
                           assert not member.is_dir()
                           metadata_members.append(member)
+                  _validate_zip_records(raw_archive, archive, members)
                   assert dist_info_roots == {expected_root}
                   assert len(metadata_members) == 1
                   metadata_raw = None
@@ -494,6 +663,7 @@ jobs:
               total_size = 0
               metadata_members = []
               regular_members = []
+              _validate_raw_tar(path)
               with tarfile.open(path, "r:gz", encoding="utf-8", errors="strict") as archive:
                   members = archive.getmembers()
                   assert 0 < len(members) <= MAX_MEMBERS
@@ -527,12 +697,41 @@ jobs:
                   _metadata(metadata_raw, project, version)
 
 
+          def _validate_standalone(path: Path, binary_name: str) -> None:
+              seen: set[str] = set()
+              _validate_raw_tar(path)
+              with tarfile.open(path, "r:gz", encoding="utf-8", errors="strict") as archive:
+                  members = archive.getmembers()
+                  assert len(members) == 1
+                  member = members[0]
+                  parts = _member_path(member.name, seen)
+                  assert parts == (binary_name,)
+                  assert member.name == binary_name
+                  assert member.isfile()
+                  assert 0 < member.size <= MAX_MEMBER_SIZE
+                  assert member.size <= MAX_TOTAL_SIZE
+                  assert member.size / max(path.stat().st_size, 1) <= MAX_COMPRESSION_RATIO
+                  extracted = archive.extractfile(member)
+                  assert extracted is not None
+                  with extracted:
+                      _read_member(extracted, member.size)
+
+
           def validate_release_distributions(root: Path, project: str, version: str) -> tuple[Path, Path]:
               wheel = root / f"dcc_mcp_photoshop-{version}-py3-none-any.whl"
               sdist = root / f"dcc_mcp_photoshop-{version}.tar.gz"
               assert wheel.is_file() and sdist.is_file()
               _validate_wheel(wheel, project, version)
               _validate_sdist(sdist, project, version)
+              standalone = {
+                  "dcc-mcp-photoshop-windows.tar.gz": "dcc-mcp-photoshop.exe",
+                  "dcc-mcp-photoshop-linux.tar.gz": "dcc-mcp-photoshop",
+                  "dcc-mcp-photoshop-macos.tar.gz": "dcc-mcp-photoshop",
+              }
+              for archive_name, binary_name in standalone.items():
+                  archive_path = root / archive_name
+                  assert archive_path.is_file()
+                  _validate_standalone(archive_path, binary_name)
               return wheel, sdist
           '''
 
