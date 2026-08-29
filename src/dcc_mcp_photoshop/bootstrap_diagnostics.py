@@ -8,10 +8,15 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-_LOCAL_PATH_OR_URL = re.compile(
-    r"https?://[^\s\"'<>]+|(?<![A-Za-z0-9])/(?!/)(?![^\s\"'<>]*://)[^\s\"'<>]+",
+_URL_SPAN = re.compile(
+    r'"(?:https?|file|ftp|wss?)://[^"<>]*"|'
+    r"'(?:https?|file|ftp|wss?)://[^'<>]*'|"
+    r"(?:https?|file|ftp|wss?)://[^\s\"'<>]+",
     re.IGNORECASE,
 )
+_URL_TOKEN = re.compile(r"\x00DCC_URL_(\d+)\x00")
+_QUOTED_POSIX_PATH = re.compile(r"""(["'])/(?!/)[^"'<>]+\1""")
+_UNQUOTED_POSIX_PATH = re.compile(r'(?<![A-Za-z0-9])/(?!/)(?:[^/\s"\'<>](?:[^/"\'<>]*[^/\s"\'<>])?/)*[^\s/"\'<>]+/?')
 
 
 def _diagnostic_path() -> Path:
@@ -27,24 +32,35 @@ def redact_bootstrap_message(message: str) -> str:
         secret = os.environ.get(name, "")
         if secret:
             redacted = redacted.replace(secret, "<redacted>")
-    redacted = re.sub(r"(https?://)[^/@\s]+@", r"\1<redacted>@", redacted)
+    redacted = re.sub(
+        r"((?:https?|file|ftp|wss?)://)[^/@\s]+@",
+        r"\1<redacted>@",
+        redacted,
+        flags=re.IGNORECASE,
+    )
     # Bootstrap errors are persisted and may be uploaded by diagnostics. Keep
     # machine-local paths out of that public surface while preserving the
     # stage/error text. Both native Windows and POSIX spellings are covered,
     # including foreign-platform paths received from a host subprocess.
-    redacted = re.sub(
+    urls: list[str] = []
+
+    def protect_url(match: re.Match[str]) -> str:
+        urls.append(match.group(0))
+        return f"\x00DCC_URL_{len(urls) - 1}\x00"
+
+    protected = _URL_SPAN.sub(protect_url, redacted)
+    protected = re.sub(
         r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s\"'<>]+",
         "<redacted-path>",
-        redacted,
+        protected,
     )
+    protected = _QUOTED_POSIX_PATH.sub("<redacted-path>", protected)
+    protected = _UNQUOTED_POSIX_PATH.sub("<redacted-path>", protected)
 
-    def redact_local_path_or_preserve_url(match: re.Match[str]) -> str:
-        value = match.group(0)
-        if value.lower().startswith(("http://", "https://")):
-            return value
-        return "<redacted-path>"
+    def restore_url(match: re.Match[str]) -> str:
+        return urls[int(match.group(1))]
 
-    return _LOCAL_PATH_OR_URL.sub(redact_local_path_or_preserve_url, redacted)
+    return _URL_TOKEN.sub(restore_url, protected)
 
 
 def capture_bootstrap_error(stage: str, message: str) -> str:
