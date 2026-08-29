@@ -24,7 +24,7 @@ from yaml.nodes import MappingNode
 
 ROOT = Path(__file__).resolve().parents[2]
 APPROVED_RELEASE_WORKFLOW = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
-APPROVED_RELEASE_WORKFLOW_SHA256 = "ec9c928560e975d21d44b71f3ea6e5c3c2f1445cfbceb3f553a57f0a2256bd7a"
+APPROVED_RELEASE_WORKFLOW_SHA256 = "a22a4e7523621b60a55f16c9b1b62d8bba291177057ab1fcb4eb14025a35c342"
 MAX_WORKFLOW_BYTES = 256 * 1024
 GIT_TIMEOUT_SECONDS = 30
 MAX_CANDIDATE_COMMITS = 250
@@ -286,6 +286,9 @@ def validate_tree(
         "paths": {path: candidate_objects[path].public_identity() for path in POLICY_PATHS},
     }
     if not changed_trust_roots and not release_changed:
+        # A no-op candidate still represents the effective release workflow.
+        # Verify it against the base-owned snapshot so drift cannot pass green.
+        validate_candidate(candidate_path)
         report["outcome"] = "no-op"
         return report
     if changed_trust_roots:

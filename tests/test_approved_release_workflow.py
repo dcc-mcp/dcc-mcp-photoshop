@@ -7,6 +7,7 @@ import json
 import os
 import shutil
 import stat
+import struct
 import subprocess
 import sys
 import tarfile
@@ -23,6 +24,11 @@ EXPECTED_RELEASE_ASSETS = {
     "dcc-mcp-photoshop-linux.tar.gz",
     "dcc-mcp-photoshop-macos.tar.gz",
     "dcc-mcp-photoshop-windows.tar.gz",
+}
+STANDALONE_BINARY_NAMES = {
+    "dcc-mcp-photoshop-linux.tar.gz": "dcc-mcp-photoshop",
+    "dcc-mcp-photoshop-macos.tar.gz": "dcc-mcp-photoshop",
+    "dcc-mcp-photoshop-windows.tar.gz": "dcc-mcp-photoshop.exe",
 }
 ATTACH_RELEASE_ASSETS_IF = (
     "always() && !cancelled() && "
@@ -137,6 +143,14 @@ def _write_sdist(path: Path, *, metadata_name: str, metadata_version: str) -> No
         archive.addfile(info, io.BytesIO(metadata))
 
 
+def _write_standalone(path: Path, binary_name: str, binary: bytes = b"standalone-binary") -> None:
+    info = tarfile.TarInfo(binary_name)
+    info.mode = 0o755
+    info.size = len(binary)
+    with tarfile.open(path, "w:gz") as archive:
+        archive.addfile(info, io.BytesIO(binary))
+
+
 def _append_wheel_member(path: Path, name: str, content: bytes = b"hostile") -> None:
     with zipfile.ZipFile(path, "a") as archive:
         archive.writestr(name, content)
@@ -151,6 +165,15 @@ def _append_wheel_backslash_member(path: Path) -> None:
     path.write_bytes(raw.replace(canonical, hostile))
 
 
+def _append_wheel_nul_member(path: Path) -> None:
+    canonical = b"badXname.txt"
+    hostile = b"bad\x00name.txt"
+    _append_wheel_member(path, canonical.decode())
+    raw = path.read_bytes()
+    assert raw.count(canonical) == 2
+    path.write_bytes(raw.replace(canonical, hostile))
+
+
 def _append_wheel_with_divergent_local_name(path: Path) -> None:
     central_name = b"safe-entry.txt"
     local_name = b"../../evil.txt"
@@ -159,6 +182,46 @@ def _append_wheel_with_divergent_local_name(path: Path) -> None:
     raw = path.read_bytes()
     assert raw.count(central_name) == 2
     path.write_bytes(raw.replace(central_name, local_name, 1))
+
+
+def _mutate_first_zip_local_field(path: Path, offset: int, value: int, field_format: str) -> None:
+    raw = bytearray(path.read_bytes())
+    local_header = raw.index(b"PK\x03\x04")
+    struct.pack_into(field_format, raw, local_header + offset, value)
+    path.write_bytes(raw)
+
+
+def _toggle_first_zip_local_flags(path: Path, mask: int) -> None:
+    raw = bytearray(path.read_bytes())
+    local_header = raw.index(b"PK\x03\x04")
+    flags = struct.unpack_from("<H", raw, local_header + 6)[0]
+    struct.pack_into("<H", raw, local_header + 6, flags ^ mask)
+    path.write_bytes(raw)
+
+
+class _UnseekableBuffer(io.BytesIO):
+    def seekable(self) -> bool:
+        return False
+
+    def seek(self, *args: object, **kwargs: object) -> int:
+        raise OSError("seek disabled")
+
+
+def _write_wheel_with_data_descriptor(path: Path) -> None:
+    buffer = _UnseekableBuffer()
+    with zipfile.ZipFile(buffer, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr(
+            "dcc_mcp_photoshop-1.2.3.dist-info/METADATA",
+            _package_metadata("dcc-mcp-photoshop", "1.2.3"),
+        )
+    path.write_bytes(buffer.getvalue())
+
+
+def _mutate_first_zip_descriptor_field(path: Path, offset: int, value: int) -> None:
+    raw = bytearray(path.read_bytes())
+    descriptor = raw.index(b"PK\x07\x08")
+    struct.pack_into("<I", raw, descriptor + offset, value)
+    path.write_bytes(raw)
 
 
 def _write_archive_validator(tmp_path: Path) -> Path:
@@ -185,6 +248,71 @@ def _append_sdist_member(path: Path, member: tarfile.TarInfo, content: bytes = b
             archive.addfile(current, io.BytesIO(raw) if current.isfile() else None)
         member.size = len(content) if member.isfile() else 0
         archive.addfile(member, io.BytesIO(content) if member.isfile() else None)
+
+
+def _write_sdist_with_raw_pax_escape(path: Path) -> None:
+    root = "dcc_mcp_photoshop-1.2.3"
+    metadata = _package_metadata("dcc-mcp-photoshop", "1.2.3")
+    with tarfile.open(path, "w:gz", format=tarfile.PAX_FORMAT) as archive:
+        metadata_info = tarfile.TarInfo(f"{root}/PKG-INFO")
+        metadata_info.size = len(metadata)
+        archive.addfile(metadata_info, io.BytesIO(metadata))
+        hostile = tarfile.TarInfo("../../raw-escape")
+        hostile.pax_headers = {"path": f"{root}/safe.txt"}
+        hostile.size = len(b"hostile")
+        archive.addfile(hostile, io.BytesIO(b"hostile"))
+
+
+def _write_sdist_with_pax_link_escape(path: Path) -> None:
+    root = "dcc_mcp_photoshop-1.2.3"
+    metadata = _package_metadata("dcc-mcp-photoshop", "1.2.3")
+    with tarfile.open(path, "w:gz", format=tarfile.PAX_FORMAT) as archive:
+        metadata_info = tarfile.TarInfo(f"{root}/PKG-INFO")
+        metadata_info.size = len(metadata)
+        archive.addfile(metadata_info, io.BytesIO(metadata))
+        member = tarfile.TarInfo(f"{root}/safe.txt")
+        member.pax_headers = {"linkpath": "../../pax-link-escape"}
+        member.size = len(b"safe")
+        archive.addfile(member, io.BytesIO(b"safe"))
+
+
+def _write_sdist_with_gnu_longlink_escape(path: Path) -> None:
+    root = "dcc_mcp_photoshop-1.2.3"
+    metadata = _package_metadata("dcc-mcp-photoshop", "1.2.3")
+    with tarfile.open(path, "w:gz", format=tarfile.GNU_FORMAT) as archive:
+        metadata_info = tarfile.TarInfo(f"{root}/PKG-INFO")
+        metadata_info.size = len(metadata)
+        archive.addfile(metadata_info, io.BytesIO(metadata))
+        member = tarfile.TarInfo(f"{root}/unsafe-link")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "../" * 40 + "outside"
+        archive.addfile(member)
+
+
+def _write_sdist_with_global_pax_link_escape(path: Path) -> None:
+    root = "dcc_mcp_photoshop-1.2.3"
+    metadata = _package_metadata("dcc-mcp-photoshop", "1.2.3")
+    with tarfile.open(
+        path,
+        "w:gz",
+        format=tarfile.PAX_FORMAT,
+        pax_headers={"linkpath": "../../global-pax-link-escape"},
+    ) as archive:
+        metadata_info = tarfile.TarInfo(f"{root}/PKG-INFO")
+        metadata_info.size = len(metadata)
+        archive.addfile(metadata_info, io.BytesIO(metadata))
+
+
+def _write_sdist_with_safe_gnu_longname(path: Path) -> None:
+    root = "dcc_mcp_photoshop-1.2.3"
+    metadata = _package_metadata("dcc-mcp-photoshop", "1.2.3")
+    with tarfile.open(path, "w:gz", format=tarfile.GNU_FORMAT) as archive:
+        metadata_info = tarfile.TarInfo(f"{root}/PKG-INFO")
+        metadata_info.size = len(metadata)
+        archive.addfile(metadata_info, io.BytesIO(metadata))
+        member = tarfile.TarInfo(f"{root}/{'safe' * 30}.txt")
+        member.size = len(b"safe")
+        archive.addfile(member, io.BytesIO(b"safe"))
 
 
 def _make_wheel_metadata_a_symlink(path: Path) -> None:
@@ -220,9 +348,145 @@ def _apply_archive_attack(assets: Path, attack: str) -> Path:
             _package_metadata("dcc-mcp-photoshop", "1.2.3"),
         )
         return wheel
+    if attack == "wheel casefold shadow metadata":
+        _append_wheel_member(
+            wheel,
+            "other-9.9.9.DIST-INFO/METADATA",
+            _package_metadata("dcc-mcp-photoshop", "1.2.3"),
+        )
+        return wheel
     if attack == "wheel divergent local name":
         _append_wheel_with_divergent_local_name(wheel)
         return wheel
+    if attack == "wheel local method mismatch":
+        _mutate_first_zip_local_field(wheel, 8, zipfile.ZIP_DEFLATED, "<H")
+        return wheel
+    if attack == "wheel local flags mismatch":
+        _toggle_first_zip_local_flags(wheel, 0x800)
+        return wheel
+    if attack == "wheel local crc mismatch":
+        _mutate_first_zip_local_field(wheel, 14, 0, "<I")
+        return wheel
+    if attack == "wheel local compressed size mismatch":
+        _mutate_first_zip_local_field(wheel, 18, 1, "<I")
+        return wheel
+    if attack == "wheel local uncompressed size mismatch":
+        _mutate_first_zip_local_field(wheel, 22, 1, "<I")
+        return wheel
+    if attack == "wheel descriptor crc mismatch":
+        _write_wheel_with_data_descriptor(wheel)
+        _mutate_first_zip_descriptor_field(wheel, 4, 0)
+        return wheel
+    if attack == "wheel descriptor compressed size mismatch":
+        _write_wheel_with_data_descriptor(wheel)
+        _mutate_first_zip_descriptor_field(wheel, 8, 1)
+        return wheel
+    if attack == "wheel descriptor uncompressed size mismatch":
+        _write_wheel_with_data_descriptor(wheel)
+        _mutate_first_zip_descriptor_field(wheel, 12, 1)
+        return wheel
+    if attack == "wheel descriptor local placeholder mismatch":
+        _write_wheel_with_data_descriptor(wheel)
+        _mutate_first_zip_local_field(wheel, 14, 1, "<I")
+        return wheel
+    if attack == "wheel alternate data stream":
+        _append_wheel_member(wheel, "dcc_mcp_photoshop/module.py:stream")
+        return wheel
+    if attack == "wheel excessive path depth":
+        _append_wheel_member(wheel, "/".join(["part"] * 300))
+        return wheel
+    if attack == "wheel excessive segment length":
+        _append_wheel_member(wheel, "a" * 256)
+        return wheel
+    if attack == "wheel excessive total path length":
+        _append_wheel_member(wheel, "/".join(["a" * 20] * 60))
+        return wheel
+    if attack == "wheel reserved device name":
+        _append_wheel_member(wheel, "dcc_mcp_photoshop/CON.txt")
+        return wheel
+    if attack == "wheel trailing dot component":
+        _append_wheel_member(wheel, "dcc_mcp_photoshop/module.")
+        return wheel
+    if attack == "wheel trailing space component":
+        _append_wheel_member(wheel, "dcc_mcp_photoshop/module ")
+        return wheel
+    if attack == "wheel nul member":
+        _append_wheel_nul_member(wheel)
+        return wheel
+    if attack == "sdist raw pax traversal":
+        _write_sdist_with_raw_pax_escape(sdist)
+        return sdist
+    if attack == "sdist pax link traversal":
+        _write_sdist_with_pax_link_escape(sdist)
+        return sdist
+    if attack == "sdist gnu longlink traversal":
+        _write_sdist_with_gnu_longlink_escape(sdist)
+        return sdist
+    if attack == "sdist global pax link traversal":
+        _write_sdist_with_global_pax_link_escape(sdist)
+        return sdist
+    if attack == "sdist alternate data stream":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/module.py:stream")
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist excessive path depth":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/" + "/".join(["part"] * 300))
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist excessive segment length":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/" + "a" * 256)
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist excessive total path length":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/" + "/".join(["a" * 20] * 60))
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist reserved device name":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/AUX.txt")
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist trailing dot component":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/module.")
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist trailing space component":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/module ")
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist nul member":
+        member = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/safe\x00escape")
+        _append_sdist_member(sdist, member, b"hostile")
+        return sdist
+    if attack == "sdist duplicate normalized member":
+        lower = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/package.txt")
+        _append_sdist_member(sdist, lower, b"first")
+        upper = tarfile.TarInfo("dcc_mcp_photoshop-1.2.3/PACKAGE.TXT")
+        _append_sdist_member(sdist, upper, b"second")
+        return sdist
+    if attack == "standalone linux traversal":
+        standalone = assets / "dcc-mcp-photoshop-linux.tar.gz"
+        member = tarfile.TarInfo("../../outside.txt")
+        _append_sdist_member(standalone, member, b"hostile")
+        return standalone
+    if attack == "standalone linux symlink":
+        standalone = assets / "dcc-mcp-photoshop-linux.tar.gz"
+        member = tarfile.TarInfo("unsafe-link")
+        member.type = tarfile.SYMTYPE
+        member.linkname = "../../outside.txt"
+        _append_sdist_member(standalone, member)
+        return standalone
+    if attack == "standalone windows wrong binary layout":
+        standalone = assets / "dcc-mcp-photoshop-windows.tar.gz"
+        _write_standalone(standalone, "dcc-mcp-photoshop")
+        return standalone
+    if attack == "standalone macos compression bomb":
+        standalone = assets / "dcc-mcp-photoshop-macos.tar.gz"
+        _write_standalone(standalone, "dcc-mcp-photoshop", b"0" * (1024 * 1024))
+        return standalone
+    if attack == "standalone windows truncated gzip":
+        standalone = assets / "dcc-mcp-photoshop-windows.tar.gz"
+        standalone.write_bytes(standalone.read_bytes()[:-8])
+        return standalone
     raise AssertionError(f"unknown attack: {attack}")
 
 
@@ -299,8 +563,8 @@ def _write_release_assets(
         metadata_name=sdist_metadata_name,
         metadata_version=sdist_metadata_version,
     )
-    for name in EXPECTED_RELEASE_ASSETS:
-        (root / name).write_bytes(b"standalone")
+    for name, binary_name in STANDALONE_BINARY_NAMES.items():
+        _write_standalone(root / name, binary_name)
 
 
 def test_every_artifact_download_is_exact_v8_and_fails_on_digest_mismatch() -> None:
@@ -332,6 +596,14 @@ def test_release_bundle_binds_exact_run_artifacts_and_every_file_digest() -> Non
     assert "release_id" in manifest
     for name in EXPECTED_RELEASE_ASSETS:
         assert name in manifest
+
+
+def test_standalone_packaging_selects_only_the_matrix_binary() -> None:
+    package = _step(_workflow()["jobs"]["build-binary"], "Package standalone archive")["run"]
+
+    assert '"${{ matrix.binary_name }}"' in package
+    assert "dist/binary -czf" in package
+    assert not package.rstrip().endswith(" .")
 
 
 @pytest.mark.parametrize(
@@ -453,8 +725,8 @@ def test_manifest_rejects_a_wheel_for_another_project_and_version(tmp_path: Path
         metadata_name="dcc-mcp-photoshop",
         metadata_version="1.2.3",
     )
-    for name in EXPECTED_RELEASE_ASSETS:
-        (assets / name).write_bytes(b"standalone")
+    for name, binary_name in STANDALONE_BINARY_NAMES.items():
+        _write_standalone(assets / name, binary_name)
 
     result = _run_manifest_builder(tmp_path)
 
@@ -469,7 +741,43 @@ def test_manifest_rejects_a_wheel_for_another_project_and_version(tmp_path: Path
         "sdist second root",
         "wheel metadata symlink",
         "wheel shadow metadata",
+        "wheel casefold shadow metadata",
         "wheel divergent local name",
+        "wheel local method mismatch",
+        "wheel local flags mismatch",
+        "wheel local crc mismatch",
+        "wheel local compressed size mismatch",
+        "wheel local uncompressed size mismatch",
+        "wheel descriptor crc mismatch",
+        "wheel descriptor compressed size mismatch",
+        "wheel descriptor uncompressed size mismatch",
+        "wheel descriptor local placeholder mismatch",
+        "wheel alternate data stream",
+        "wheel excessive path depth",
+        "wheel excessive segment length",
+        "wheel excessive total path length",
+        "wheel reserved device name",
+        "wheel trailing dot component",
+        "wheel trailing space component",
+        "wheel nul member",
+        "sdist raw pax traversal",
+        "sdist pax link traversal",
+        "sdist gnu longlink traversal",
+        "sdist global pax link traversal",
+        "sdist alternate data stream",
+        "sdist excessive path depth",
+        "sdist excessive segment length",
+        "sdist excessive total path length",
+        "sdist reserved device name",
+        "sdist trailing dot component",
+        "sdist trailing space component",
+        "sdist nul member",
+        "sdist duplicate normalized member",
+        "standalone linux traversal",
+        "standalone linux symlink",
+        "standalone windows wrong binary layout",
+        "standalone macos compression bomb",
+        "standalone windows truncated gzip",
     ],
 )
 def test_manifest_rejects_adversarial_archive_members(tmp_path: Path, attack: str) -> None:
@@ -481,6 +789,38 @@ def test_manifest_rejects_adversarial_archive_members(tmp_path: Path, attack: st
 
     assert result.returncode != 0
     assert not (tmp_path / "release-manifest.json").exists()
+
+
+def test_builder_and_publisher_accept_safe_gnu_longname_records(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    _write_sdist_with_safe_gnu_longname(assets / "dcc_mcp_photoshop-1.2.3.tar.gz")
+
+    manifest_result = _run_manifest_builder(tmp_path)
+    assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
+    bundle = tmp_path / "release-bundle"
+    shutil.copytree(assets, bundle)
+    shutil.copy2(tmp_path / "release-manifest.json", bundle / "release-manifest.json")
+
+    publisher_result = _run_publisher_preflight(tmp_path)
+
+    assert publisher_result.returncode == 0, publisher_result.stdout + publisher_result.stderr
+
+
+def test_builder_and_publisher_accept_consistent_zip_data_descriptor_records(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    _write_wheel_with_data_descriptor(assets / "dcc_mcp_photoshop-1.2.3-py3-none-any.whl")
+
+    manifest_result = _run_manifest_builder(tmp_path)
+    assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
+    bundle = tmp_path / "release-bundle"
+    shutil.copytree(assets, bundle)
+    shutil.copy2(tmp_path / "release-manifest.json", bundle / "release-manifest.json")
+
+    publisher_result = _run_publisher_preflight(tmp_path)
+
+    assert publisher_result.returncode == 0, publisher_result.stdout + publisher_result.stderr
 
 
 @pytest.mark.parametrize(
@@ -593,6 +933,13 @@ def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
     assert "MAX_MEMBER_SIZE = 64 * 1024 * 1024" in validator
     assert "MAX_TOTAL_SIZE = 256 * 1024 * 1024" in validator
     assert "MAX_COMPRESSION_RATIO = 200" in validator
+    assert "MAX_PATH_DEPTH = 64" in validator
+    assert "MAX_PATH_BYTES = 1024" in validator
+    assert "MAX_PATH_SEGMENT_BYTES = 255" in validator
+    assert "def _validate_zip_records" in validator
+    assert "def _validate_raw_tar" in validator
+    assert "def _validate_standalone" in validator
+    assert "def _validate_pax_paths" in validator
     assert "from archive_validator import validate_release_distributions" in builder
     assert "from archive_validator import validate_release_distributions" in preflight
     assert "policy/archive_validator.py" in upload
@@ -605,7 +952,43 @@ def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
         "sdist second root",
         "wheel metadata symlink",
         "wheel shadow metadata",
+        "wheel casefold shadow metadata",
         "wheel divergent local name",
+        "wheel local method mismatch",
+        "wheel local flags mismatch",
+        "wheel local crc mismatch",
+        "wheel local compressed size mismatch",
+        "wheel local uncompressed size mismatch",
+        "wheel descriptor crc mismatch",
+        "wheel descriptor compressed size mismatch",
+        "wheel descriptor uncompressed size mismatch",
+        "wheel descriptor local placeholder mismatch",
+        "wheel alternate data stream",
+        "wheel excessive path depth",
+        "wheel excessive segment length",
+        "wheel excessive total path length",
+        "wheel reserved device name",
+        "wheel trailing dot component",
+        "wheel trailing space component",
+        "wheel nul member",
+        "sdist raw pax traversal",
+        "sdist pax link traversal",
+        "sdist gnu longlink traversal",
+        "sdist global pax link traversal",
+        "sdist alternate data stream",
+        "sdist excessive path depth",
+        "sdist excessive segment length",
+        "sdist excessive total path length",
+        "sdist reserved device name",
+        "sdist trailing dot component",
+        "sdist trailing space component",
+        "sdist nul member",
+        "sdist duplicate normalized member",
+        "standalone linux traversal",
+        "standalone linux symlink",
+        "standalone windows wrong binary layout",
+        "standalone macos compression bomb",
+        "standalone windows truncated gzip",
     ],
 )
 def test_publisher_rejects_self_consistent_adversarial_archive_members(tmp_path: Path, attack: str) -> None:
