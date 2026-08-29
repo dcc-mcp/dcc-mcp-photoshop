@@ -377,6 +377,28 @@ def test_bootstrap_diagnostics_redacts_all_absolute_posix_paths_without_touching
     assert redacted.count("<redacted-path>") == len(paths)
 
 
+def test_bootstrap_diagnostics_protects_all_supported_url_spans_and_full_posix_paths() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    quoted_path = "/Applications/Adobe Photoshop 2025/Photoshop.app/Contents/Resources/plugin.js"
+    unquoted_path = "/Applications/Adobe Photoshop 2025/Photoshop.app/Contents/Resources/plugin.js"
+    urls = (
+        "https://example.com/C:/foo",
+        "file:///Applications/Adobe%20Photoshop/plugin.js",
+        "ftp://example.com/mnt/secret/plugin.js",
+        "ws://example.com/root/socket",
+    )
+    message = f'quoted="{quoted_path}" unquoted={unquoted_path} urls={" ".join(urls)}'
+
+    redacted = redact_bootstrap_message(message)
+
+    assert quoted_path not in redacted
+    assert unquoted_path not in redacted
+    for url in urls:
+        assert url in redacted
+    assert redacted.count("<redacted-path>") == 2
+
+
 def test_runtime_identity_rejects_an_unbounded_target(monkeypatch) -> None:
     monkeypatch.setenv("ADOBEPY_TARGET", "x" * 129)
 
