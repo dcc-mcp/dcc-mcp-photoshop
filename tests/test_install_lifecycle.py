@@ -399,6 +399,23 @@ def test_bootstrap_diagnostics_protects_all_supported_url_spans_and_full_posix_p
     assert redacted.count("<redacted-path>") == 2
 
 
+def test_bootstrap_diagnostics_preserves_credentialed_urls_and_redacts_full_windows_paths() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    drive_path = r"C:\Program Files\Adobe Photoshop 2025\Plug-ins\plugin.js"
+    unc_path = r"\\server\Shared Photoshop 2025\plugin.js"
+    credentialed_url = '"https://alice:secret@example.com/C:/foo"'
+    message = f'quoted="{drive_path}" unquoted={drive_path} unc="{unc_path}" url={credentialed_url}'
+
+    redacted = redact_bootstrap_message(message)
+
+    for path in (drive_path, unc_path):
+        assert path not in redacted
+    assert credentialed_url.replace("alice:secret", "<redacted>") in redacted
+    assert "alice:secret" not in redacted
+    assert redacted.count("<redacted-path>") == 3
+
+
 def test_runtime_identity_rejects_an_unbounded_target(monkeypatch) -> None:
     monkeypatch.setenv("ADOBEPY_TARGET", "x" * 129)
 
