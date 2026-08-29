@@ -23,10 +23,13 @@ _QUOTED_POSIX_PATH = re.compile(r"""(["'])/(?!/)[^"'<>]+\1""")
 _UNQUOTED_POSIX_PATH = re.compile(r'(?<![A-Za-z0-9])/(?!/)(?:[^/\s"\'<>](?:[^/"\'<>]*[^/\s"\'<>])?/)*[^\s/"\'<>]+/?')
 _QUOTED_WINDOWS_PATH = re.compile(r"""(["'])(?:[A-Za-z]:[\\/]|\\\\)[^"'<>]+\1""")
 _UNQUOTED_WINDOWS_PATH = re.compile(
-    r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)"
-    r'(?:[^\\/\s"\'<>](?:[^\\/"\'<>]*[^\\/\s"\'<>])?[\\/])*'
-    r'[^\s\\/"\'<>]+[\\/]?'
+    # Unquoted paths are intentionally restricted to whitespace-free
+    # components. Callers must quote paths containing spaces so a diagnostic
+    # line cannot be consumed through ordinary prose into a later path.
+    r'(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s\\/"\'<>]+'
+    r'(?:[\\/][^\s\\/"\'<>]+)*[\\/]?'
 )
+_WINDOWS_PATH_START = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)")
 
 
 def _diagnostic_path() -> Path:
@@ -54,7 +57,20 @@ def redact_bootstrap_message(message: str) -> str:
 
     protected = _URL_SPAN.sub(protect_url, redacted)
     protected = _QUOTED_WINDOWS_PATH.sub("<redacted-path>", protected)
-    protected = _UNQUOTED_WINDOWS_PATH.sub("<redacted-path>", protected)
+
+    def redact_unquoted_windows_path(match: re.Match[str]) -> str:
+        # A whitespace after the matched token may be the first component of
+        # an unquoted path. If the remainder contains another separator, the
+        # boundary is ambiguous; leave it intact and require quoting instead
+        # of leaking a partial path or swallowing surrounding diagnostics.
+        tail = protected[match.end() :]
+        next_path = _WINDOWS_PATH_START.search(tail)
+        candidate_tail = tail[: next_path.start()] if next_path else tail.splitlines()[0]
+        if re.search(r"\s", candidate_tail) and re.search(r"[\\/]", candidate_tail):
+            return match.group(0)
+        return "<redacted-path>"
+
+    protected = _UNQUOTED_WINDOWS_PATH.sub(redact_unquoted_windows_path, protected)
     protected = _QUOTED_POSIX_PATH.sub("<redacted-path>", protected)
     protected = _UNQUOTED_POSIX_PATH.sub("<redacted-path>", protected)
 
