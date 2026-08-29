@@ -16,13 +16,28 @@ def _diagnostic_path() -> Path:
 
 
 def redact_bootstrap_message(message: str) -> str:
-    """Remove configured secrets and URL userinfo from a diagnostic message."""
+    """Remove configured secrets, URL userinfo, and local paths from diagnostics."""
     redacted = str(message)
     for name in ("ADOBEPY_TOKEN", "ADOBE_TOKEN"):
         secret = os.environ.get(name, "")
         if secret:
             redacted = redacted.replace(secret, "<redacted>")
-    return re.sub(r"(https?://)[^/@\s]+@", r"\1<redacted>@", redacted)
+    redacted = re.sub(r"(https?://)[^/@\s]+@", r"\1<redacted>@", redacted)
+    # Bootstrap errors are persisted and may be uploaded by diagnostics. Keep
+    # machine-local paths out of that public surface while preserving the
+    # stage/error text. Both native Windows and POSIX spellings are covered,
+    # including foreign-platform paths received from a host subprocess.
+    redacted = re.sub(
+        r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s\"'<>]+",
+        "<redacted-path>",
+        redacted,
+    )
+    redacted = re.sub(
+        r"(?<![A-Za-z0-9])/(?:Users|home|private|tmp|var|opt|workspace)/[^\s\"'<>]+",
+        "<redacted-path>",
+        redacted,
+    )
+    return redacted
 
 
 def capture_bootstrap_error(stage: str, message: str) -> str:

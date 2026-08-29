@@ -14,6 +14,9 @@ INSTALL_EXIT_INSTALL = 30
 INSTALL_EXIT_VERIFY = 40
 INSTALL_EXIT_REQUIRES_RESTART = 50
 MIN_CORE_VERSION = "0.20.14"
+MAX_CORE_VERSION_EXCLUSIVE = "1.0.0"
+CORE_SPECIFIER = ">=0.20.14,<1.0.0"
+ADOBEPY_SPECIFIER = "==0.6.2"
 MIN_PYTHON_VERSION = (3, 8)
 INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
 INSTALL_SOP_SCHEMA_SIZE = 4_261
@@ -41,6 +44,22 @@ def version_tuple(value: str) -> tuple[int, ...]:
     if match is None:
         return ()
     return tuple(int(part) for part in match.groups() if part is not None)
+
+
+def satisfies_core_specifier(value: str) -> bool:
+    """Return whether a final Core version satisfies the adapter's bounds."""
+    parsed = version_tuple(value)
+    if not parsed:
+        return False
+    normalized = parsed + (0,) * (3 - len(parsed))
+    minimum = version_tuple(MIN_CORE_VERSION) + (0,) * (3 - len(version_tuple(MIN_CORE_VERSION)))
+    maximum = version_tuple(MAX_CORE_VERSION_EXCLUSIVE) + (0,) * (3 - len(version_tuple(MAX_CORE_VERSION_EXCLUSIVE)))
+    return minimum <= normalized < maximum
+
+
+def satisfies_adobepy_specifier(value: str) -> bool:
+    """Return whether a final adobepy SDK version matches the pinned runtime."""
+    return version_tuple(value) == version_tuple("0.6.2")
 
 
 def state_dir() -> Path:
