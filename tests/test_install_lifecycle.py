@@ -276,6 +276,25 @@ def test_upgrade_cli_leaves_python_unset_for_receipt_reuse() -> None:
     assert args.python == ""
 
 
+def test_install_plan_honors_environment_interpreter_override(tmp_path: Path, monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_planning
+
+    selected = tmp_path / "embedded-python"
+    selected.write_bytes(b"python")
+    monkeypatch.setenv("DCC_MCP_INSTALL_PYTHON", str(selected))
+    monkeypatch.setattr(install_planning, "_python_version", lambda _path: "3.12.0")
+    monkeypatch.setattr(install_planning, "probe_target_import", lambda *_: {"ok": False})
+    monkeypatch.setattr(
+        install_planning, "package_version", lambda name: "0.20.19" if name == "dcc-mcp-core" else "0.1.38"
+    )
+    monkeypatch.setattr(install_planning, "discover_photoshop_executable", lambda: (None, None))
+
+    report, _ = install_planning.build_install_report(verb="install", dcc_path="", python="", dry_run=True)
+
+    assert report["plan"]["python"]["executable"] == str(selected.resolve())
+    assert report["plan"]["python"]["resolution_source"] == "environment"
+
+
 def test_version_parser_accepts_only_bounded_final_release_values() -> None:
     assert version_tuple("0.20.14") == (0, 20, 14)
     assert version_tuple("2025") == (2025,)
@@ -291,6 +310,142 @@ def test_version_parser_accepts_only_bounded_final_release_values() -> None:
         "9" * 128,
     ):
         assert version_tuple(value) == (), value
+
+
+def test_target_import_rejects_core_versions_outside_the_declared_specifier(monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_verification
+
+    monkeypatch.setattr(
+        install_verification,
+        "_probe_target_import_payload",
+        lambda *_: {
+            "python_executable": str(Path(sys.executable).resolve()),
+            "modules": {
+                "adapter": {
+                    "distribution": "dcc-mcp-photoshop",
+                    "version": "0.1.38",
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "core": {"distribution": "dcc-mcp-core", "version": "1.0.0", "module_path": __file__, "owned": True},
+                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+            },
+            "core_schema": {
+                "id": install_verification.INSTALL_SOP_SCHEMA_ID,
+                "size": install_verification.INSTALL_SOP_SCHEMA_SIZE,
+                "sha256": install_verification.INSTALL_SOP_SCHEMA_SHA256,
+                "record_owned": True,
+            },
+        },
+    )
+
+    result = install_verification.probe_target_import(sys.executable, 5.0)
+
+    assert result == {"ok": False, "error_type": "core_version_out_of_range"}
+
+
+def test_bootstrap_diagnostics_redacts_local_paths_and_credentials(monkeypatch) -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    monkeypatch.setenv("ADOBEPY_TOKEN", "path-secret")
+    message = r"failed C:\Users\alice\Photoshop\plugin.js token=path-secret"
+
+    redacted = redact_bootstrap_message(message)
+
+    assert "path-secret" not in redacted
+    assert "C:\\Users\\alice" not in redacted
+    assert "<redacted-path>" in redacted
+
+
+def test_bootstrap_diagnostics_redacts_all_absolute_posix_paths_without_touching_urls() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    paths = (
+        "/Applications/Adobe Photoshop 2025/Plug-ins/plugin.js",
+        "/Volumes/Work/Photoshop/plugin.js",
+        "/mnt/secret/plugin.js",
+        "/root/.config/adobepy/token",
+    )
+    url = "https://example.com/Applications/Adobe-Photoshop/plugin.js"
+    message = " ".join((*paths, url))
+
+    redacted = redact_bootstrap_message(message)
+
+    for path in paths:
+        assert path not in redacted
+    assert url in redacted
+    assert redacted.count("<redacted-path>") == len(paths)
+
+
+def test_bootstrap_diagnostics_protects_all_supported_url_spans_and_full_posix_paths() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    quoted_path = "/Applications/Adobe Photoshop 2025/Photoshop.app/Contents/Resources/plugin.js"
+    unquoted_path = "/Applications/Adobe Photoshop 2025/Photoshop.app/Contents/Resources/plugin.js"
+    urls = (
+        "https://example.com/C:/foo",
+        "file:///Applications/Adobe%20Photoshop/plugin.js",
+        "ftp://example.com/mnt/secret/plugin.js",
+        "ws://example.com/root/socket",
+    )
+    message = f'quoted="{quoted_path}" unquoted={unquoted_path} urls={" ".join(urls)}'
+
+    redacted = redact_bootstrap_message(message)
+
+    assert quoted_path not in redacted
+    assert unquoted_path not in redacted
+    for url in urls:
+        assert url in redacted
+    assert redacted.count("<redacted-path>") == 2
+
+
+def test_bootstrap_diagnostics_preserves_credentialed_urls_and_redacts_full_windows_paths() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    quoted_drive_path = r"C:\Program Files\Adobe Photoshop 2025\Plug-ins\plugin.js"
+    unquoted_drive_path = r"C:\Adobe\Photoshop.exe"
+    unc_path = r"\\server\Shared Photoshop 2025\plugin.js"
+    credentialed_url = '"https://alice:secret@example.com/C:/foo"'
+    message = f'quoted="{quoted_drive_path}" unquoted={unquoted_drive_path} unc="{unc_path}" url={credentialed_url}'
+
+    redacted = redact_bootstrap_message(message)
+
+    for path in (quoted_drive_path, unquoted_drive_path, unc_path):
+        assert path not in redacted
+    assert credentialed_url.replace("alice:secret", "<redacted>") in redacted
+    assert "alice:secret" not in redacted
+    assert redacted.count("<redacted-path>") == 3
+
+
+def test_bootstrap_diagnostics_does_not_swallow_multiple_unquoted_windows_paths() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    first_path = r"C:\Program Files\Adobe\Photoshop.exe"
+    second_path = r"C:\Other Path\x.dll"
+    message = f"one {first_path} two {second_path}"
+
+    redacted = redact_bootstrap_message(message)
+
+    assert "one" in redacted
+    assert "two" in redacted
+    assert first_path in redacted
+    assert second_path in redacted
+    assert "<redacted-path>" not in redacted
+
+
+def test_bootstrap_diagnostics_redacts_unique_windows_paths_at_line_end() -> None:
+    from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
+
+    messages = (
+        r"C:\Adobe\Photoshop.exe",
+        r"path=C:\Adobe\Photoshop.exe",
+        "first line\n" + r"\\server\share\plugin.dll",
+    )
+
+    for message in messages:
+        redacted = redact_bootstrap_message(message)
+        assert "<redacted-path>" in redacted
+        assert message not in redacted
 
 
 def test_runtime_identity_rejects_an_unbounded_target(monkeypatch) -> None:

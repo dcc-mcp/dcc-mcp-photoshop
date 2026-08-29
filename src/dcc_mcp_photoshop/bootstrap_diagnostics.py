@@ -8,6 +8,29 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
+_URL_SPAN = re.compile(
+    r'"(?:https?|file|ftp|wss?)://[^"<>]*"|'
+    r"'(?:https?|file|ftp|wss?)://[^'<>]*'|"
+    r"(?:https?|file|ftp|wss?)://[^\s\"'<>]+",
+    re.IGNORECASE,
+)
+_URL_USERINFO = re.compile(
+    r"((?:https?|file|ftp|wss?)://)[^/@\s]+@",
+    re.IGNORECASE,
+)
+_URL_TOKEN = re.compile(r"\x00DCC_URL_(\d+)\x00")
+_QUOTED_POSIX_PATH = re.compile(r"""(["'])/(?!/)[^"'<>]+\1""")
+_UNQUOTED_POSIX_PATH = re.compile(r'(?<![A-Za-z0-9])/(?!/)(?:[^/\s"\'<>](?:[^/"\'<>]*[^/\s"\'<>])?/)*[^\s/"\'<>]+/?')
+_QUOTED_WINDOWS_PATH = re.compile(r"""(["'])(?:[A-Za-z]:[\\/]|\\\\)[^"'<>]+\1""")
+_UNQUOTED_WINDOWS_PATH = re.compile(
+    # Unquoted paths are intentionally restricted to whitespace-free
+    # components. Callers must quote paths containing spaces so a diagnostic
+    # line cannot be consumed through ordinary prose into a later path.
+    r'(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)[^\s\\/"\'<>]+'
+    r'(?:[\\/][^\s\\/"\'<>]+)*[\\/]?'
+)
+_WINDOWS_PATH_START = re.compile(r"(?<![A-Za-z0-9])(?:[A-Za-z]:[\\/]|\\\\)")
+
 
 def _diagnostic_path() -> Path:
     configured = os.environ.get("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR")
@@ -16,13 +39,48 @@ def _diagnostic_path() -> Path:
 
 
 def redact_bootstrap_message(message: str) -> str:
-    """Remove configured secrets and URL userinfo from a diagnostic message."""
+    """Remove configured secrets, URL userinfo, and local paths from diagnostics."""
     redacted = str(message)
     for name in ("ADOBEPY_TOKEN", "ADOBE_TOKEN"):
         secret = os.environ.get(name, "")
         if secret:
             redacted = redacted.replace(secret, "<redacted>")
-    return re.sub(r"(https?://)[^/@\s]+@", r"\1<redacted>@", redacted)
+    # Bootstrap errors are persisted and may be uploaded by diagnostics. Keep
+    # machine-local paths out of that public surface while preserving the
+    # stage/error text. Both native Windows and POSIX spellings are covered,
+    # including foreign-platform paths received from a host subprocess.
+    urls: list[str] = []
+
+    def protect_url(match: re.Match[str]) -> str:
+        urls.append(_URL_USERINFO.sub(r"\1<redacted>@", match.group(0)))
+        return f"\x00DCC_URL_{len(urls) - 1}\x00"
+
+    protected = _URL_SPAN.sub(protect_url, redacted)
+    protected = _QUOTED_WINDOWS_PATH.sub("<redacted-path>", protected)
+
+    def redact_unquoted_windows_path(match: re.Match[str]) -> str:
+        # A whitespace after the matched token may be the first component of
+        # an unquoted path. If the remainder contains another separator, the
+        # boundary is ambiguous; leave it intact and require quoting instead
+        # of leaking a partial path or swallowing surrounding diagnostics.
+        tail = protected[match.end() :]
+        next_path = _WINDOWS_PATH_START.search(tail)
+        if next_path:
+            candidate_tail = tail[: next_path.start()]
+        else:
+            candidate_tail = tail.splitlines()[0] if tail else ""
+        if re.search(r"\s", candidate_tail) and re.search(r"[\\/]", candidate_tail):
+            return match.group(0)
+        return "<redacted-path>"
+
+    protected = _UNQUOTED_WINDOWS_PATH.sub(redact_unquoted_windows_path, protected)
+    protected = _QUOTED_POSIX_PATH.sub("<redacted-path>", protected)
+    protected = _UNQUOTED_POSIX_PATH.sub("<redacted-path>", protected)
+
+    def restore_url(match: re.Match[str]) -> str:
+        return urls[int(match.group(1))]
+
+    return _URL_TOKEN.sub(restore_url, protected)
 
 
 def capture_bootstrap_error(stage: str, message: str) -> str:
