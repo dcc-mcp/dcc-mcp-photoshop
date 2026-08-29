@@ -107,6 +107,19 @@ def test_tree_policy_binds_every_fixed_path_to_mode_object_size_and_digest(tmp_p
     assert report["outcome"] == "no-op"
 
 
+def test_noop_rejects_effective_release_workflow_digest_drift(tmp_path: Path) -> None:
+    repository, _initial_sha = _init_policy_repository(tmp_path)
+    release = repository / RELEASE_PATH
+    release.write_text(
+        release.read_text(encoding="utf-8").replace("name: Release", "name: Unapproved Release", 1),
+        encoding="utf-8",
+    )
+    base_sha = _commit(repository, "drift effective release workflow")
+
+    with pytest.raises(policy.PolicyError, match="approved release policy"):
+        _validate_tree(repository, base_sha, base_sha, release)
+
+
 def test_workflow_cli_inspects_then_validates_the_exact_git_blob(tmp_path: Path) -> None:
     repository, base_sha = _init_policy_repository(tmp_path)
     checker = Path(policy.__file__).resolve()

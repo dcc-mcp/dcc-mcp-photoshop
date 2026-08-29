@@ -23,9 +23,8 @@ from yaml.events import AliasEvent
 from yaml.nodes import MappingNode
 
 ROOT = Path(__file__).resolve().parents[2]
-APPROVED_RELEASE_HEAD = "9a7fd52009000b6f56649b4113cbc453edaab1a5"
 APPROVED_RELEASE_WORKFLOW = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
-APPROVED_RELEASE_WORKFLOW_SHA256 = "a3b38a10c6caab17219f3eeea2a8fab0a1f6c3a93d770a00d5280f74a5e40da1"
+APPROVED_RELEASE_WORKFLOW_SHA256 = "abd20d74b35c0d39c83317a81e46ef97212aeab80d9bdbfb6ec97b893aea38c6"
 MAX_WORKFLOW_BYTES = 256 * 1024
 GIT_TIMEOUT_SECONDS = 30
 MAX_CANDIDATE_COMMITS = 250
@@ -287,6 +286,9 @@ def validate_tree(
         "paths": {path: candidate_objects[path].public_identity() for path in POLICY_PATHS},
     }
     if not changed_trust_roots and not release_changed:
+        # A no-op candidate still represents the effective release workflow.
+        # Verify it against the base-owned snapshot so drift cannot pass green.
+        validate_candidate(candidate_path)
         report["outcome"] = "no-op"
         return report
     if changed_trust_roots:
@@ -528,7 +530,7 @@ def main() -> int:
     except PolicyError as exc:
         print(f"trusted release policy failed: {exc}", file=sys.stderr)
         return 1
-    print(f"trusted release policy passed for approved target {APPROVED_RELEASE_HEAD}")
+    print(f"trusted release policy passed for approved digest {APPROVED_RELEASE_WORKFLOW_SHA256}")
     return 0
 
 
