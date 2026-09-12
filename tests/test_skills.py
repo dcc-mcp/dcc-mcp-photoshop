@@ -173,7 +173,7 @@ class TestLayerSkills:
         assert descriptors[1] == {
             "_obj": "fill",
             "using": {"_enum": "fillContents", "_value": "color"},
-            "color": {"_obj": "RGBColor", "red": 26, "grain": 43, "blue": 60},
+            "color": {"_obj": "RGBColor", "red": 26, "green": 43, "blue": 60},
             "opacity": {"_unit": "percentUnit", "_value": 75},
             "mode": {"_enum": "blendMode", "_value": "normal"},
         }
@@ -433,7 +433,7 @@ class TestTextSkills:
         assert descriptor["using"]["textStyleRange"][0]["textStyle"]["color"] == {
             "_obj": "RGBColor",
             "red": 255,
-            "grain": 255,
+            "green": 255,
             "blue": 255,
         }
         assert descriptor["using"]["textClickPoint"]["horizontal"]["_value"] == 0.1

@@ -91,7 +91,7 @@ def _create_text(
                         "_obj": "textStyle",
                         "fontPostScriptName": font_name,
                         "size": {"_unit": "pointsUnit", "_value": font_size},
-                        "color": {"_obj": "RGBColor", "red": red, "grain": green, "blue": blue},
+                        "color": {"_obj": "RGBColor", "red": red, "green": green, "blue": blue},
                         "syntheticBold": bold,
                         "syntheticItalic": italic,
                     },
