@@ -34,6 +34,29 @@ export ADOBEPY_CLI="$HOME/.local/bin/adobepy"
 export ADOBEPY_TOKEN="$(cat "$HOME/.config/adobepy/token")"
 ```
 
+## Internal prebuilt bridge link
+
+An Internal workstation image may provide an already-built and approved UXP
+bridge. The shared Core CLI can link it into the Adobe debug-plugin root
+without copying files or using UXP Developer Tool:
+
+```powershell
+dcc-mcp-cli install --dcc-type photoshop `
+  --plugin-source <uxp-bridge-root> `
+  --adobe-debug-root <studio-adobe-debug-root> `
+  --execute
+```
+
+The source must be the bridge root and contain its manifest. An approved
+catalog or Internal descriptor supplies the Adobe product, extension type,
+plugin ID, and source mapping; the public adapter package does not claim to
+contain a static Photoshop UXP source tree. Set
+`DCC_MCP_PLUGIN_SOURCE` and `DCC_MCP_ADOBE_DEBUG_ROOT` in stable workstation
+profiles. Restart Photoshop after linking, then use the adapter's verify path
+and `dcc-mcp-cli wait-ready --dcc-type photoshop`. The adapter-owned lifecycle
+below remains the production path for generated bridges, receipt ownership,
+trust checks, upgrades, and uninstall.
+
 # Supported versions
 
 | Platform | Photoshop host | Adapter lifecycle |

@@ -96,6 +96,24 @@ dcc-mcp-photoshop install --json --dry-run
 dcc-mcp-photoshop install --json --yes
 ```
 
+For an Internal deployment with an approved prebuilt UXP bridge, the shared
+Core CLI can link the bridge into Photoshop's Adobe debug-plugin root:
+
+```powershell
+dcc-mcp-cli install --dcc-type photoshop `
+  --plugin-source F:\studio\artifacts\photoshop-uxp-bridge `
+  --adobe-debug-root F:\studio\adobe-debug `
+  --execute
+```
+
+The bridge root must contain its manifest and be selected by an approved
+catalog or Internal descriptor. This path creates an idempotent directory link;
+it does not copy files or require UXP Developer Tool. The adapter-owned
+lifecycle remains canonical for adobepy provisioning, generated bridges,
+receipts, upgrades, and uninstall. A filesystem link is not live readiness;
+run the adapter verification and `dcc-mcp-cli wait-ready --dcc-type photoshop`
+after Photoshop has loaded the bridge.
+
 ### 2. Configure your MCP client
 
 Point your MCP client to the **gateway URL**. The gateway auto-discovers which DCC (Photoshop, Maya, etc.) to route each tool call to, so you only need one endpoint:
