@@ -1,5 +1,35 @@
 # Changelog
 
+## [0.1.39](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.38...v0.1.39) (2026-09-12)
+
+
+### Features
+
+* add Photoshop install lifecycle ([db1ba60](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/db1ba60d8e588f6b2e6e5ae8633a78ed50b7abb9))
+
+
+### Bug Fixes
+
+* authenticate Photoshop install runtime ([2d5f2cf](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2d5f2cf01c55a32c80397083f891ac95ee2a3c11))
+* bind trusted policy to git objects ([f22d830](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f22d830f114a1783a471b21dd8fbcd29f60f2f4e))
+* bound unquoted Windows path redaction ([5af815f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5af815fde3c392cbce825a6f7721534492b492a3))
+* complete Photoshop install SOP contract ([77c0b39](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/77c0b393d3b546ecdcd5118a62f43797658008b8))
+* create styled text through action descriptors ([#91](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/91)) ([f65411f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/f65411f59509125cb594dbaed452138a6ac71fef))
+* handle terminal Windows path redaction ([6e49dd9](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6e49dd9c49e50ca54cb297c7954d894e4c427d18))
+* harden Photoshop install lifecycle ([d7456f6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d7456f6646b3f7ae79d510b2714dc8226993b8cd))
+* pin the verified adobepy runtime ([2b72df8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2b72df8a60da9a3cafa506ed24861d36681a7cf6))
+* protect Photoshop install repairs ([8a1438e](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/8a1438e57400742561392d36fa63f443aa1d8f1c))
+* protect URLs during bootstrap redaction ([2d3c28d](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2d3c28d46dcd5e7f81bdb2a5a01f938768ef071d))
+* redact all absolute POSIX bootstrap paths ([5a69dc7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/5a69dc75910ac6d1398268edafca4f8bfc63423d))
+* redact complete Windows bootstrap paths ([4326650](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/43266504b175f36928eaf5a59e5a211053971873))
+* reject unsafe lock manifest inputs ([d3bd0ef](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d3bd0ef8b7b1af54d1ba33da0ccd803e840988ba))
+* require independent policy approval ([6c24e47](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6c24e476723b55f474d83125e28f8397752da90e))
+
+
+### Documentation
+
+* document Adobe debug bridge links ([#115](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/115)) ([14d1ec6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/14d1ec63f34f01d9484dcbab5f6df83778a5983f))
+
 ## [0.1.38](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.37...v0.1.38) (2026-07-24)
 
 
