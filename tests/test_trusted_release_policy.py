@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts" / "ci" / "check_trusted_release_policy.py"
 APPROVED = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "trusted-release-policy.yml"
-TARGET_HEAD = "9a7fd52009000b6f56649b4113cbc453edaab1a5"
+APPROVED_DIGEST = "abd20d74b35c0d39c83317a81e46ef97212aeab80d9bdbfb6ec97b893aea38c6"
 
 
 def _run_checker(candidate: Path, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -32,7 +32,7 @@ def test_base_owned_checker_accepts_the_reviewed_release_target() -> None:
     result = _run_checker(APPROVED)
 
     assert result.returncode == 0, result.stdout + result.stderr
-    assert TARGET_HEAD in result.stdout
+    assert APPROVED_DIGEST in result.stdout
 
 
 def test_base_owned_checker_rejects_the_old_main_release_workflow() -> None:

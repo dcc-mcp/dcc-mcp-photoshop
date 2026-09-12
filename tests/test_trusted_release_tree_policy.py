@@ -107,6 +107,19 @@ def test_tree_policy_binds_every_fixed_path_to_mode_object_size_and_digest(tmp_p
     assert report["outcome"] == "no-op"
 
 
+def test_noop_rejects_effective_release_workflow_digest_drift(tmp_path: Path) -> None:
+    repository, _initial_sha = _init_policy_repository(tmp_path)
+    release = repository / RELEASE_PATH
+    release.write_text(
+        release.read_text(encoding="utf-8").replace("name: Release", "name: Unapproved Release", 1),
+        encoding="utf-8",
+    )
+    base_sha = _commit(repository, "drift effective release workflow")
+
+    with pytest.raises(policy.PolicyError, match="approved release policy"):
+        _validate_tree(repository, base_sha, base_sha, release)
+
+
 def test_workflow_cli_inspects_then_validates_the_exact_git_blob(tmp_path: Path) -> None:
     repository, base_sha = _init_policy_repository(tmp_path)
     checker = Path(policy.__file__).resolve()
@@ -449,6 +462,45 @@ def test_live_upgrade_lookup_excludes_exact_candidate_commit_participants(
     )
 
     assert reviewer == "independent-maintainer"
+
+
+def test_live_upgrade_lookup_allows_an_admin_pr_author_without_a_second_maintainer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "admin policy upgrade")
+
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "admin-author", "type": "User"},
+                    "committer": {"login": "admin-author", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return []
+        if "/collaborators/admin-author/permission" in path:
+            return {"permission": "admin"}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(policy, "_github_json", github_json)
+
+    reviewer = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        113,
+        base_sha,
+        candidate_sha,
+        "admin-author",
+        "token",
+    )
+
+    assert reviewer == "admin-author"
 
 
 def test_codeowners_covers_every_release_policy_trust_root() -> None:

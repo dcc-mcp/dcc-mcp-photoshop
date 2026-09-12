@@ -112,6 +112,12 @@ jobs:
       contents: read
     outputs:
       source_sha: ${{ steps.source.outputs.source_sha }}
+      release_id: ${{ steps.source.outputs.release_id }}
+      release_created_at: ${{ steps.source.outputs.release_created_at }}
+      release_published_at: ${{ steps.source.outputs.release_published_at }}
+      release_draft: ${{ steps.source.outputs.release_draft }}
+      release_prerelease: ${{ steps.source.outputs.release_prerelease }}
+      release_immutable: ${{ steps.source.outputs.release_immutable }}
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -134,12 +140,31 @@ jobs:
             echo "::error::refs/tags/$TAG_NAME does not resolve directly to the checked-out source"
             exit 1
           fi
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
+          RELEASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME")
+          RELEASE_ID=$(jq -r '.id' <<< "$RELEASE")
+          RELEASE_TAG=$(jq -r '.tag_name' <<< "$RELEASE")
+          RELEASE_TARGET=$(jq -r '.target_commitish' <<< "$RELEASE")
+          RELEASE_CREATED_AT=$(jq -r '.created_at' <<< "$RELEASE")
+          RELEASE_PUBLISHED_AT=$(jq -r '.published_at // ""' <<< "$RELEASE")
+          RELEASE_DRAFT=$(jq -r '.draft' <<< "$RELEASE")
+          RELEASE_PRERELEASE=$(jq -r '.prerelease' <<< "$RELEASE")
+          RELEASE_IMMUTABLE=$(jq -r '.immutable' <<< "$RELEASE")
+          [[ "$RELEASE_ID" =~ ^[1-9][0-9]*$ ]]
+          test "$RELEASE_TAG" = "$TAG_NAME"
           if [ "$RELEASE_TARGET" != "$SOURCE_SHA" ]; then
             echo "::error::release target does not match tag source"
             exit 1
           fi
+          test "$RELEASE_DRAFT" = "false"
+          test "$RELEASE_PRERELEASE" = "false"
+          test "$RELEASE_IMMUTABLE" = "false"
           echo "source_sha=$SOURCE_SHA" >> "$GITHUB_OUTPUT"
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+          echo "release_created_at=$RELEASE_CREATED_AT" >> "$GITHUB_OUTPUT"
+          echo "release_published_at=$RELEASE_PUBLISHED_AT" >> "$GITHUB_OUTPUT"
+          echo "release_draft=$RELEASE_DRAFT" >> "$GITHUB_OUTPUT"
+          echo "release_prerelease=$RELEASE_PRERELEASE" >> "$GITHUB_OUTPUT"
+          echo "release_immutable=$RELEASE_IMMUTABLE" >> "$GITHUB_OUTPUT"
 
   build-binary:
     needs: [decide, validate-release-version, verify-release-source]
@@ -199,7 +224,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p dist/archive
-          tar -C dist/binary -czf "dist/archive/${{ matrix.artifact }}.tar.gz" .
+          tar -C dist/binary -czf "dist/archive/${{ matrix.artifact }}.tar.gz" "${{ matrix.binary_name }}"
       - name: Upload immutable standalone archive
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -273,8 +298,527 @@ jobs:
           echo "artifact_id=$ARTIFACT_ID" >> "$GITHUB_STEP_SUMMARY"
           echo "artifact_digest=$ARTIFACT_DIGEST" >> "$GITHUB_STEP_SUMMARY"
 
+  bind-release-artifacts:
+    name: Bind exact release artifacts
+    needs: [decide, verify-release-source, build, build-binary]
+    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      artifact_id: ${{ steps.upload-bundle.outputs.artifact-id }}
+      artifact_digest: ${{ steps.upload-bundle.outputs.artifact-digest }}
+    steps:
+      - name: Resolve exact build artifact identities
+        id: resolve
+        env:
+          GH_HOST: github.com
+          GH_TOKEN: ${{ github.token }}
+          VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          VERSION: ${{ needs.decide.outputs.version }}
+          PYTHON_ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
+          PYTHON_ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACTS=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")
+          test "$(jq -r '.total_count' <<< "$ARTIFACTS")" = "4"
+          resolve_artifact() {
+            local key="$1"
+            local name="$2"
+            local count id digest head_sha expired
+            count=$(jq --arg name "$name" '[.artifacts[] | select(.name == $name)] | length' <<< "$ARTIFACTS")
+            test "$count" = "1"
+            id=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .id' <<< "$ARTIFACTS")
+            digest=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .digest' <<< "$ARTIFACTS")
+            head_sha=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .workflow_run.head_sha' <<< "$ARTIFACTS")
+            expired=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .expired' <<< "$ARTIFACTS")
+            [[ "$id" =~ ^[1-9][0-9]*$ ]]
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
+            test "$head_sha" = "$VERIFIED_SOURCE_SHA"
+            test "$expired" = "false"
+            echo "${key}_id=$id" >> "$GITHUB_OUTPUT"
+            echo "${key}_digest=$digest" >> "$GITHUB_OUTPUT"
+          }
+          resolve_artifact python "python-dist-$VERSION-$GITHUB_RUN_ID"
+          resolve_artifact windows "dcc-mcp-photoshop-windows-$VERSION-$GITHUB_RUN_ID"
+          resolve_artifact linux "dcc-mcp-photoshop-linux-$VERSION-$GITHUB_RUN_ID"
+          resolve_artifact macos "dcc-mcp-photoshop-macos-$VERSION-$GITHUB_RUN_ID"
+          test "$(jq -r --arg name "python-dist-$VERSION-$GITHUB_RUN_ID" '.artifacts[] | select(.name == $name) | .id' <<< "$ARTIFACTS")" = "$PYTHON_ARTIFACT_ID"
+          test "$(jq -r --arg name "python-dist-$VERSION-$GITHUB_RUN_ID" '.artifacts[] | select(.name == $name) | .digest' <<< "$ARTIFACTS")" = "$PYTHON_ARTIFACT_DIGEST"
+      - name: Download exact Python distributions
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.python_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Download exact Windows standalone archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.windows_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Download exact Linux standalone archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.linux_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Download exact macOS standalone archive
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          artifact-ids: ${{ steps.resolve.outputs.macos_id }}
+          path: release-assets
+          digest-mismatch: error
+      - name: Write shared fail-closed archive validator
+        shell: python
+        run: |
+          from pathlib import Path
+
+          source = r'''from __future__ import annotations
+
+          import gzip
+          import re
+          import stat
+          import struct
+          import tarfile
+          import unicodedata
+          import zipfile
+          from email.parser import BytesParser
+          from email.policy import default
+          from pathlib import Path
+
+          if not __debug__:
+              raise RuntimeError("archive validator refuses optimized Python")
+
+          MAX_MEMBERS = 4096
+          MAX_MEMBER_SIZE = 64 * 1024 * 1024
+          MAX_TOTAL_SIZE = 256 * 1024 * 1024
+          MAX_COMPRESSION_RATIO = 200
+          MAX_METADATA_SIZE = 1024 * 1024
+          MAX_PATH_DEPTH = 64
+          MAX_PATH_BYTES = 1024
+          MAX_PATH_SEGMENT_BYTES = 255
+          WINDOWS_RESERVED_NAMES = {"AUX", "CON", "CONIN$", "CONOUT$", "NUL", "PRN"}
+
+
+          def _normalized_project(name: str) -> str:
+              return re.sub(r"[-_.]+", "-", name).lower()
+
+
+          def _member_path(name: str, seen: set[str]) -> tuple[str, ...]:
+              assert isinstance(name, str) and name
+              name.encode("utf-8", errors="strict")
+              assert "\\" not in name
+              assert not name.startswith(("/", "//"))
+              assert re.match(r"^[A-Za-z]:", name) is None
+              assert not any(unicodedata.category(character).startswith("C") for character in name)
+              clean = name[:-1] if name.endswith("/") else name
+              parts = tuple(clean.split("/"))
+              assert clean and all(part not in {"", ".", ".."} for part in parts)
+              assert len(clean.encode("utf-8")) <= MAX_PATH_BYTES
+              assert len(parts) <= MAX_PATH_DEPTH
+              assert all(len(part.encode("utf-8")) <= MAX_PATH_SEGMENT_BYTES for part in parts)
+              assert all(":" not in part for part in parts)
+              for part in parts:
+                  assert not part.endswith((".", " "))
+                  stem = part.split(".", 1)[0].upper()
+                  assert stem not in WINDOWS_RESERVED_NAMES
+                  assert re.fullmatch(r"(?:COM|LPT)[1-9]", stem) is None
+              normalized_text = unicodedata.normalize("NFKC", clean)
+              assert normalized_text == clean
+              normalized = normalized_text.casefold()
+              assert normalized not in seen
+              seen.add(normalized)
+              return parts
+
+
+          def _metadata(raw: bytes, project: str, version: str) -> None:
+              assert 0 < len(raw) <= MAX_METADATA_SIZE
+              raw.decode("utf-8", errors="strict")
+              metadata = BytesParser(policy=default).parsebytes(raw)
+              names = metadata.get_all("Name", [])
+              versions = metadata.get_all("Version", [])
+              assert len(names) == 1 and _normalized_project(names[0]) == _normalized_project(project)
+              assert versions == [version]
+
+
+          def _read_member(stream, expected_size: int, capture: bool = False) -> bytes:
+              chunks = []
+              actual_size = 0
+              while True:
+                  chunk = stream.read(min(1024 * 1024, expected_size - actual_size + 1))
+                  if not chunk:
+                      break
+                  actual_size += len(chunk)
+                  assert actual_size <= expected_size
+                  if capture:
+                      chunks.append(chunk)
+              assert actual_size == expected_size
+              return b"".join(chunks)
+
+
+          def _read_exact(stream, size: int, capture: bool = False) -> bytes:
+              chunks = []
+              remaining = size
+              while remaining:
+                  chunk = stream.read(min(1024 * 1024, remaining))
+                  assert chunk
+                  remaining -= len(chunk)
+                  if capture:
+                      chunks.append(chunk)
+              return b"".join(chunks)
+
+
+          def _tar_text(field: bytes) -> str:
+              value, separator, padding = field.partition(b"\0")
+              if separator:
+                  assert not padding.strip(b"\0")
+              return value.decode("utf-8", errors="strict")
+
+
+          def _tar_number(field: bytes) -> int:
+              assert not (field[0] & 0x80)
+              value = field.strip(b"\0 ")
+              assert not value or all(48 <= character <= 55 for character in value)
+              return int(value or b"0", 8)
+
+
+          def _validate_pax_paths(payload: bytes) -> None:
+              position = 0
+              keys = set()
+              while position < len(payload):
+                  separator = payload.find(b" ", position)
+                  assert separator > position
+                  length_raw = payload[position:separator]
+                  assert length_raw.isdigit() and not length_raw.startswith(b"0")
+                  end = position + int(length_raw)
+                  assert end <= len(payload) and payload[end - 1 : end] == b"\n"
+                  key_raw, delimiter, value_raw = payload[separator + 1 : end - 1].partition(b"=")
+                  assert delimiter and key_raw
+                  key = key_raw.decode("ascii", errors="strict")
+                  assert key not in keys
+                  keys.add(key)
+                  if key in {"path", "linkpath"}:
+                      _member_path(value_raw.decode("utf-8", errors="strict"), set())
+                  position = end
+              assert position == len(payload)
+
+
+          def _validate_raw_tar(path: Path) -> None:
+              with gzip.open(path, "rb") as stream:
+                  raw_members = 0
+                  raw_total_size = 0
+                  while True:
+                      header = _read_exact(stream, 512, capture=True)
+                      if header == bytes(512):
+                          assert _read_exact(stream, 512, capture=True) == bytes(512)
+                          trailing_size = 0
+                          while True:
+                              trailing = stream.read(1024 * 1024)
+                              if not trailing:
+                                  break
+                              trailing_size += len(trailing)
+                              assert trailing_size <= MAX_TOTAL_SIZE
+                              assert not trailing.strip(b"\0")
+                          break
+                      raw_members += 1
+                      assert raw_members <= MAX_MEMBERS
+                      stored_checksum = _tar_number(header[148:156])
+                      assert stored_checksum == sum(header[:148]) + 8 * 32 + sum(header[156:])
+                      name = _tar_text(header[:100])
+                      prefix = _tar_text(header[345:500])
+                      raw_name = f"{prefix}/{name}" if prefix else name
+                      linkname = _tar_text(header[157:257])
+                      member_type = header[156:157] or b"0"
+                      size = _tar_number(header[124:136])
+                      assert 0 <= size <= MAX_MEMBER_SIZE
+                      raw_total_size += size
+                      assert raw_total_size <= MAX_TOTAL_SIZE
+                      capture = member_type in {b"x", b"g", b"L", b"K"}
+                      payload = _read_exact(stream, size, capture=capture)
+                      padding = (-size) % 512
+                      assert _read_exact(stream, padding, capture=True) == bytes(padding)
+                      if member_type in {b"x", b"g"}:
+                          _validate_pax_paths(payload)
+                      elif member_type in {b"L", b"K"}:
+                          override = payload.rstrip(b"\0").decode("utf-8", errors="strict")
+                          _member_path(override, set())
+                      else:
+                          _member_path(raw_name, set())
+                      if linkname:
+                          _member_path(linkname, set())
+                  assert raw_members > 0
+
+
+          def _validate_zip_extra(extra: bytes) -> None:
+              position = 0
+              identifiers = set()
+              while position < len(extra):
+                  assert position + 4 <= len(extra)
+                  identifier, size = struct.unpack_from("<HH", extra, position)
+                  position += 4
+                  assert identifier not in identifiers and identifier != 0x0001
+                  identifiers.add(identifier)
+                  position += size
+                  assert position <= len(extra)
+              assert position == len(extra)
+
+
+          def _validate_zip_local_record(
+              raw: bytes, member: zipfile.ZipInfo, next_offset: int
+          ) -> None:
+              signature, flags, method, crc, compressed_size, file_size = struct.unpack_from(
+                  "<I2xHH4xIII", raw, member.header_offset
+              )
+              assert signature == 0x04034B50
+              assert flags == member.flag_bits
+              assert method == member.compress_type
+              assert compressed_size != 0xFFFFFFFF and file_size != 0xFFFFFFFF
+              name_length, extra_length = struct.unpack_from("<HH", raw, member.header_offset + 26)
+              name_start = member.header_offset + 30
+              name_end = name_start + name_length
+              extra_end = name_end + extra_length
+              encoding = "utf-8" if flags & 0x800 else "cp437"
+              assert raw[name_start:name_end] == member.orig_filename.encode(encoding, errors="strict")
+              _validate_zip_extra(raw[name_end:extra_end])
+              _validate_zip_extra(member.extra)
+              data_end = extra_end + member.compress_size
+              if flags & 0x8:
+                  assert (crc, compressed_size, file_size) == (0, 0, 0)
+                  descriptor_signature, descriptor_crc, descriptor_compressed, descriptor_size = struct.unpack_from(
+                      "<IIII", raw, data_end
+                  )
+                  assert descriptor_signature == 0x08074B50
+                  assert descriptor_crc == member.CRC
+                  assert descriptor_compressed == member.compress_size
+                  assert descriptor_size == member.file_size
+                  data_end += 16
+              else:
+                  assert crc == member.CRC
+                  assert compressed_size == member.compress_size
+                  assert file_size == member.file_size
+              assert data_end == next_offset
+
+
+          def _validate_zip_records(raw: bytes, archive: zipfile.ZipFile, members: list[zipfile.ZipInfo]) -> None:
+              ordered = sorted(members, key=lambda member: member.header_offset)
+              assert len({member.header_offset for member in ordered}) == len(ordered)
+              assert ordered[0].header_offset == 0
+              for index, member in enumerate(ordered):
+                  next_offset = ordered[index + 1].header_offset if index + 1 < len(ordered) else archive.start_dir
+                  _validate_zip_local_record(raw, member, next_offset)
+
+
+          def _validate_wheel(path: Path, project: str, version: str) -> None:
+              expected_root = f"dcc_mcp_photoshop-{version}.dist-info"
+              metadata_path = f"{expected_root}/METADATA"
+              seen: set[str] = set()
+              total_size = 0
+              metadata_members = []
+              regular_members = []
+              dist_info_roots = set()
+              raw_archive = path.read_bytes()
+              with zipfile.ZipFile(path) as archive:
+                  members = archive.infolist()
+                  assert 0 < len(members) <= MAX_MEMBERS
+                  for member in members:
+                      parts = _member_path(member.orig_filename, seen)
+                      mode = (member.external_attr >> 16) & 0xFFFF
+                      member_type = stat.S_IFMT(mode)
+                      if member.is_dir():
+                          assert member_type in {0, stat.S_IFDIR}
+                          assert member.file_size == 0
+                      else:
+                          assert member_type in {0, stat.S_IFREG}
+                          assert not (member.flag_bits & 0x1)
+                          assert 0 <= member.file_size <= MAX_MEMBER_SIZE
+                          total_size += member.file_size
+                          assert total_size <= MAX_TOTAL_SIZE
+                          assert member.file_size / max(member.compress_size, 1) <= MAX_COMPRESSION_RATIO
+                          regular_members.append(member)
+                      for index, part in enumerate(parts):
+                          if unicodedata.normalize("NFKC", part).casefold().endswith(".dist-info"):
+                              assert index == 0
+                              dist_info_roots.add(part)
+                      if member.filename == metadata_path:
+                          assert not member.is_dir()
+                          metadata_members.append(member)
+                  _validate_zip_records(raw_archive, archive, members)
+                  assert dist_info_roots == {expected_root}
+                  assert len(metadata_members) == 1
+                  metadata_raw = None
+                  for member in regular_members:
+                      is_metadata = member is metadata_members[0]
+                      with archive.open(member) as extracted:
+                          raw = _read_member(extracted, member.file_size, capture=is_metadata)
+                      if is_metadata:
+                          metadata_raw = raw
+                  assert metadata_raw is not None
+                  _metadata(metadata_raw, project, version)
+
+
+          def _validate_sdist(path: Path, project: str, version: str) -> None:
+              expected_root = f"dcc_mcp_photoshop-{version}"
+              metadata_path = f"{expected_root}/PKG-INFO"
+              seen: set[str] = set()
+              total_size = 0
+              metadata_members = []
+              regular_members = []
+              _validate_raw_tar(path)
+              with tarfile.open(path, "r:gz", encoding="utf-8", errors="strict") as archive:
+                  members = archive.getmembers()
+                  assert 0 < len(members) <= MAX_MEMBERS
+                  for member in members:
+                      parts = _member_path(member.name, seen)
+                      assert parts[0] == expected_root
+                      assert member.isfile() or member.isdir()
+                      if member.isfile():
+                          assert 0 <= member.size <= MAX_MEMBER_SIZE
+                          total_size += member.size
+                          assert total_size <= MAX_TOTAL_SIZE
+                          regular_members.append(member)
+                      else:
+                          assert member.size == 0
+                      if parts[-1] == "PKG-INFO":
+                          assert member.name == metadata_path
+                          assert member.isfile()
+                          metadata_members.append(member)
+                  assert total_size / max(path.stat().st_size, 1) <= MAX_COMPRESSION_RATIO
+                  assert len(metadata_members) == 1
+                  metadata_raw = None
+                  for member in regular_members:
+                      is_metadata = member is metadata_members[0]
+                      extracted = archive.extractfile(member)
+                      assert extracted is not None
+                      with extracted:
+                          raw = _read_member(extracted, member.size, capture=is_metadata)
+                      if is_metadata:
+                          metadata_raw = raw
+                  assert metadata_raw is not None
+                  _metadata(metadata_raw, project, version)
+
+
+          def _validate_standalone(path: Path, binary_name: str) -> None:
+              seen: set[str] = set()
+              _validate_raw_tar(path)
+              with tarfile.open(path, "r:gz", encoding="utf-8", errors="strict") as archive:
+                  members = archive.getmembers()
+                  assert len(members) == 1
+                  member = members[0]
+                  parts = _member_path(member.name, seen)
+                  assert parts == (binary_name,)
+                  assert member.name == binary_name
+                  assert member.isfile()
+                  assert 0 < member.size <= MAX_MEMBER_SIZE
+                  assert member.size <= MAX_TOTAL_SIZE
+                  assert member.size / max(path.stat().st_size, 1) <= MAX_COMPRESSION_RATIO
+                  extracted = archive.extractfile(member)
+                  assert extracted is not None
+                  with extracted:
+                      _read_member(extracted, member.size)
+
+
+          def validate_release_distributions(root: Path, project: str, version: str) -> tuple[Path, Path]:
+              wheel = root / f"dcc_mcp_photoshop-{version}-py3-none-any.whl"
+              sdist = root / f"dcc_mcp_photoshop-{version}.tar.gz"
+              assert wheel.is_file() and sdist.is_file()
+              _validate_wheel(wheel, project, version)
+              _validate_sdist(sdist, project, version)
+              standalone = {
+                  "dcc-mcp-photoshop-windows.tar.gz": "dcc-mcp-photoshop.exe",
+                  "dcc-mcp-photoshop-linux.tar.gz": "dcc-mcp-photoshop",
+                  "dcc-mcp-photoshop-macos.tar.gz": "dcc-mcp-photoshop",
+              }
+              for archive_name, binary_name in standalone.items():
+                  archive_path = root / archive_name
+                  assert archive_path.is_file()
+                  _validate_standalone(archive_path, binary_name)
+              return wheel, sdist
+          '''
+
+          policy = Path("policy")
+          policy.mkdir(exist_ok=True)
+          (policy / "archive_validator.py").write_text(source, encoding="utf-8")
+      - name: Bind every release file to its SHA-256 digest
+        env:
+          TAG_NAME: ${{ needs.decide.outputs.tag_name }}
+          VERSION: ${{ needs.decide.outputs.version }}
+          VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+          PYTHON_ID: ${{ steps.resolve.outputs.python_id }}
+          PYTHON_DIGEST: ${{ steps.resolve.outputs.python_digest }}
+          WINDOWS_ID: ${{ steps.resolve.outputs.windows_id }}
+          WINDOWS_DIGEST: ${{ steps.resolve.outputs.windows_digest }}
+          LINUX_ID: ${{ steps.resolve.outputs.linux_id }}
+          LINUX_DIGEST: ${{ steps.resolve.outputs.linux_digest }}
+          MACOS_ID: ${{ steps.resolve.outputs.macos_id }}
+          MACOS_DIGEST: ${{ steps.resolve.outputs.macos_digest }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str(Path("policy").resolve()))
+          from archive_validator import validate_release_distributions
+
+          root = Path("release-assets")
+          files = sorted(path for path in root.iterdir() if path.is_file())
+          names = {path.name for path in files}
+          expected = {
+              f"dcc_mcp_photoshop-{os.environ['VERSION']}-py3-none-any.whl",
+              f"dcc_mcp_photoshop-{os.environ['VERSION']}.tar.gz",
+              "dcc-mcp-photoshop-windows.tar.gz",
+              "dcc-mcp-photoshop-linux.tar.gz",
+              "dcc-mcp-photoshop-macos.tar.gz",
+          }
+          assert names == expected
+          version = os.environ["VERSION"]
+          validate_release_distributions(root, "dcc-mcp-photoshop", version)
+          manifest = {
+              "schema_version": 1,
+              "tag_name": os.environ["TAG_NAME"],
+              "source_sha": os.environ["VERIFIED_SOURCE_SHA"],
+              "release_id": int(os.environ["RELEASE_ID"]),
+              "source_artifacts": {
+                  platform: {
+                      "id": int(os.environ[f"{platform.upper()}_ID"]),
+                      "digest": os.environ[f"{platform.upper()}_DIGEST"],
+                  }
+                  for platform in ("python", "windows", "linux", "macos")
+              },
+              "files": [
+                  {
+                      "name": path.name,
+                      "size": path.stat().st_size,
+                      "sha256": hashlib.sha256(path.read_bytes()).hexdigest(),
+                  }
+                  for path in files
+              ],
+          }
+          Path("release-manifest.json").write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + "\n",
+              encoding="utf-8",
+          )
+      - name: Upload exact release bundle
+        id: upload-bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: release-bundle-${{ needs.decide.outputs.version }}-${{ github.run_id }}
+          path: |
+            release-assets/*
+            release-manifest.json
+            policy/archive_validator.py
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 1
+
   publish:
-    needs: [decide, validate-release-version, verify-release-source, build]
+    needs: [decide, validate-release-version, verify-release-source, bind-release-artifacts]
     if: github.ref_type == 'tag'
     runs-on: ubuntu-latest
     environment:
@@ -285,33 +829,82 @@ jobs:
       contents: read
       id-token: write
     steps:
-      - name: Download immutable Python distributions
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download exact release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          path: dist
-      - name: Verify immutable artifact identity
+          artifact-ids: ${{ needs.bind-release-artifacts.outputs.artifact_id }}
+          path: release-bundle
+          digest-mismatch: error
+      - name: Verify exact per-file release manifest
+        env:
+          TAG_NAME: ${{ needs.decide.outputs.tag_name }}
+          VERSION: ${{ needs.decide.outputs.version }}
+          VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+        shell: python
+        run: |
+          import hashlib
+          import json
+          import os
+          import shutil
+          import sys
+          from pathlib import Path
+
+          sys.path.insert(0, str((Path("release-bundle") / "policy").resolve()))
+          from archive_validator import validate_release_distributions
+
+          root = Path("release-bundle")
+          manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["schema_version"] == 1
+          assert manifest["tag_name"] == os.environ["TAG_NAME"]
+          assert manifest["source_sha"] == os.environ["VERIFIED_SOURCE_SHA"]
+          assert manifest["release_id"] == int(os.environ["RELEASE_ID"])
+          source_artifacts = manifest["source_artifacts"]
+          assert set(source_artifacts) == {"python", "windows", "linux", "macos"}
+          for identity in source_artifacts.values():
+              assert isinstance(identity["id"], int) and identity["id"] > 0
+              assert len(identity["digest"]) == 71 and identity["digest"].startswith("sha256:")
+          expected = {entry["name"]: entry for entry in manifest["files"]}
+          actual = {path.name: path for path in root.iterdir() if path.is_file() and path.name != "release-manifest.json"}
+          assert len(manifest["files"]) == len(expected) == 5
+          assert expected.keys() == actual.keys()
+          assert len(actual) == 5
+          for name, path in actual.items():
+              assert path.stat().st_size == expected[name]["size"]
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]["sha256"]
+          version = os.environ["VERSION"]
+          wheel, sdist = validate_release_distributions(root, "dcc-mcp-photoshop", version)
+          distributions = Path("dist")
+          distributions.mkdir()
+          for path in (wheel, sdist):
+              shutil.copy2(path, distributions / path.name)
+      - name: Recapture exact tag source and release state
         env:
           GH_HOST: github.com
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
-          BUILD_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
-          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+          RELEASE_CREATED_AT: ${{ needs.verify-release-source.outputs.release_created_at }}
+          RELEASE_PUBLISHED_AT: ${{ needs.verify-release-source.outputs.release_published_at }}
+          RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
+          RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
+          RELEASE_IMMUTABLE: ${{ needs.verify-release-source.outputs.release_immutable }}
         shell: bash
         run: |
           set -euo pipefail
-          test "$BUILD_SOURCE_SHA" = "$VERIFIED_SOURCE_SHA"
-          test -n "$ARTIFACT_ID"
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
-          test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
-          test "$RELEASE_TARGET" = "$VERIFIED_SOURCE_SHA"
-          test "$(find dist -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
-          test "$(find dist -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 1
-          test "$(find dist -maxdepth 1 -type f | wc -l)" -eq 2
+          TAG=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME")
+          RELEASE=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME")
+          test "$(jq -r '.object.type' <<< "$TAG")" = "commit"
+          test "$(jq -r '.object.sha' <<< "$TAG")" = "$VERIFIED_SOURCE_SHA"
+          test "$(jq -r '.id' <<< "$RELEASE")" = "$RELEASE_ID"
+          test "$(jq -r '.tag_name' <<< "$RELEASE")" = "$TAG_NAME"
+          test "$(jq -r '.target_commitish' <<< "$RELEASE")" = "$VERIFIED_SOURCE_SHA"
+          test "$(jq -r '.created_at' <<< "$RELEASE")" = "$RELEASE_CREATED_AT"
+          test "$(jq -r '.published_at // ""' <<< "$RELEASE")" = "$RELEASE_PUBLISHED_AT"
+          test "$(jq -r '.draft' <<< "$RELEASE")" = "$RELEASE_DRAFT"
+          test "$(jq -r '.prerelease' <<< "$RELEASE")" = "$RELEASE_PRERELEASE"
+          test "$(jq -r '.immutable' <<< "$RELEASE")" = "$RELEASE_IMMUTABLE"
       - name: Publish to PyPI with Trusted Publishing
         uses: pypa/gh-action-pypi-publish@dc37677b2e1c63e2034f94d8a5b11f265b73ba33 # release/v1
         with:
@@ -320,75 +913,104 @@ jobs:
           print-hash: true
 
   attach-release-assets:
-    needs: [decide, validate-release-version, verify-release-source, build, build-binary]
-    if: github.ref_type == 'tag' || (github.event_name == 'workflow_dispatch' && inputs.tag_name != '')
+    needs: [decide, validate-release-version, verify-release-source, bind-release-artifacts, publish]
+    if: >-
+      always() && !cancelled() &&
+      needs.decide.result == 'success' &&
+      needs.validate-release-version.result == 'success' &&
+      needs.verify-release-source.result == 'success' &&
+      needs.bind-release-artifacts.result == 'success' &&
+      ((github.ref_type == 'tag' && needs.publish.result == 'success') ||
+      (github.event_name == 'workflow_dispatch' && inputs.tag_name != '' && needs.publish.result == 'skipped'))
     runs-on: ubuntu-latest
     permissions:
       actions: read
       contents: write
     steps:
-      - name: Download immutable Python distributions
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - name: Download exact release bundle
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          artifact-ids: ${{ needs.build.outputs.artifact_id }}
-          path: release-assets
-      - name: Download Windows standalone archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dcc-mcp-photoshop-windows-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: release-assets
-      - name: Download Linux standalone archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dcc-mcp-photoshop-linux-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: release-assets
-      - name: Download macOS standalone archive
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
-        with:
-          name: dcc-mcp-photoshop-macos-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: release-assets
-      - name: Verify immutable artifact identity
+          artifact-ids: ${{ needs.bind-release-artifacts.outputs.artifact_id }}
+          path: release-bundle
+          digest-mismatch: error
+      - name: Verify exact per-file release manifest
         env:
-          GH_HOST: github.com
-          GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
-          BUILD_SOURCE_SHA: ${{ needs.build.outputs.source_sha }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
-          ARTIFACT_ID: ${{ needs.build.outputs.artifact_id }}
-          ARTIFACT_DIGEST: ${{ needs.build.outputs.artifact_digest }}
-        shell: bash
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+        shell: python
         run: |
-          set -euo pipefail
-          test "$BUILD_SOURCE_SHA" = "$VERIFIED_SOURCE_SHA"
-          test -n "$ARTIFACT_ID"
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
-          TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
-          test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
-          test "$RELEASE_TARGET" = "$VERIFIED_SOURCE_SHA"
-          test "$(find release-assets -maxdepth 1 -type f -name '*.whl' | wc -l)" -eq 1
-          test "$(find release-assets -maxdepth 1 -type f -name '*.tar.gz' | wc -l)" -eq 4
-          test "$(find release-assets -maxdepth 1 -type f | wc -l)" -eq 5
-      - name: Attach assets without clobbering
+          import hashlib
+          import json
+          import os
+          from pathlib import Path
+
+          root = Path("release-bundle")
+          manifest = json.loads((root / "release-manifest.json").read_text(encoding="utf-8"))
+          assert manifest["schema_version"] == 1
+          assert manifest["tag_name"] == os.environ["TAG_NAME"]
+          assert manifest["source_sha"] == os.environ["VERIFIED_SOURCE_SHA"]
+          assert manifest["release_id"] == int(os.environ["RELEASE_ID"])
+          source_artifacts = manifest["source_artifacts"]
+          assert set(source_artifacts) == {"python", "windows", "linux", "macos"}
+          for identity in source_artifacts.values():
+              assert isinstance(identity["id"], int) and identity["id"] > 0
+              assert len(identity["digest"]) == 71 and identity["digest"].startswith("sha256:")
+          expected = {entry["name"]: entry for entry in manifest["files"]}
+          actual = {path.name: path for path in root.iterdir() if path.is_file() and path.name != "release-manifest.json"}
+          assert len(manifest["files"]) == len(expected) == 5
+          assert expected.keys() == actual.keys()
+          assert len(actual) == 5
+          for name, path in actual.items():
+              assert path.stat().st_size == expected[name]["size"]
+              assert hashlib.sha256(path.read_bytes()).hexdigest() == expected[name]["sha256"]
+      - name: Attach exact assets without clobbering
         env:
           GH_HOST: github.com
           GH_TOKEN: ${{ github.token }}
           TAG_NAME: ${{ needs.decide.outputs.tag_name }}
           VERIFIED_SOURCE_SHA: ${{ needs.verify-release-source.outputs.source_sha }}
+          RELEASE_ID: ${{ needs.verify-release-source.outputs.release_id }}
+          RELEASE_CREATED_AT: ${{ needs.verify-release-source.outputs.release_created_at }}
+          RELEASE_PUBLISHED_AT: ${{ needs.verify-release-source.outputs.release_published_at }}
+          RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
+          RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
+          RELEASE_IMMUTABLE: ${{ needs.verify-release-source.outputs.release_immutable }}
         shell: bash
         run: |
           set -euo pipefail
-          TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
-          RELEASE_ID=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.id')
-          RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
-          test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
-          test "$RELEASE_TARGET" = "$VERIFIED_SOURCE_SHA"
-          EXISTING=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
-          for asset in release-assets/*; do
+          recapture_release() {
+            local tag release
+            tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME")
+            release=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME")
+            test "$(jq -r '.object.type' <<< "$tag")" = "commit"
+            test "$(jq -r '.object.sha' <<< "$tag")" = "$VERIFIED_SOURCE_SHA"
+            test "$(jq -r '.id' <<< "$release")" = "$RELEASE_ID"
+            test "$(jq -r '.tag_name' <<< "$release")" = "$TAG_NAME"
+            test "$(jq -r '.target_commitish' <<< "$release")" = "$VERIFIED_SOURCE_SHA"
+            test "$(jq -r '.created_at' <<< "$release")" = "$RELEASE_CREATED_AT"
+            test "$(jq -r '.published_at // ""' <<< "$release")" = "$RELEASE_PUBLISHED_AT"
+            test "$(jq -r '.draft' <<< "$release")" = "$RELEASE_DRAFT"
+            test "$(jq -r '.prerelease' <<< "$release")" = "$RELEASE_PRERELEASE"
+            test "$(jq -r '.immutable' <<< "$release")" = "$RELEASE_IMMUTABLE"
+          }
+          for asset in release-bundle/*; do
+            test -f "$asset" || continue
+            test "$(basename "$asset")" != "release-manifest.json" || continue
             name=$(basename "$asset")
+            recapture_release
+            EXISTING=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
             if grep -Fqx "$name" <<< "$EXISTING"; then
               echo "::error::existing release asset refuses no-clobber publication: $name"
               exit 1
             fi
+            encoded_name=$(python -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1], safe=""))' "$name")
+            response=$(gh api --hostname uploads.github.com --method POST \
+              -H "Content-Type: application/octet-stream" \
+              --input "$asset" \
+              "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$encoded_name")
+            expected_digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
+            test "$(jq -r '.name' <<< "$response")" = "$name"
+            test "$(jq -r '.size' <<< "$response")" = "$(wc -c < "$asset" | tr -d ' ')"
+            test "$(jq -r '.digest' <<< "$response")" = "$expected_digest"
           done
-          gh release upload "$TAG_NAME" release-assets/* --repo "$GITHUB_REPOSITORY"
