@@ -88,31 +88,28 @@ Follow the cross-platform [Install SOP](install.md). It documents the pinned
 official adobepy CLI checksum release, env-only token contract, Adobe-signed
 Photoshop product attestation, and the currently blocked bounded UXP bootstrap.
 
-### 1. Install dcc-mcp-photoshop
+### 1. Choose an installation path
+
+For an Internal deployment with an approved prebuilt UXP bridge, use the
+studio's approved deployment tooling to create the Adobe debug-plugin link.
+The current `dcc-mcp-cli install` contract does not accept bridge source or
+debug-root arguments, so do not pass undocumented `--plugin-source` or
+`--adobe-debug-root` options. Skip `dcc-mcp-photoshop install --json --yes`
+for this path; it generates and owns a different bridge lifecycle.
+
+After the approved link is created, restart Photoshop and wait for the bridge
+to load before running `dcc-mcp-cli list`,
+`dcc-mcp-cli wait-ready --dcc-type photoshop`, and
+`dcc-mcp-photoshop verify --json`. A filesystem link alone is not live
+readiness.
+
+For non-Internal deployments, install and use the adapter-owned lifecycle:
 
 ```bash
 python -m pip install dcc-mcp-photoshop
 dcc-mcp-photoshop install --json --dry-run
 dcc-mcp-photoshop install --json --yes
 ```
-
-For an Internal deployment with an approved prebuilt UXP bridge, the shared
-Core CLI can link the bridge into Photoshop's Adobe debug-plugin root:
-
-```powershell
-dcc-mcp-cli install --dcc-type photoshop `
-  --plugin-source F:\studio\artifacts\photoshop-uxp-bridge `
-  --adobe-debug-root F:\studio\adobe-debug `
-  --execute
-```
-
-The bridge root must contain its manifest and be selected by an approved
-catalog or Internal descriptor. This path creates an idempotent directory link;
-it does not copy files or require UXP Developer Tool. The adapter-owned
-lifecycle remains canonical for adobepy provisioning, generated bridges,
-receipts, upgrades, and uninstall. A filesystem link is not live readiness;
-run the adapter verification and `dcc-mcp-cli wait-ready --dcc-type photoshop`
-after Photoshop has loaded the bridge.
 
 ### 2. Configure your MCP client
 
