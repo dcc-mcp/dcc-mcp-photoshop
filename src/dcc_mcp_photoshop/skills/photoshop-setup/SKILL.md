@@ -39,10 +39,21 @@ second staging, receipt, rollback, or uninstall implementation.
 
 ## Workflow
 
-1. Run `dcc-mcp-photoshop install --json --dry-run`.
-2. Review the plan, then run `dcc-mcp-photoshop install --json --yes`.
-3. Follow the single structured UXP host-load next step when Adobe requires it.
-4. Run `dcc-mcp-photoshop verify --json`; only a real Photoshop RPC is usable.
+1. Run `dcc-mcp-cli doctor` to inspect the local CLI and gateway.
+2. For an Internal deployment with an approved prebuilt bridge, use the
+   approved studio deployment tooling to create the Adobe debug-plugin link.
+   Skip `dcc-mcp-photoshop install --json --yes`; the current shared CLI does
+   not accept undocumented bridge source or debug-root options. Restart
+   Photoshop and wait for the bridge to load before continuing.
+3. For a non-Internal deployment, review and execute the adapter-owned plan:
+   `dcc-mcp-photoshop install --json --dry-run`, then
+   `dcc-mcp-photoshop install --json --yes`.
+4. Run `dcc-mcp-cli list`,
+   `dcc-mcp-cli wait-ready --dcc-type photoshop`, then
+   `dcc-mcp-photoshop verify --json`; only a real Photoshop RPC is usable.
+
+A link on disk is not proof that Photoshop loaded the bridge. The shared CLI
+does not currently provide the Internal bridge-link operation.
 
 ## Tools
 
