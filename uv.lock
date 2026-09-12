@@ -119,7 +119,7 @@ wheels = [
 
 [[package]]
 name = "dcc-mcp-photoshop"
-version = "0.1.38"
+version = "0.1.39"
 source = { editable = "." }
 dependencies = [
     { name = "adobepy" },
