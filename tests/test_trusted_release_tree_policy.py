@@ -638,6 +638,45 @@ def test_independent_maintainer_lookup_fails_closed_on_unbounded_pages(
         policy._independent_maintainer_exists("dcc-mcp/dcc-mcp-photoshop", (), "token")
 
 
+def test_live_upgrade_lookup_allows_an_admin_pr_author_without_a_second_maintainer(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "admin policy upgrade")
+
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "admin-author", "type": "User"},
+                    "committer": {"login": "admin-author", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return []
+        if "/collaborators/admin-author/permission" in path:
+            return {"permission": "admin"}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(policy, "_github_json", github_json)
+
+    reviewer = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        113,
+        base_sha,
+        candidate_sha,
+        "admin-author",
+        "token",
+    )
+
+    assert reviewer == "admin-author"
+
+
 def test_codeowners_covers_every_release_policy_trust_root() -> None:
     source = (ROOT / ".github/CODEOWNERS").read_text(encoding="utf-8")
     rules = {line.split()[0]: line.split()[1:] for line in source.splitlines() if line and not line.startswith("#")}
