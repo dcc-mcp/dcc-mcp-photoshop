@@ -460,7 +460,12 @@ def _live_upgrade_approver(
             raise PolicyError("GitHub collaborator permission response is invalid")
         return value["permission"]
 
-    return select_upgrade_approver(reviews, candidate_sha, excluded_logins, permission_lookup)
+    independent_approver = select_upgrade_approver(reviews, candidate_sha, excluded_logins, permission_lookup)
+    if independent_approver is not None:
+        return independent_approver
+    if permission_lookup(pull_request_author) == "admin":
+        return pull_request_author
+    return None
 
 
 def _parser() -> argparse.ArgumentParser:
