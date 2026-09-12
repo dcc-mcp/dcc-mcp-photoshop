@@ -173,7 +173,7 @@ class TestLayerSkills:
         assert descriptors[1] == {
             "_obj": "fill",
             "using": {"_enum": "fillContents", "_value": "color"},
-            "color": {"_obj": "RGBColor", "red": 26, "grain": 43, "blue": 60},
+            "color": {"_obj": "RGBColor", "red": 26, "green": 43, "blue": 60},
             "opacity": {"_unit": "percentUnit", "_value": 75},
             "mode": {"_enum": "blendMode", "_value": "normal"},
         }
@@ -419,6 +419,25 @@ class TestImageSkills:
 
 
 class TestTextSkills:
+    def test_create_text_layer_uses_action_descriptor_for_styled_text(self):
+        mod = _load_script(_TEXT_SCRIPTS, "create_text_layer.py")
+
+        class App:
+            activeDocument = SimpleNamespace(width=1000, height=500)
+            batch_play = Mock(return_value=[{"layerID": 7}])
+
+        result = mod._create_text(App(), "Title", "Title", 1, 2, "ArialMT", 48, "#ffffff", "center", True, False)
+
+        assert result["layer_id"] == 7
+        descriptor = App.batch_play.call_args.args[0][0]
+        assert descriptor["using"]["textStyleRange"][0]["textStyle"]["color"] == {
+            "_obj": "RGBColor",
+            "red": 255,
+            "green": 255,
+            "blue": 255,
+        }
+        assert descriptor["using"]["textClickPoint"]["horizontal"]["_value"] == 0.1
+
     def test_create_text_layer(self):
         mod = _load_script(_TEXT_SCRIPTS, "create_text_layer.py")
         result = mod.create_text_layer(

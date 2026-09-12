@@ -53,7 +53,7 @@ def _fill_layer(app: Photoshop, name: str, color: str, opacity: float) -> dict:
                 "color": {
                     "_obj": "RGBColor",
                     "red": red,
-                    "grain": green,
+                    "green": green,
                     "blue": blue,
                 },
                 "opacity": {"_unit": "percentUnit", "_value": opacity},
