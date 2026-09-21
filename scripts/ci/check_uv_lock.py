@@ -105,8 +105,12 @@ def validate(root: Path) -> None:
     editable_root = editable_roots[0]
     if _string(editable_root.get("name"), "editable root name") != ROOT_NAME:
         raise ValueError(f"editable root must be {ROOT_NAME!r}")
-    if _final_version(editable_root.get("version"), "editable root version") != project_version:
-        raise ValueError("editable root version must match project.version")
+    # The editable root version is deliberately NOT compared against project.version.
+    # release-please owns project.version and bumps it mechanically without
+    # regenerating uv.lock, so a release PR legitimately carries a one-field drift
+    # there. scripts/ci/check_uv_lock_resolution.py keeps `uv lock --check` honest
+    # about every resolved dependency while tolerating exactly that field.
+    _final_version(editable_root.get("version"), "editable root version")
 
     locked_by_name: Dict[str, List[Mapping[str, Any]]] = {}
     for package in package_maps:
