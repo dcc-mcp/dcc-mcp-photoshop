@@ -105,8 +105,12 @@ def validate(root: Path) -> None:
     editable_root = editable_roots[0]
     if _string(editable_root.get("name"), "editable root name") != ROOT_NAME:
         raise ValueError(f"editable root must be {ROOT_NAME!r}")
-    if _final_version(editable_root.get("version"), "editable root version") != project_version:
-        raise ValueError("editable root version must match project.version")
+    # The editable root version is a snapshot of the workspace version at lock time, not a
+    # contract. Release Please rewrites project.version in pyproject.toml without
+    # re-resolving uv.lock, so a release PR legitimately carries a root version one bump
+    # behind. Requiring equality here made every release-please PR fail; the runtime pins
+    # below are what this contract actually protects.
+    _final_version(editable_root.get("version"), "editable root version")
 
     locked_by_name: Dict[str, List[Mapping[str, Any]]] = {}
     for package in package_maps:

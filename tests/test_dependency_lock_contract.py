@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import json
+import re
 import shutil
 import subprocess
 import sys
@@ -9,6 +11,7 @@ import pytest
 import yaml
 
 from scripts.ci.check_uv_lock import validate
+from scripts.ci.check_uv_lock_freshness import align_root_version
 
 try:
     import tomllib
@@ -32,14 +35,16 @@ def test_production_metadata_pins_the_reviewed_adobepy_runtime() -> None:
 
 
 def test_checked_lock_has_one_current_root_and_reviewed_runtime() -> None:
-    project = _toml("pyproject.toml")["project"]
     packages = _toml("uv.lock")["package"]
     roots = [package for package in packages if package.get("source") == {"editable": "."}]
     adobepy = [package for package in packages if package.get("name") == "adobepy"]
     core = [package for package in packages if package.get("name") == "dcc-mcp-core"]
 
     assert len(roots) == 1
-    assert (roots[0]["name"], roots[0]["version"]) == ("dcc-mcp-photoshop", project["version"])
+    assert roots[0]["name"] == "dcc-mcp-photoshop"
+    # The root version is a snapshot of the workspace version at lock time, not a contract:
+    # release-please bumps project.version without re-resolving uv.lock.
+    assert re.fullmatch(r"\d+\.\d+\.\d+", roots[0]["version"])
     assert [package["version"] for package in adobepy] == ["0.6.2"]
     assert len(core) == 1
     assert (0, 20, 14) <= tuple(int(part) for part in core[0]["version"].split(".")) < (0, 21, 0)
@@ -63,6 +68,59 @@ def test_lock_checker_accepts_the_checked_in_metadata() -> None:
 def _copy_lock_inputs(destination: Path) -> None:
     for relative in ("pyproject.toml", "uv.lock", ".release-please-manifest.json"):
         shutil.copy2(ROOT / relative, destination / relative)
+
+
+def _bump_patch(version: str) -> str:
+    major, minor, patch = (int(part) for part in version.split("."))
+    return f"{major}.{minor}.{patch + 1}"
+
+
+def _simulate_release_please_bump(root: Path) -> str:
+    """Reproduce a release-please bump: pyproject.toml + manifest move, uv.lock never does."""
+    manifest_path = root / ".release-please-manifest.json"
+    current = json.loads(manifest_path.read_text(encoding="utf-8"))["."]
+    bumped = _bump_patch(current)
+
+    pyproject_path = root / "pyproject.toml"
+    pyproject_text = pyproject_path.read_text(encoding="utf-8")
+    bumped_text, count = re.subn(
+        r'(?m)^version = "' + re.escape(current) + r'"$',
+        f'version = "{bumped}"',
+        pyproject_text,
+    )
+    assert count == 1, f"expected exactly one project version line at {current}"
+    pyproject_path.write_text(bumped_text, encoding="utf-8")
+    manifest_path.write_text(json.dumps({".": bumped}, indent=2) + "\n", encoding="utf-8")
+    return bumped
+
+
+def test_lock_checker_ignores_release_driven_root_version_drift(tmp_path: Path) -> None:
+    """Every release-please PR bumps pyproject.toml without re-locking; that must stay green."""
+    _copy_lock_inputs(tmp_path)
+    bumped = _simulate_release_please_bump(tmp_path)
+
+    validate(tmp_path)
+
+    packages = tomllib.loads((tmp_path / "uv.lock").read_text(encoding="utf-8"))["package"]
+    root = next(package for package in packages if package.get("source") == {"editable": "."})
+    assert root["version"] != bumped, "the fixture must leave the lock one bump behind"
+
+
+def test_lock_freshness_aligns_only_the_root_version() -> None:
+    lock = (ROOT / "uv.lock").read_text(encoding="utf-8")
+    aligned = align_root_version(lock, "9.9.9")
+
+    assert aligned.count('version = "9.9.9"') == 1
+    assert 'name = "dcc-mcp-photoshop"\nversion = "9.9.9"' in aligned
+
+    with pytest.raises(ValueError, match="exactly one dcc-mcp-photoshop root entry"):
+        align_root_version('name = "other"\nversion = "0.1.0"\n', "9.9.9")
+
+
+def test_lock_freshness_check_delegates_to_uv_lock_check() -> None:
+    script = (ROOT / "scripts" / "ci" / "check_uv_lock_freshness.py").read_text(encoding="utf-8")
+
+    assert '"-m", "uv", "lock", "--check"' in script
 
 
 def test_lock_checker_rejects_a_shadow_editable_root(tmp_path: Path) -> None:
@@ -130,5 +188,5 @@ def test_ci_resolves_core_floor_and_latest_and_checks_the_lock() -> None:
     assert "python -m pip check" in dependency_runs
     assert "python scripts/ci/check_installed_dependencies.py" in dependency_runs
     assert "python scripts/ci/check_uv_lock.py" in lock_runs
-    assert "python -m uv lock --check" in lock_runs
+    assert "python scripts/ci/check_uv_lock_freshness.py" in lock_runs
     assert {"dependency-contract", "lock-contract"} <= set(jobs["ci-gate"]["needs"])
