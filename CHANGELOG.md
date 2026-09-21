@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.40](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.39...v0.1.40) (2026-09-21)
+
+
+### Bug Fixes
+
+* **ci:** keep the uv lock contract green across release-please version bumps ([d951b48](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d951b480b17c3d8e69a51b67db331bc6ae0f1272))
+* pin the Core Install SOP schema per Core release ([c0df8c1](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/c0df8c178fe423d556c30d9f0a507fe0c6810ed5))
+
 ## [0.1.39](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.38...v0.1.39) (2026-09-12)
 
 
