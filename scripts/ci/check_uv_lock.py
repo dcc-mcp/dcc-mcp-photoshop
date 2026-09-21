@@ -17,7 +17,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.8-3.10
 
 ROOT_NAME = "dcc-mcp-photoshop"
 TRUSTED_ADOBEPY = "0.6.2"
-CORE_SPECIFIER = ">=0.20.14,<1.0.0"
+CORE_SPECIFIER = ">=0.20.14,<0.21.0"
 FINAL_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 
 
@@ -123,7 +123,7 @@ def validate(root: Path) -> None:
     if len(core_packages) != 1:
         raise ValueError("uv.lock must contain exactly one dcc-mcp-core package")
     core_version = _final_version(core_packages[0].get("version"), "dcc-mcp-core version")
-    if not ((0, 20, 14) <= _version_tuple(core_version) < (1, 0, 0)):
+    if not ((0, 20, 14) <= _version_tuple(core_version) < (0, 21, 0)):
         raise ValueError(f"uv.lock dcc-mcp-core {core_version} is outside {CORE_SPECIFIER}")
 
     root_dependencies = _dependency_map(

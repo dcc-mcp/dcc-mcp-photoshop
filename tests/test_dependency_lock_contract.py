@@ -27,7 +27,7 @@ def test_production_metadata_pins_the_reviewed_adobepy_runtime() -> None:
     dependencies = _toml("pyproject.toml")["project"]["dependencies"]
 
     assert dependencies.count("adobepy==0.6.2") == 1
-    assert dependencies.count("dcc-mcp-core>=0.20.14,<1.0.0") == 1
+    assert dependencies.count("dcc-mcp-core>=0.20.14,<0.21.0") == 1
     assert not any(dependency.startswith("adobepy>") for dependency in dependencies)
 
 

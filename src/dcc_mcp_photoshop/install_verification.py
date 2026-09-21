@@ -15,8 +15,7 @@ from dcc_mcp_photoshop.install_contract import (
     ADOBEPY_SPECIFIER,
     CORE_SPECIFIER,
     INSTALL_SOP_SCHEMA_ID,
-    INSTALL_SOP_SCHEMA_SHA256,
-    INSTALL_SOP_SCHEMA_SIZE,
+    expected_core_schema_anchor,
     satisfies_adobepy_specifier,
     satisfies_core_specifier,
     version_tuple,
@@ -335,11 +334,15 @@ def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
     if not isinstance(payload, dict) or not isinstance(payload.get("modules"), dict):
         return {"ok": False, "error_type": "invalid_payload"}
     core_schema = payload.get("core_schema")
+    modules = payload["modules"]
+    core_module = modules.get("core") if isinstance(modules, dict) else None
+    anchor = expected_core_schema_anchor(core_module.get("version") if isinstance(core_module, dict) else None)
     if (
         not isinstance(core_schema, dict)
+        or anchor is None
         or core_schema.get("id") != INSTALL_SOP_SCHEMA_ID
-        or core_schema.get("size") != INSTALL_SOP_SCHEMA_SIZE
-        or core_schema.get("sha256") != INSTALL_SOP_SCHEMA_SHA256
+        or core_schema.get("size") != anchor["size"]
+        or core_schema.get("sha256") != anchor["sha256"]
         or core_schema.get("record_owned") is not True
     ):
         return {"ok": False, "error_type": "core_schema_mismatch"}

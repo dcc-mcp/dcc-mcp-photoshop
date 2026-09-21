@@ -8,7 +8,7 @@ from importlib import metadata
 
 ROOT_DISTRIBUTION = "dcc-mcp-photoshop"
 TRUSTED_ADOBEPY = "0.6.2"
-CORE_SPECIFIER = ">=0.20.14,<1.0.0"
+CORE_SPECIFIER = ">=0.20.14,<0.21.0"
 FINAL_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 
 
@@ -45,10 +45,10 @@ def validate() -> None:
 
     core_requirement = _runtime_requirement("dcc-mcp-core")
     core_clauses = set(core_requirement[len("dcc-mcp-core") :].split(","))
-    if core_clauses != {">=0.20.14", "<1.0.0"}:
+    if core_clauses != {">=0.20.14", "<0.21.0"}:
         raise ValueError(f"installed metadata must require dcc-mcp-core{CORE_SPECIFIER}")
     core_version = metadata.version("dcc-mcp-core")
-    if not ((0, 20, 14) <= _version_tuple(core_version, "dcc-mcp-core version") < (1, 0, 0)):
+    if not ((0, 20, 14) <= _version_tuple(core_version, "dcc-mcp-core version") < (0, 21, 0)):
         raise ValueError(f"resolver selected unsupported dcc-mcp-core {core_version}")
 
 

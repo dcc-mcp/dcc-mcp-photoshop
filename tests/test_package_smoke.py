@@ -10,7 +10,7 @@ def test_package_metadata_exposes_bounded_install_dependencies() -> None:
     pyproject = (Path(__file__).parents[1] / "pyproject.toml").read_text(encoding="utf-8")
 
     assert '"adobepy==0.6.2"' in pyproject
-    assert '"dcc-mcp-core>=0.20.14,<1.0.0"' in pyproject
+    assert '"dcc-mcp-core>=0.20.14,<0.21.0"' in pyproject
 
 
 def test_packaged_schema_and_setup_skill_are_present() -> None:

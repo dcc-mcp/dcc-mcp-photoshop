@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.metadata
 import importlib.resources
 import json
 import os
@@ -15,11 +16,25 @@ from jsonschema import Draft202012Validator
 
 from dcc_mcp_photoshop.cli import _build_parser
 from dcc_mcp_photoshop.config import PhotoshopMcpConfig
-from dcc_mcp_photoshop.install_contract import version_tuple
+from dcc_mcp_photoshop.install_contract import expected_core_schema_anchor, version_tuple
 from dcc_mcp_photoshop.install_io import commit_bridge
 from dcc_mcp_photoshop.install_lifecycle import run_install_lifecycle
 from dcc_mcp_photoshop.install_verification import probe_target_import, verify_photoshop_rpc
 from dcc_mcp_photoshop.server import StartupState
+
+
+def _core_schema_payload(core_version: str) -> dict:
+    """Build a Core schema observation matching the anchor in force for a Core version."""
+    from dcc_mcp_photoshop.install_contract import INSTALL_SOP_SCHEMA_ID
+
+    anchor = expected_core_schema_anchor(core_version)
+    assert anchor is not None
+    return {
+        "id": INSTALL_SOP_SCHEMA_ID,
+        "size": anchor["size"],
+        "sha256": anchor["sha256"],
+        "record_owned": True,
+    }
 
 
 def _canonical_install_validator() -> Draft202012Validator:
@@ -312,6 +327,54 @@ def test_version_parser_accepts_only_bounded_final_release_values() -> None:
         assert version_tuple(value) == (), value
 
 
+def test_core_schema_anchor_is_resolved_per_core_release_not_pinned_to_one_literal() -> None:
+    assert expected_core_schema_anchor("0.20.14") == expected_core_schema_anchor("0.20.29")
+    assert expected_core_schema_anchor("0.20.30") != expected_core_schema_anchor("0.20.29")
+
+    # A newer Core release in the same line reuses the newest anchor, so shipping Core
+    # 0.20.34 must not require any adapter change.
+    assert expected_core_schema_anchor("0.20.34") == expected_core_schema_anchor("0.20.30")
+    assert expected_core_schema_anchor("0.20.34")["since"] == "0.20.30"
+
+
+def test_core_schema_anchor_rejects_unusable_core_versions() -> None:
+    for value in ("", "0.20", "0.20.14rc1", "latest", None, 42):
+        assert expected_core_schema_anchor(value) is None, value
+
+
+def test_target_import_rejects_a_schema_that_does_not_match_the_installed_core_anchor(monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_verification
+
+    core_version = importlib.metadata.version("dcc-mcp-core")
+    monkeypatch.setattr(
+        install_verification,
+        "_probe_target_import_payload",
+        lambda *_: {
+            "python_executable": str(Path(sys.executable).resolve()),
+            "modules": {
+                "adapter": {
+                    "distribution": "dcc-mcp-photoshop",
+                    "version": "0.1.38",
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "core": {
+                    "distribution": "dcc-mcp-core",
+                    "version": core_version,
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+            },
+            "core_schema": dict(_core_schema_payload(core_version), sha256="0" * 64),
+        },
+    )
+
+    result = install_verification.probe_target_import(sys.executable, 5.0)
+
+    assert result == {"ok": False, "error_type": "core_schema_mismatch"}
+
+
 def test_target_import_rejects_core_versions_outside_the_declared_specifier(monkeypatch) -> None:
     from dcc_mcp_photoshop import install_verification
 
@@ -330,12 +393,7 @@ def test_target_import_rejects_core_versions_outside_the_declared_specifier(monk
                 "core": {"distribution": "dcc-mcp-core", "version": "1.0.0", "module_path": __file__, "owned": True},
                 "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
             },
-            "core_schema": {
-                "id": install_verification.INSTALL_SOP_SCHEMA_ID,
-                "size": install_verification.INSTALL_SOP_SCHEMA_SIZE,
-                "sha256": install_verification.INSTALL_SOP_SCHEMA_SHA256,
-                "record_owned": True,
-            },
+            "core_schema": _core_schema_payload("1.0.0"),
         },
     )
 
@@ -502,10 +560,12 @@ def test_target_import_binds_the_installed_core_schema_resource() -> None:
     result = probe_target_import(sys.executable, 5.0)
 
     assert result["ok"] is True
+    anchor = expected_core_schema_anchor(result["modules"]["core"]["version"])
+    assert anchor is not None
     assert result["core_schema"] == {
         "id": "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json",
-        "size": 4261,
-        "sha256": "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904",
+        "size": anchor["size"],
+        "sha256": anchor["sha256"],
         "record_owned": True,
     }
 

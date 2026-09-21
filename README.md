@@ -597,7 +597,7 @@ pytest tests/
 - **Photoshop**: Adobe Photoshop 2022+ (UXP support required)
 - **Python** (pip path only): Python 3.8+
 - **Dependencies** (auto-installed with pip):
-  - `dcc-mcp-core >= 0.20.14, < 1.0.0`
+  - `dcc-mcp-core >= 0.20.14, < 0.21.0`
   - `adobepy >= 0.1.0`
   - `websockets >= 12.0`
 - **Build** (to build standalone binary from source): Python 3.8+, [Rust toolchain](https://rustup.rs/), and PyOxidizer (`pip install pyoxidizer`)
