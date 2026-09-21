@@ -945,8 +945,13 @@ def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
     publish = document["jobs"]["publish"]
     builder = _step(bind, "Bind every release file to its SHA-256 digest")["run"]
     preflight = _step(publish, "Verify exact per-file release manifest")["run"]
+    staging = _step(bind, "Stage every bundle member under one artifact root")["run"]
     upload = _step(bind, "Upload exact release bundle")["with"]["path"]
     validator = _step(bind, "Write shared fail-closed archive validator")["run"]
+
+    assert upload.startswith("release-assets/")
+    assert "policy/archive_validator.py" in staging
+    assert "release-manifest.json" in staging
 
     assert "def validate_release_distributions" in validator
     assert "MAX_MEMBERS = 4096" in validator
@@ -963,7 +968,6 @@ def test_builder_and_publisher_use_the_bundled_shared_validator() -> None:
     assert "archive validator refuses optimized Python" in validator
     assert "from archive_validator import validate_release_distributions" in builder
     assert "from archive_validator import validate_release_distributions" in preflight
-    assert "policy/archive_validator.py" in upload
 
 
 @pytest.mark.parametrize(
@@ -1150,3 +1154,253 @@ def test_manifest_and_publisher_scripts_bind_the_real_release_file_names(tmp_pat
         "dcc_mcp_photoshop-1.2.3-py3-none-any.whl",
         "dcc_mcp_photoshop-1.2.3.tar.gz",
     }
+
+
+RELEASE_ASSET_NAMES = {
+    "dcc_mcp_photoshop-1.2.3-py3-none-any.whl",
+    "dcc_mcp_photoshop-1.2.3.tar.gz",
+    *EXPECTED_RELEASE_ASSETS,
+}
+
+
+def _run_bundle_staging(tmp_path: Path) -> subprocess.CompletedProcess[str]:
+    bind = _workflow()["jobs"]["bind-release-artifacts"]
+    return subprocess.run(
+        [_bash(), "-c", _step(bind, "Stage every bundle member under one artifact root")["run"]],
+        cwd=tmp_path,
+        env=_release_environment(),
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _artifact_members(artifact_root: Path) -> set[str]:
+    """Names an actions/upload-artifact upload stores for a single search path.
+
+    The action keeps the hierarchy that follows the first wildcard of the search
+    path, so every member is stored relative to the directory holding the glob.
+    """
+    return {path.relative_to(artifact_root).as_posix() for path in artifact_root.rglob("*") if path.is_file()}
+
+
+def test_release_bundle_artifact_root_keeps_every_member_under_release_assets(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    manifest_result = _run_manifest_builder(tmp_path)
+    assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
+
+    staging = _run_bundle_staging(tmp_path)
+
+    assert staging.returncode == 0, staging.stdout + staging.stderr
+    upload = _step(_workflow()["jobs"]["bind-release-artifacts"], "Upload exact release bundle")["with"]["path"]
+    assert [line for line in upload.splitlines() if line.strip()] == ["release-assets/**"]
+    assert _artifact_members(assets) == {
+        *RELEASE_ASSET_NAMES,
+        "release-manifest.json",
+        "policy/archive_validator.py",
+    }
+    assert not (tmp_path / "release-manifest.json").exists()
+    assert not (tmp_path / "policy" / "archive_validator.py").exists()
+
+
+def test_release_bundle_artifact_root_matches_every_downstream_consumer(tmp_path: Path) -> None:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    manifest_result = _run_manifest_builder(tmp_path)
+    assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
+    assert _run_bundle_staging(tmp_path).returncode == 0
+
+    bundle = tmp_path / "release-bundle"
+    shutil.copytree(assets, bundle)
+    publish_result = _run_publisher_preflight(tmp_path)
+    assert publish_result.returncode == 0, publish_result.stdout + publish_result.stderr
+    assert {path.name for path in (tmp_path / "dist").iterdir()} == {
+        "dcc_mcp_photoshop-1.2.3-py3-none-any.whl",
+        "dcc_mcp_photoshop-1.2.3.tar.gz",
+    }
+
+    attach = _step(_workflow()["jobs"]["attach-release-assets"], "Attach exact assets without clobbering")["run"]
+    assert "for asset in release-bundle/*" in attach
+    selected = {path.name for path in bundle.iterdir() if path.is_file() and path.name != "release-manifest.json"}
+    assert selected == RELEASE_ASSET_NAMES
+
+
+_ATTACH_FAKE_GH = """#!/usr/bin/env bash
+set -euo pipefail
+case "$*" in
+  *--method[[:space:]]POST*)
+    asset=""
+    previous=""
+    for argument in "$@"; do
+      if test "$previous" = "--input"; then asset="$argument"; fi
+      previous="$argument"
+    done
+    test -n "$asset"
+    : > "$MUTATION_MARKER"
+    name=$(basename "$asset")
+    size=$(wc -c < "$asset" | tr -d ' ')
+    digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
+    id=$(cat "$GH_STATE/next-id")
+    printf '%s' "$((id + 1))" > "$GH_STATE/next-id"
+    printf '%s\t%s\t%s\n' "$name" "$size" "$digest" > "$GH_STATE/asset-$id"
+    printf '%s\n' "{\\"id\\":$id,\\"name\\":\\"$name\\",\\"state\\":\\"open\\",\\"size\\":$size,\\"digest\\":null}"
+    ;;
+  *per_page=100*)
+    filter=""
+    previous=""
+    for argument in "$@"; do
+      if test "$previous" = "--jq"; then filter="$argument"; fi
+      previous="$argument"
+    done
+    if test -n "$filter"; then
+      jq -r "$filter" "$EXISTING_ASSETS"
+    else
+      cat "$EXISTING_ASSETS"
+    fi
+    ;;
+  *releases/assets/*)
+    id="${@: -1}"
+    id="${id##*/}"
+    IFS=$'\t' read -r name size digest < "$GH_STATE/asset-$id"
+    count_file="$GH_STATE/reads-$id"
+    count=$(cat "$count_file" 2>/dev/null || printf '0')
+    printf '%s' "$((count + 1))" > "$count_file"
+    if test "$count" -lt "$UPLOADED_AFTER"; then
+      printf '%s\n' "{\\"id\\":$id,\\"name\\":\\"$name\\",\\"state\\":\\"open\\",\\"size\\":$size,\\"digest\\":null}"
+    else
+      printf '%s\n' "{\\"id\\":$id,\\"name\\":\\"$name\\",\\"state\\":\\"uploaded\\",\\"size\\":$size,\\"digest\\":\\"$digest\\"}"
+    fi
+    ;;
+  *git/ref/tags/*)
+    printf '%s\n' '{"object":{"type":"commit","sha":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}'
+    ;;
+  *releases/tags/*)
+    printf '%s\n' '{"id":123,"tag_name":"v1.2.3","target_commitish":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","created_at":"2026-08-27T00:00:00Z","published_at":"2026-08-27T00:01:00Z","draft":false,"prerelease":false,"immutable":false}'
+    ;;
+  *)
+    exit 1
+    ;;
+esac
+"""
+
+
+def _write_text(path: Path, text: str) -> None:
+    """Write UTF-8 with explicit LF endings on every supported Python.
+
+    ``Path.write_text`` only accepts ``newline`` from Python 3.10, while the
+    generated shell script and fixtures must keep LF endings on Windows.
+    """
+
+    with open(str(path), "w", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
+def _run_attach_gate(
+    tmp_path: Path,
+    *,
+    mutation_marker: str,
+    existing_assets: str = "[]",
+    uploaded_after: int = 0,
+    poll_attempts: int = 4,
+) -> subprocess.CompletedProcess[str]:
+    fake_gh = tmp_path / "gh"
+    _write_text(fake_gh, _ATTACH_FAKE_GH)
+    fake_gh.chmod(0o755)
+    state = tmp_path / "gh-state"
+    state.mkdir(exist_ok=True)
+    _write_text(state / "next-id", "900")
+    _write_text(tmp_path / "existing-assets.json", existing_assets)
+    script = tmp_path / "attach.sh"
+    _write_text(
+        script,
+        _step(_workflow()["jobs"]["attach-release-assets"], "Attach exact assets without clobbering")["run"],
+    )
+    script.chmod(0o755)
+    environment = {
+        **_release_environment(),
+        "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+        "GITHUB_REPOSITORY": "dcc-mcp/dcc-mcp-photoshop",
+        "RELEASE_CREATED_AT": "2026-08-27T00:00:00Z",
+        "RELEASE_PUBLISHED_AT": "2026-08-27T00:01:00Z",
+        "RELEASE_DRAFT": "false",
+        "RELEASE_PRERELEASE": "false",
+        "RELEASE_IMMUTABLE": "false",
+        "ASSET_DIGEST_ATTEMPTS": str(poll_attempts),
+        "ASSET_DIGEST_INTERVAL_SECONDS": "0",
+        "MUTATION_MARKER": mutation_marker,
+        "GH_STATE": str(state),
+        "EXISTING_ASSETS": str(tmp_path / "existing-assets.json"),
+        "UPLOADED_AFTER": str(uploaded_after),
+    }
+    return subprocess.run(
+        [_bash(), script.name],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def _write_bundle(tmp_path: Path) -> Path:
+    assets = tmp_path / "release-assets"
+    _write_release_assets(assets)
+    manifest_result = _run_manifest_builder(tmp_path)
+    assert manifest_result.returncode == 0, manifest_result.stdout + manifest_result.stderr
+    staging = _run_bundle_staging(tmp_path)
+    assert staging.returncode == 0, staging.stdout + staging.stderr
+    bundle = tmp_path / "release-bundle"
+    shutil.copytree(assets, bundle)
+    return bundle
+
+
+def test_attach_gate_uploads_every_bundle_asset_and_polls_for_the_digest(tmp_path: Path) -> None:
+    _write_bundle(tmp_path)
+    marker = tmp_path / "mutated"
+
+    result = _run_attach_gate(tmp_path, mutation_marker=str(marker), uploaded_after=2, poll_attempts=4)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert marker.exists()
+    uploaded = sorted(path.name for path in (tmp_path / "gh-state").glob("asset-*"))
+    assert len(uploaded) == len(RELEASE_ASSET_NAMES)
+    # Every upload polled past the initial open/null-digest read before validating.
+    assert all(int((tmp_path / "gh-state" / f"reads-{name[6:]}").read_text()) > 1 for name in uploaded)
+
+
+def test_attach_gate_keeps_byte_identical_existing_assets_and_uploads_the_rest(tmp_path: Path) -> None:
+    bundle = _write_bundle(tmp_path)
+    marker = tmp_path / "mutated"
+    identical = sorted(RELEASE_ASSET_NAMES)[0]
+    digest = hashlib.sha256((bundle / identical).read_bytes()).hexdigest()
+    existing = json.dumps([{"name": identical, "state": "uploaded", "digest": f"sha256:{digest}"}])
+
+    result = _run_attach_gate(tmp_path, mutation_marker=str(marker), existing_assets=existing)
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"byte-identical, keeping it: {identical}" in result.stdout
+    uploaded = sorted(path.name for path in (tmp_path / "gh-state").glob("asset-*"))
+    assert len(uploaded) == len(RELEASE_ASSET_NAMES) - 1
+
+
+def test_attach_gate_rejects_an_existing_asset_with_different_content(tmp_path: Path) -> None:
+    _write_bundle(tmp_path)
+    marker = tmp_path / "mutated"
+    divergent = sorted(RELEASE_ASSET_NAMES)[0]
+    existing = json.dumps([{"name": divergent, "state": "uploaded", "digest": f"sha256:{'c' * 64}"}])
+
+    result = _run_attach_gate(tmp_path, mutation_marker=str(marker), existing_assets=existing)
+
+    assert result.returncode != 0
+    assert "refuses no-clobber publication" in result.stdout + result.stderr
+
+
+def test_attach_gate_stops_when_an_asset_never_reaches_the_uploaded_state(tmp_path: Path) -> None:
+    _write_bundle(tmp_path)
+    marker = tmp_path / "mutated"
+
+    result = _run_attach_gate(tmp_path, mutation_marker=str(marker), uploaded_after=99, poll_attempts=2)
+
+    assert result.returncode != 0
+    assert "never reached the uploaded state" in result.stdout + result.stderr

@@ -24,7 +24,7 @@ from yaml.nodes import MappingNode
 
 ROOT = Path(__file__).resolve().parents[2]
 APPROVED_RELEASE_WORKFLOW = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
-APPROVED_RELEASE_WORKFLOW_SHA256 = "abd20d74b35c0d39c83317a81e46ef97212aeab80d9bdbfb6ec97b893aea38c6"
+APPROVED_RELEASE_WORKFLOW_SHA256 = "cf0659fd8026e683ec45dd813c356bdc22918c2c51d55d445027ed5ac6df6876"
 MAX_WORKFLOW_BYTES = 256 * 1024
 GIT_TIMEOUT_SECONDS = 30
 MAX_CANDIDATE_COMMITS = 250
@@ -501,6 +501,10 @@ def _live_upgrade_approver(
             raise PolicyError("GitHub collaborator permission response is invalid")
         return value["permission"]
 
+    # A policy-root upgrade needs an eligible non-participant who approved the exact
+    # candidate head. The pull-request author is always a participant, so an author
+    # permission lookup must never become an authorization path of its own; the
+    # single-maintainer fallback below still requires an exact-head approval review.
     return _resolve_upgrade_approver(
         reviews,
         candidate_sha,

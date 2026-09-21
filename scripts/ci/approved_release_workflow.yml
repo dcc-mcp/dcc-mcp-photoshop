@@ -804,15 +804,22 @@ jobs:
               json.dumps(manifest, indent=2, sort_keys=True) + "\n",
               encoding="utf-8",
           )
+      - name: Stage every bundle member under one artifact root
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d release-assets
+          test -f release-manifest.json
+          test -f policy/archive_validator.py
+          mv release-manifest.json release-assets/release-manifest.json
+          mkdir -p release-assets/policy
+          mv policy/archive_validator.py release-assets/policy/archive_validator.py
       - name: Upload exact release bundle
         id: upload-bundle
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: release-bundle-${{ needs.decide.outputs.version }}-${{ github.run_id }}
-          path: |
-            release-assets/*
-            release-manifest.json
-            policy/archive_validator.py
+          path: release-assets/**
           if-no-files-found: error
           compression-level: 0
           retention-days: 1
@@ -976,9 +983,19 @@ jobs:
           RELEASE_DRAFT: ${{ needs.verify-release-source.outputs.release_draft }}
           RELEASE_PRERELEASE: ${{ needs.verify-release-source.outputs.release_prerelease }}
           RELEASE_IMMUTABLE: ${{ needs.verify-release-source.outputs.release_immutable }}
+          ASSET_DIGEST_ATTEMPTS: "10"
+          ASSET_DIGEST_INTERVAL_SECONDS: "5"
         shell: bash
         run: |
           set -euo pipefail
+          existing_asset_digest() {
+            gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" \
+              --jq '.[] | "\(.name)\t\(.digest // "unknown")"' |
+              ASSET_NAME="$1" awk -F '\t' '
+                $1 == ENVIRON["ASSET_NAME"] { digest = $2 }
+                END { if (digest == "") { exit 1 } print digest }
+              '
+          }
           recapture_release() {
             local tag release
             tag=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME")
@@ -999,8 +1016,12 @@ jobs:
             test "$(basename "$asset")" != "release-manifest.json" || continue
             name=$(basename "$asset")
             recapture_release
-            EXISTING=$(gh api --paginate "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?per_page=100" --jq '.[].name')
-            if grep -Fqx "$name" <<< "$EXISTING"; then
+            expected_digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
+            if existing_digest=$(existing_asset_digest "$name"); then
+              if test "$existing_digest" = "$expected_digest"; then
+                echo "::notice::existing release asset is byte-identical, keeping it: $name"
+                continue
+              fi
               echo "::error::existing release asset refuses no-clobber publication: $name"
               exit 1
             fi
@@ -1009,8 +1030,28 @@ jobs:
               -H "Content-Type: application/octet-stream" \
               --input "$asset" \
               "repos/$GITHUB_REPOSITORY/releases/$RELEASE_ID/assets?name=$encoded_name")
-            expected_digest="sha256:$(sha256sum "$asset" | cut -d ' ' -f 1)"
             test "$(jq -r '.name' <<< "$response")" = "$name"
             test "$(jq -r '.size' <<< "$response")" = "$(wc -c < "$asset" | tr -d ' ')"
-            test "$(jq -r '.digest' <<< "$response")" = "$expected_digest"
+            asset_id=$(jq -r '.id' <<< "$response")
+            test -n "$asset_id"
+            test "$asset_id" != null
+            for attempt in $(seq 1 "$ASSET_DIGEST_ATTEMPTS"); do
+              current=$(gh api "repos/$GITHUB_REPOSITORY/releases/assets/$asset_id")
+              test "$(jq -r '.name' <<< "$current")" = "$name"
+              test "$(jq -r '.size' <<< "$current")" = "$(wc -c < "$asset" | tr -d ' ')"
+              state=$(jq -r '.state' <<< "$current")
+              if test "$state" = uploaded; then
+                test "$(jq -r '.digest // empty' <<< "$current")" = "$expected_digest"
+                break
+              fi
+              if test "$state" != open; then
+                echo "::error::release asset entered an unexpected state: $name ($state)"
+                exit 1
+              fi
+              if test "$attempt" -ge "$ASSET_DIGEST_ATTEMPTS"; then
+                echo "::error::release asset never reached the uploaded state: $name"
+                exit 1
+              fi
+              sleep "$ASSET_DIGEST_INTERVAL_SECONDS"
+            done
           done

@@ -638,10 +638,74 @@ def test_independent_maintainer_lookup_fails_closed_on_unbounded_pages(
         policy._independent_maintainer_exists("dcc-mcp/dcc-mcp-photoshop", (), "token")
 
 
-def test_live_upgrade_lookup_allows_an_admin_pr_author_without_a_second_maintainer(
+def test_live_upgrade_lookup_rejects_an_admin_pr_author_approving_their_own_head(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    """An author's own approval never authorizes a policy-root upgrade.
+
+    The author is always a commit participant, so the strict rule keeps them
+    excluded for as long as another maintainer could approve instead. An author
+    permission lookup must never become an authorization path of its own.
+    """
+
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "self approved policy upgrade")
+
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "other-committer", "type": "User"},
+                    "committer": {"login": "other-committer", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return [
+                {
+                    "id": 1,
+                    "state": "APPROVED",
+                    "commit_id": candidate_sha,
+                    "user": {"login": "admin-author", "type": "User"},
+                }
+            ]
+        if "/collaborators?" in path:
+            return [
+                {"login": "admin-author", "type": "User", "permissions": {"admin": True}},
+                {"login": "other-maintainer", "type": "User", "permissions": {"maintain": True}},
+            ]
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(policy, "_github_json", github_json)
+
+    reviewer, relaxed = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        113,
+        base_sha,
+        candidate_sha,
+        "admin-author",
+        "token",
+    )
+
+    assert reviewer is None
+    assert relaxed is False
+
+
+def test_single_maintainer_lookup_rejects_a_pr_author_without_an_exact_head_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The sole-maintainer fallback never turns a permission lookup into an approval.
+
+    Decision A reaches the fallback here, so ``relaxed`` is True, yet the author is
+    still rejected: the fallback only widens *who* may approve, it never invents an
+    approver. With no exact-head review there is no approver, and the author
+    permission lookup stays unreachable."""
+
     repository, base_sha = _init_policy_repository(tmp_path)
     checker = repository / TRUST_ROOTS[1]
     checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
@@ -658,13 +722,14 @@ def test_live_upgrade_lookup_allows_an_admin_pr_author_without_a_second_maintain
             ]
         if "/reviews?" in path:
             return []
-        if "/collaborators/admin-author/permission" in path:
-            return {"permission": "admin"}
+        if "/collaborators?" in path:
+            return [{"login": "admin-author", "type": "User", "permissions": {"admin": True}}]
+        # An author permission lookup would be a self-authorization path.
         raise AssertionError(f"unexpected GitHub API path: {path}")
 
     monkeypatch.setattr(policy, "_github_json", github_json)
 
-    reviewer = policy._live_upgrade_approver(
+    reviewer, relaxed = policy._live_upgrade_approver(
         repository,
         "dcc-mcp/dcc-mcp-photoshop",
         113,
@@ -674,7 +739,8 @@ def test_live_upgrade_lookup_allows_an_admin_pr_author_without_a_second_maintain
         "token",
     )
 
-    assert reviewer == "admin-author"
+    assert reviewer is None
+    assert relaxed is True
 
 
 def test_codeowners_covers_every_release_policy_trust_root() -> None:
