@@ -32,7 +32,7 @@ second staging, receipt, rollback, or uninstall implementation.
 All lifecycle verbs use the same machine-readable contract and flags:
 `install`, `status`, `verify`, `uninstall`, and `upgrade` with `--json`,
 `--yes`, `--dry-run`, `--dcc-path`, and `--python` as applicable. The adapter
-requires `adobepy==0.6.2` and `dcc-mcp-core>=0.20.14,<1.0.0`; the selected
+requires `adobepy==0.6.2` and `dcc-mcp-core>=0.20.14,<0.21.0`; the selected
 interpreter is recorded and checked against those bounds before mutation.
 
 ## Distribution Channels

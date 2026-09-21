@@ -13,10 +13,11 @@ from typing import Any, Callable, Dict, Mapping
 
 from dcc_mcp_photoshop.install_contract import (
     ADOBEPY_SPECIFIER,
+    CORE_SCHEMA_ANCHOR_MEASURED_THROUGH,
     CORE_SPECIFIER,
     INSTALL_SOP_SCHEMA_ID,
-    INSTALL_SOP_SCHEMA_SHA256,
-    INSTALL_SOP_SCHEMA_SIZE,
+    core_schema_anchor,
+    core_schema_identity_is_bounded,
     satisfies_adobepy_specifier,
     satisfies_core_specifier,
     version_tuple,
@@ -338,9 +339,8 @@ def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
     if (
         not isinstance(core_schema, dict)
         or core_schema.get("id") != INSTALL_SOP_SCHEMA_ID
-        or core_schema.get("size") != INSTALL_SOP_SCHEMA_SIZE
-        or core_schema.get("sha256") != INSTALL_SOP_SCHEMA_SHA256
         or core_schema.get("record_owned") is not True
+        or not core_schema_identity_is_bounded(core_schema)
     ):
         return {"ok": False, "error_type": "core_schema_mismatch"}
     try:
@@ -375,6 +375,9 @@ def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
     core_version = payload["modules"]["core"]["version"]
     if not satisfies_core_specifier(core_version):
         return {"ok": False, "error_type": "core_version_out_of_range"}
+    anchor = core_schema_anchor(core_version)
+    if anchor is not None and (core_schema["size"] != anchor.size or core_schema["sha256"] != anchor.sha256):
+        return {"ok": False, "error_type": "core_schema_mismatch"}
     adobepy_version = payload["modules"]["adobepy"]["version"]
     if not satisfies_adobepy_specifier(adobepy_version):
         return {"ok": False, "error_type": "adobepy_version_mismatch"}
@@ -383,6 +386,13 @@ def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
         "python_executable": str(reported_python),
         "modules": payload["modules"],
         "core_schema": core_schema,
+        "core_schema_anchor": {
+            "status": "pinned" if anchor is not None else "unpinned",
+            "core_version": core_version,
+            "measured_through": CORE_SCHEMA_ANCHOR_MEASURED_THROUGH,
+            "size": anchor.size if anchor is not None else None,
+            "sha256": anchor.sha256 if anchor is not None else None,
+        },
         "requirements": {
             "core": CORE_SPECIFIER,
             "adobepy": ADOBEPY_SPECIFIER,
