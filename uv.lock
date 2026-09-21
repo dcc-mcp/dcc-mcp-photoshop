@@ -157,7 +157,7 @@ dev = [
 requires-dist = [
     { name = "adobepy", specifier = "==0.6.2" },
     { name = "build", marker = "extra == 'dev'" },
-    { name = "dcc-mcp-core", specifier = ">=0.20.14,<1.0.0" },
+    { name = "dcc-mcp-core", specifier = ">=0.20.14,<0.21.0" },
     { name = "hatchling", marker = "extra == 'dev'" },
     { name = "jsonschema", marker = "extra == 'dev'", specifier = ">=4.18" },
     { name = "pyfakefs", marker = "extra == 'dev'", specifier = ">=5.3" },

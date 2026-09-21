@@ -27,7 +27,7 @@ def test_production_metadata_pins_the_reviewed_adobepy_runtime() -> None:
     dependencies = _toml("pyproject.toml")["project"]["dependencies"]
 
     assert dependencies.count("adobepy==0.6.2") == 1
-    assert dependencies.count("dcc-mcp-core>=0.20.14,<1.0.0") == 1
+    assert dependencies.count("dcc-mcp-core>=0.20.14,<0.21.0") == 1
     assert not any(dependency.startswith("adobepy>") for dependency in dependencies)
 
 
@@ -42,7 +42,7 @@ def test_checked_lock_has_one_current_root_and_reviewed_runtime() -> None:
     assert (roots[0]["name"], roots[0]["version"]) == ("dcc-mcp-photoshop", project["version"])
     assert [package["version"] for package in adobepy] == ["0.6.2"]
     assert len(core) == 1
-    assert (0, 20, 14) <= tuple(int(part) for part in core[0]["version"].split(".")) < (1, 0, 0)
+    assert (0, 20, 14) <= tuple(int(part) for part in core[0]["version"].split(".")) < (0, 21, 0)
     assert {item["name"]: item.get("specifier") for item in roots[0]["metadata"]["requires-dist"]}[
         "adobepy"
     ] == "==0.6.2"

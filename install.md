@@ -2,8 +2,13 @@
 
 - Adobe Photoshop 2022 or newer.
 - Python 3.8 or newer for the wheel-based adapter path.
-- `dcc-mcp-core>=0.20.14,<1.0.0`. The installed Core package must carry the
-  canonical Install SOP v1 schema byte-for-byte.
+- `dcc-mcp-core>=0.20.14,<0.21.0`. The installed Core package must carry the
+  canonical Install SOP v1 schema byte-for-byte. Core republishes that file under
+  the same `-v1` revision id, so the adapter pins the expected bytes per Core
+  release (`CORE_SCHEMA_ANCHORS` in
+  `src/dcc_mcp_photoshop/install_contract.py`) instead of one global literal;
+  Core releases newer than `CORE_SCHEMA_ANCHOR_MEASURED_THROUGH` verify without
+  a pinned digest.
 - On Windows x64, the exact `adobepy` 0.6.2 CLI from the official checksummed
   release bundle. Other CLI builds and self-authored adjacent manifests are not
   accepted as provenance.
@@ -174,7 +179,7 @@ successful no-op.
 - **Partial state:** run `dcc-mcp-photoshop install --json --yes` to repair it. Do not delete the bridge before repair.
 - **Bootstrap failure:** inspect the bounded, secret-redacted `bootstrap-errors.json` under the Photoshop install state directory.
 
-Core `>=0.20.14,<1.0.0` owns the canonical schema and exit contract. Adapter contract tests
+Core `>=0.20.14,<0.21.0` owns the canonical schema and exit contract. Adapter contract tests
 validate every public lifecycle branch against that Draft 2020-12 schema; the
 adapter remains the owner of Photoshop paths, UXP enablement, receipts, and
 exact-instance runtime verification. adobepy runtime identity remains tracked in

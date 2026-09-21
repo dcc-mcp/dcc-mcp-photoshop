@@ -15,7 +15,14 @@ from jsonschema import Draft202012Validator
 
 from dcc_mcp_photoshop.cli import _build_parser
 from dcc_mcp_photoshop.config import PhotoshopMcpConfig
-from dcc_mcp_photoshop.install_contract import version_tuple
+from dcc_mcp_photoshop.install_contract import (
+    CORE_SCHEMA_ANCHOR_MEASURED_THROUGH,
+    CORE_SCHEMA_ANCHORS,
+    INSTALL_SOP_SCHEMA_ID,
+    MIN_CORE_VERSION,
+    core_schema_anchor,
+    version_tuple,
+)
 from dcc_mcp_photoshop.install_io import commit_bridge
 from dcc_mcp_photoshop.install_lifecycle import run_install_lifecycle
 from dcc_mcp_photoshop.install_verification import probe_target_import, verify_photoshop_rpc
@@ -33,14 +40,36 @@ def _canonical_install_validator() -> Draft202012Validator:
     return Draft202012Validator(schema)
 
 
-def test_packaged_install_schema_is_the_exact_core_contract() -> None:
+def test_packaged_install_schema_is_a_measured_core_contract_revision() -> None:
     contents = importlib.resources.read_binary(
         "dcc_mcp_photoshop.schemas",
         "adapter-install-sop-v1.schema.json",
     )
-    assert len(contents) == 4261
-    assert hashlib.sha256(contents).hexdigest() == ("3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904")
+    schema = json.loads(contents.decode("utf-8"))
+    Draft202012Validator.check_schema(schema)
+    measured_revisions = {anchor.sha256 for _, anchor in CORE_SCHEMA_ANCHORS}
+
     assert b"\r\n" not in contents
+    assert schema["$id"] == INSTALL_SOP_SCHEMA_ID
+    assert hashlib.sha256(contents).hexdigest() in measured_revisions
+
+
+def test_core_schema_anchor_is_keyed_by_the_core_release() -> None:
+    initial = core_schema_anchor(MIN_CORE_VERSION)
+    refreshed = core_schema_anchor("0.20.30")
+
+    assert initial is not None and refreshed is not None
+    assert initial.sha256 != refreshed.sha256
+    assert core_schema_anchor("0.20.29") == initial
+    assert core_schema_anchor("0.20.33") == refreshed
+    assert core_schema_anchor(CORE_SCHEMA_ANCHOR_MEASURED_THROUGH) is not None
+    assert core_schema_anchor("0.20.34") is None
+    assert core_schema_anchor("0.20.14rc1") is None
+
+
+def test_core_schema_anchor_requires_a_measurable_core_version() -> None:
+    assert core_schema_anchor("") is None
+    assert core_schema_anchor("not-a-version") is None
 
 
 def _bound_runtime_probes(host: Path, state_dir: Path):
@@ -315,6 +344,9 @@ def test_version_parser_accepts_only_bounded_final_release_values() -> None:
 def test_target_import_rejects_core_versions_outside_the_declared_specifier(monkeypatch) -> None:
     from dcc_mcp_photoshop import install_verification
 
+    floor_anchor = core_schema_anchor(MIN_CORE_VERSION)
+    assert floor_anchor is not None
+
     monkeypatch.setattr(
         install_verification,
         "_probe_target_import_payload",
@@ -332,8 +364,8 @@ def test_target_import_rejects_core_versions_outside_the_declared_specifier(monk
             },
             "core_schema": {
                 "id": install_verification.INSTALL_SOP_SCHEMA_ID,
-                "size": install_verification.INSTALL_SOP_SCHEMA_SIZE,
-                "sha256": install_verification.INSTALL_SOP_SCHEMA_SHA256,
+                "size": floor_anchor.size,
+                "sha256": floor_anchor.sha256,
                 "record_owned": True,
             },
         },
@@ -502,12 +534,99 @@ def test_target_import_binds_the_installed_core_schema_resource() -> None:
     result = probe_target_import(sys.executable, 5.0)
 
     assert result["ok"] is True
-    assert result["core_schema"] == {
-        "id": "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json",
-        "size": 4261,
-        "sha256": "3ca25788439917b4d4c0617230a762f9797756b5b54f45c8c4149f975b90f904",
-        "record_owned": True,
-    }
+    core_schema = result["core_schema"]
+    anchor = result["core_schema_anchor"]
+    assert core_schema["id"] == INSTALL_SOP_SCHEMA_ID
+    assert core_schema["record_owned"] is True
+    assert anchor["core_version"] == result["modules"]["core"]["version"]
+    if anchor["status"] == "pinned":
+        assert core_schema["size"] == anchor["size"]
+        assert core_schema["sha256"] == anchor["sha256"]
+    else:
+        assert anchor["status"] == "unpinned"
+        assert anchor["sha256"] is None
+
+
+def test_target_import_rejects_a_core_schema_that_drifted_from_its_measured_revision(monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_verification
+
+    floor_anchor = core_schema_anchor(MIN_CORE_VERSION)
+    assert floor_anchor is not None
+
+    monkeypatch.setattr(
+        install_verification,
+        "_probe_target_import_payload",
+        lambda *_: {
+            "python_executable": str(Path(sys.executable).resolve()),
+            "modules": {
+                "adapter": {
+                    "distribution": "dcc-mcp-photoshop",
+                    "version": "0.1.39",
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "core": {
+                    "distribution": "dcc-mcp-core",
+                    "version": MIN_CORE_VERSION,
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+            },
+            "core_schema": {
+                "id": install_verification.INSTALL_SOP_SCHEMA_ID,
+                "size": floor_anchor.size + 1,
+                "sha256": floor_anchor.sha256,
+                "record_owned": True,
+            },
+        },
+    )
+
+    result = install_verification.probe_target_import(sys.executable, 5.0)
+
+    assert result == {"ok": False, "error_type": "core_schema_mismatch"}
+
+
+def test_target_import_accepts_an_unmeasured_core_release_without_a_pinned_digest(monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_verification
+
+    unmeasured_version = "0.20.34"
+    assert core_schema_anchor(unmeasured_version) is None
+
+    monkeypatch.setattr(
+        install_verification,
+        "_probe_target_import_payload",
+        lambda *_: {
+            "python_executable": str(Path(sys.executable).resolve()),
+            "modules": {
+                "adapter": {
+                    "distribution": "dcc-mcp-photoshop",
+                    "version": "0.1.39",
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "core": {
+                    "distribution": "dcc-mcp-core",
+                    "version": unmeasured_version,
+                    "module_path": __file__,
+                    "owned": True,
+                },
+                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+            },
+            "core_schema": {
+                "id": install_verification.INSTALL_SOP_SCHEMA_ID,
+                "size": 4_899,
+                "sha256": "0" * 64,  # synthetic digest: an unmeasured release has no pinned bytes
+                "record_owned": True,
+            },
+        },
+    )
+
+    result = install_verification.probe_target_import(sys.executable, 5.0)
+
+    assert result["ok"] is True
+    assert result["core_schema_anchor"]["status"] == "unpinned"
+    assert result["core_schema_anchor"]["sha256"] is None
 
 
 def test_verify_rejects_unbound_broker_and_photoshop_success_payloads() -> None:
