@@ -618,10 +618,7 @@ def test_independent_maintainer_lookup_fails_closed_on_unbounded_pages(
 ) -> None:
     """A collaborators list beyond the bounded page limit must fail, not relax."""
 
-    page = [
-        {"login": f"collaborator-{index}", "type": "User", "permissions": {"pull": True}}
-        for index in range(100)
-    ]
+    page = [{"login": f"collaborator-{index}", "type": "User", "permissions": {"pull": True}} for index in range(100)]
     monkeypatch.setattr(policy, "_github_json", lambda _path, _token: page)
 
     with pytest.raises(policy.PolicyError, match="bounded lookup limit"):
