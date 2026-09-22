@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -11,7 +12,18 @@ ROOT = Path(__file__).resolve().parents[1]
 CHECKER = ROOT / "scripts" / "ci" / "check_trusted_release_policy.py"
 APPROVED = ROOT / "scripts" / "ci" / "approved_release_workflow.yml"
 WORKFLOW = ROOT / ".github" / "workflows" / "trusted-release-policy.yml"
-APPROVED_DIGEST = "cf0659fd8026e683ec45dd813c356bdc22918c2c51d55d445027ed5ac6df6876"
+
+
+def _load_checker_module():
+    spec = importlib.util.spec_from_file_location("check_trusted_release_policy", CHECKER)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+# Read the approved digest from the checker itself so editing the release workflow
+# only needs the constant in the checker to move, not this expectation too.
+APPROVED_DIGEST = _load_checker_module().APPROVED_RELEASE_WORKFLOW_SHA256
 
 
 def _run_checker(candidate: Path, cwd: Path = ROOT) -> subprocess.CompletedProcess[str]:
@@ -26,6 +38,18 @@ def _run_checker(candidate: Path, cwd: Path = ROOT) -> subprocess.CompletedProce
 
 def _workflow_document():
     return yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+
+
+def test_approved_digest_matches_the_checked_in_release_workflow() -> None:
+    """The pinned digest must equal the canonical digest of the workflow on disk.
+
+    Without this, deriving APPROVED_DIGEST from the checker would make the
+    acceptance test below tautological and hide a stale constant.
+    """
+
+    checker = _load_checker_module()
+
+    assert checker.release_workflow_digest(APPROVED) == checker.APPROVED_RELEASE_WORKFLOW_SHA256
 
 
 def test_base_owned_checker_accepts_the_reviewed_release_target() -> None:
