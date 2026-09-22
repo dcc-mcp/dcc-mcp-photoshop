@@ -4,6 +4,7 @@ import shutil
 import subprocess
 import sys
 from pathlib import Path
+from typing import Callable
 
 import pytest
 import yaml
@@ -457,6 +458,7 @@ def _upgrade_lookup_stub(
     reviews: list[dict],
     collaborators: list[dict],
     permissions: dict[str, str],
+    commit_committer: str = "pull-request-author",
 ):
     def github_json(path: str, _token: str):
         if "/commits?" in path:
@@ -464,7 +466,7 @@ def _upgrade_lookup_stub(
                 {
                     "sha": candidate_sha,
                     "author": {"login": "pull-request-author", "type": "User"},
-                    "committer": {"login": "pull-request-author", "type": "User"},
+                    "committer": {"login": commit_committer, "type": "User"},
                 }
             ]
         if "/reviews?" in path:
@@ -483,9 +485,10 @@ def _single_maintainer_case(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
-    reviews: list[dict],
+    reviews: Callable[[str, str], list[dict]],
     collaborators: list[dict],
     permissions: dict[str, str],
+    commit_committer: str = "pull-request-author",
 ) -> tuple[str | None, bool]:
     repository, base_sha = _init_policy_repository(tmp_path)
     checker = repository / TRUST_ROOTS[1]
@@ -494,7 +497,13 @@ def _single_maintainer_case(
     monkeypatch.setattr(
         policy,
         "_github_json",
-        _upgrade_lookup_stub(candidate_sha, reviews, collaborators, permissions),
+        _upgrade_lookup_stub(
+            candidate_sha,
+            reviews(candidate_sha, base_sha),
+            collaborators,
+            permissions,
+            commit_committer,
+        ),
     )
     return policy._live_upgrade_approver(
         repository,
@@ -516,7 +525,7 @@ def test_independent_maintainer_presence_keeps_the_strict_rule(
     _, relaxed = _single_maintainer_case(
         tmp_path,
         monkeypatch,
-        reviews=[],
+        reviews=lambda _candidate, _base: [],
         collaborators=[
             {"login": "pull-request-author", "type": "User", "permissions": {"admin": True}},
             {"login": "other-maintainer", "type": "User", "permissions": {"maintain": True}},
@@ -533,29 +542,12 @@ def test_single_maintainer_repository_accepts_exact_head_author_approval(
 ) -> None:
     """With no other eligible maintainer, the author's exact-head approval is used."""
 
-    repository, base_sha = _init_policy_repository(tmp_path)
-    checker = repository / TRUST_ROOTS[1]
-    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
-    candidate_sha = _commit(repository, "policy upgrade")
-    monkeypatch.setattr(
-        policy,
-        "_github_json",
-        _upgrade_lookup_stub(
-            candidate_sha,
-            [_review(1, "APPROVED", candidate_sha, "pull-request-author")],
-            [{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}],
-            {"pull-request-author": "admin"},
-        ),
-    )
-
-    reviewer, relaxed = policy._live_upgrade_approver(
-        repository,
-        "dcc-mcp/dcc-mcp-photoshop",
-        111,
-        base_sha,
-        candidate_sha,
-        "pull-request-author",
-        "token",
+    reviewer, relaxed = _single_maintainer_case(
+        tmp_path,
+        monkeypatch,
+        reviews=lambda candidate, _base: [_review(1, "APPROVED", candidate, "pull-request-author")],
+        collaborators=[{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}],
+        permissions={"pull-request-author": "admin"},
     )
 
     assert reviewer == "pull-request-author"
@@ -568,33 +560,72 @@ def test_single_maintainer_fallback_still_requires_exact_head_approval(
 ) -> None:
     """The fallback relaxes who may approve, never the exact-head or permission rules."""
 
-    repository, base_sha = _init_policy_repository(tmp_path)
-    checker = repository / TRUST_ROOTS[1]
-    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
-    candidate_sha = _commit(repository, "policy upgrade")
-    monkeypatch.setattr(
-        policy,
-        "_github_json",
-        _upgrade_lookup_stub(
-            candidate_sha,
-            [_review(1, "APPROVED", base_sha, "pull-request-author")],
-            [{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}],
-            {"pull-request-author": "admin"},
-        ),
-    )
-
-    reviewer, relaxed = policy._live_upgrade_approver(
-        repository,
-        "dcc-mcp/dcc-mcp-photoshop",
-        111,
-        base_sha,
-        candidate_sha,
-        "pull-request-author",
-        "token",
+    reviewer, relaxed = _single_maintainer_case(
+        tmp_path,
+        monkeypatch,
+        reviews=lambda _candidate, base: [_review(1, "APPROVED", base, "pull-request-author")],
+        collaborators=[{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}],
+        permissions={"pull-request-author": "admin"},
     )
 
     assert reviewer is None
     assert relaxed is True
+
+
+def test_single_maintainer_fallback_widens_the_rule_to_the_author_only(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fallback never lets another commit participant approve their own change."""
+
+    reviewer, relaxed = _single_maintainer_case(
+        tmp_path,
+        monkeypatch,
+        reviews=lambda candidate, _base: [_review(1, "APPROVED", candidate, "commit-participant")],
+        collaborators=[
+            {"login": "pull-request-author", "type": "User", "permissions": {"admin": True}},
+            {"login": "commit-participant", "type": "User", "permissions": {"admin": True}},
+        ],
+        permissions={"commit-participant": "admin"},
+        commit_committer="commit-participant",
+    )
+
+    assert reviewer is None
+    assert relaxed is True
+
+
+@pytest.mark.parametrize(
+    "response",
+    [
+        {"unexpected": "shape"},
+        [{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}, "not-an-object"],
+    ],
+)
+def test_independent_maintainer_lookup_fails_closed_on_malformed_response(
+    monkeypatch: pytest.MonkeyPatch,
+    response: object,
+) -> None:
+    """A malformed collaborators response must never be read as "no other maintainer"."""
+
+    monkeypatch.setattr(policy, "_github_json", lambda _path, _token: response)
+
+    with pytest.raises(policy.PolicyError, match="collaborators response is invalid"):
+        policy._independent_maintainer_exists("dcc-mcp/dcc-mcp-photoshop", (), "token")
+
+
+def test_independent_maintainer_lookup_fails_closed_on_unbounded_pages(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A collaborators list beyond the bounded page limit must fail, not relax."""
+
+    page = [
+        {"login": f"collaborator-{index}", "type": "User", "permissions": {"pull": True}}
+        for index in range(100)
+    ]
+    monkeypatch.setattr(policy, "_github_json", lambda _path, _token: page)
+
+    with pytest.raises(policy.PolicyError, match="bounded lookup limit"):
+        policy._independent_maintainer_exists("dcc-mcp/dcc-mcp-photoshop", (), "token")
 
 
 def test_codeowners_covers_every_release_policy_trust_root() -> None:

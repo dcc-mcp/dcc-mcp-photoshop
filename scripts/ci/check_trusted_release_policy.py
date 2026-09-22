@@ -506,6 +506,7 @@ def _live_upgrade_approver(
         permission_lookup,
         repository_slug=repository_slug,
         token=token,
+        pull_request_author=pull_request_author,
     )
 
 
@@ -517,6 +518,7 @@ def _resolve_upgrade_approver(
     *,
     repository_slug: str,
     token: str,
+    pull_request_author: str,
 ) -> Tuple[Optional[str], bool]:
     approver = select_upgrade_approver(reviews, candidate_sha, excluded_logins, permission_lookup)
     if approver is not None:
@@ -526,7 +528,12 @@ def _resolve_upgrade_approver(
     # Single-maintainer repository: every admin/maintain collaborator is already
     # excluded, so the independent-approval rule can never be met. Fall back to the
     # author's own exact-head approval and record that the strict rule was relaxed.
-    return select_upgrade_approver(reviews, candidate_sha, (), permission_lookup), True
+    # Every other commit participant stays excluded: the fallback widens the rule to
+    # the author and to nobody else.
+    fallback_excluded = tuple(
+        sorted(login for login in excluded_logins if login.casefold() != pull_request_author.casefold())
+    )
+    return select_upgrade_approver(reviews, candidate_sha, fallback_excluded, permission_lookup), True
 
 
 def _parser() -> argparse.ArgumentParser:
