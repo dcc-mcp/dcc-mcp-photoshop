@@ -677,6 +677,8 @@ def test_live_upgrade_lookup_rejects_an_admin_pr_author_approving_their_own_head
                 {"login": "admin-author", "type": "User", "permissions": {"admin": True}},
                 {"login": "other-maintainer", "type": "User", "permissions": {"maintain": True}},
             ]
+        if path.endswith("/collaborators/admin-author/permission"):
+            return {"permission": "admin"}
         raise AssertionError(f"unexpected GitHub API path: {path}")
 
     monkeypatch.setattr(policy, "_github_json", github_json)
@@ -724,7 +726,105 @@ def test_single_maintainer_lookup_rejects_a_pr_author_without_an_exact_head_appr
             return []
         if "/collaborators?" in path:
             return [{"login": "admin-author", "type": "User", "permissions": {"admin": True}}]
-        # An author permission lookup would be a self-authorization path.
+        if path.endswith("/collaborators/admin-author/permission"):
+            return {"permission": "admin"}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(policy, "_github_json", github_json)
+
+    reviewer, relaxed = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        113,
+        base_sha,
+        candidate_sha,
+        "admin-author",
+        "token",
+    )
+
+    assert reviewer is None
+    assert relaxed is True
+
+
+def test_single_maintainer_fallback_accepts_the_exact_head_author_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no other eligible maintainer, the author's exact-head approval is accepted.
+
+    The single-maintainer fallback relaxes who may approve and records that the
+    strict rule was relaxed. It never turns a bare permission lookup into an
+    authorization path: an exact-head review is still required.
+    """
+
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "admin policy upgrade")
+
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "admin-author", "type": "User"},
+                    "committer": {"login": "admin-author", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return [_review(1, "APPROVED", candidate_sha, "admin-author")]
+        if "/collaborators?" in path:
+            return [{"login": "admin-author", "type": "User", "permissions": {"admin": True}}]
+        if path.endswith("/collaborators/admin-author/permission"):
+            return {"permission": "admin"}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    monkeypatch.setattr(policy, "_github_json", github_json)
+
+    reviewer, relaxed = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        113,
+        base_sha,
+        candidate_sha,
+        "admin-author",
+        "token",
+    )
+
+    assert reviewer == "admin-author"
+    assert relaxed is True
+
+
+def test_single_maintainer_fallback_rejects_a_stale_author_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fallback relaxes who may approve, never the exact-head requirement.
+
+    An approval left on the base commit is stale, so even the fallback path must
+    leave the policy-root upgrade unauthorized.
+    """
+
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "admin policy upgrade")
+
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "admin-author", "type": "User"},
+                    "committer": {"login": "admin-author", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return [_review(1, "APPROVED", base_sha, "admin-author")]
+        if "/collaborators?" in path:
+            return [{"login": "admin-author", "type": "User", "permissions": {"admin": True}}]
+        if path.endswith("/collaborators/admin-author/permission"):
+            return {"permission": "admin"}
         raise AssertionError(f"unexpected GitHub API path: {path}")
 
     monkeypatch.setattr(policy, "_github_json", github_json)
