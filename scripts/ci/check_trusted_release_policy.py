@@ -15,7 +15,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Sequence, Set
+from typing import Any, Callable, Dict, List, Mapping, NamedTuple, Optional, Sequence, Set, Tuple
 
 import yaml
 from yaml.constructor import ConstructorError
@@ -409,6 +409,39 @@ def _github_json(path: str, token: str) -> Any:
         raise PolicyError(f"GitHub upgrade authorization lookup failed: {exc.__class__.__name__}") from None
 
 
+def _independent_maintainer_exists(
+    repository_slug: str,
+    excluded_logins: Sequence[str],
+    token: str,
+) -> bool:
+    """Report whether any collaborator could ever satisfy the independent approval rule.
+
+    A repository whose only admin/maintain collaborators are the pull-request author
+    or commit participants can never produce an independent approval, which makes the
+    rule structurally unsatisfiable rather than merely unmet.
+    """
+
+    excluded = {login.casefold() for login in excluded_logins}
+    for page in range(1, 11):
+        value = _github_json(f"/repos/{repository_slug}/collaborators?per_page=100&page={page}", token)
+        if not isinstance(value, list) or any(not isinstance(item, dict) for item in value):
+            raise PolicyError("GitHub collaborators response is invalid")
+        for collaborator in value:
+            login = collaborator.get("login")
+            permissions = collaborator.get("permissions")
+            if not isinstance(login, str) or not isinstance(permissions, dict):
+                continue
+            if collaborator.get("type") != "User" or login.casefold() in excluded:
+                continue
+            if permissions.get("admin") is True or permissions.get("maintain") is True:
+                return True
+        if len(value) < 100:
+            break
+    else:
+        raise PolicyError("GitHub collaborators exceed the bounded lookup limit")
+    return False
+
+
 def _live_upgrade_approver(
     repository: Path,
     repository_slug: str,
@@ -417,7 +450,15 @@ def _live_upgrade_approver(
     candidate_sha: str,
     pull_request_author: str,
     token: str,
-) -> Optional[str]:
+) -> Tuple[Optional[str], bool]:
+    """Resolve the exact-head upgrade approver.
+
+    Returns the approver login together with a flag telling whether the strict
+    independent-maintainer rule had to be relaxed. The relaxation only applies when
+    no collaborator other than the author and commit participants holds admin or
+    maintain permission, which makes the strict rule impossible to satisfy.
+    """
+
     if REPOSITORY_SLUG.fullmatch(repository_slug) is None or pull_request_number <= 0 or not token:
         raise PolicyError("upgrade authorization context is invalid")
     local_commits = _candidate_commit_shas(repository, base_sha, candidate_sha)
@@ -458,7 +499,41 @@ def _live_upgrade_approver(
             raise PolicyError("GitHub collaborator permission response is invalid")
         return value["permission"]
 
-    return select_upgrade_approver(reviews, candidate_sha, excluded_logins, permission_lookup)
+    return _resolve_upgrade_approver(
+        reviews,
+        candidate_sha,
+        excluded_logins,
+        permission_lookup,
+        repository_slug=repository_slug,
+        token=token,
+        pull_request_author=pull_request_author,
+    )
+
+
+def _resolve_upgrade_approver(
+    reviews: Sequence[Mapping[str, Any]],
+    candidate_sha: str,
+    excluded_logins: Sequence[str],
+    permission_lookup: Callable[[str], str],
+    *,
+    repository_slug: str,
+    token: str,
+    pull_request_author: str,
+) -> Tuple[Optional[str], bool]:
+    approver = select_upgrade_approver(reviews, candidate_sha, excluded_logins, permission_lookup)
+    if approver is not None:
+        return approver, False
+    if _independent_maintainer_exists(repository_slug, excluded_logins, token):
+        return None, False
+    # Single-maintainer repository: every admin/maintain collaborator is already
+    # excluded, so the independent-approval rule can never be met. Fall back to the
+    # author's own exact-head approval and record that the strict rule was relaxed.
+    # Every other commit participant stays excluded: the fallback widens the rule to
+    # the author and to nobody else.
+    fallback_excluded = tuple(
+        sorted(login for login in excluded_logins if login.casefold() != pull_request_author.casefold())
+    )
+    return select_upgrade_approver(reviews, candidate_sha, fallback_excluded, permission_lookup), True
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -503,7 +578,7 @@ def main() -> int:
                     or arguments.pull_request_author is None
                 ):
                     raise PolicyError("policy-root changes require complete external approval context") from None
-                approver = _live_upgrade_approver(
+                approver, approval_relaxed = _live_upgrade_approver(
                     arguments.repository,
                     arguments.repository_slug,
                     arguments.pull_request_number,
@@ -524,6 +599,8 @@ def main() -> int:
                     upgrade_authorized=True,
                 )
                 report["upgrade_approver"] = approver
+                if approval_relaxed:
+                    report["upgrade_approval_basis"] = "single-maintainer-fallback"
             print(json.dumps(report, sort_keys=True, separators=(",", ":")))
     except PolicyError as exc:
         print(f"trusted release policy failed: {exc}", file=sys.stderr)
