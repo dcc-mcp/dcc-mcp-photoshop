@@ -438,7 +438,7 @@ def test_live_upgrade_lookup_excludes_exact_candidate_commit_participants(
 
     monkeypatch.setattr(policy, "_github_json", github_json)
 
-    reviewer = policy._live_upgrade_approver(
+    reviewer, relaxed = policy._live_upgrade_approver(
         repository,
         "dcc-mcp/dcc-mcp-photoshop",
         110,
@@ -449,6 +449,152 @@ def test_live_upgrade_lookup_excludes_exact_candidate_commit_participants(
     )
 
     assert reviewer == "independent-maintainer"
+    assert relaxed is False
+
+
+def _upgrade_lookup_stub(
+    candidate_sha: str,
+    reviews: list[dict],
+    collaborators: list[dict],
+    permissions: dict[str, str],
+):
+    def github_json(path: str, _token: str):
+        if "/commits?" in path:
+            return [
+                {
+                    "sha": candidate_sha,
+                    "author": {"login": "pull-request-author", "type": "User"},
+                    "committer": {"login": "pull-request-author", "type": "User"},
+                }
+            ]
+        if "/reviews?" in path:
+            return reviews
+        if "/collaborators?" in path:
+            return collaborators
+        for login, permission in permissions.items():
+            if path.endswith(f"/collaborators/{login}/permission"):
+                return {"permission": permission}
+        raise AssertionError(f"unexpected GitHub API path: {path}")
+
+    return github_json
+
+
+def _single_maintainer_case(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    *,
+    reviews: list[dict],
+    collaborators: list[dict],
+    permissions: dict[str, str],
+) -> tuple[str | None, bool]:
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "policy upgrade")
+    monkeypatch.setattr(
+        policy,
+        "_github_json",
+        _upgrade_lookup_stub(candidate_sha, reviews, collaborators, permissions),
+    )
+    return policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        111,
+        base_sha,
+        candidate_sha,
+        "pull-request-author",
+        "token",
+    )
+
+
+def test_independent_maintainer_presence_keeps_the_strict_rule(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A second eligible maintainer means the strict rule stays in force."""
+
+    _, relaxed = _single_maintainer_case(
+        tmp_path,
+        monkeypatch,
+        reviews=[],
+        collaborators=[
+            {"login": "pull-request-author", "type": "User", "permissions": {"admin": True}},
+            {"login": "other-maintainer", "type": "User", "permissions": {"maintain": True}},
+        ],
+        permissions={},
+    )
+
+    assert relaxed is False
+
+
+def test_single_maintainer_repository_accepts_exact_head_author_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """With no other eligible maintainer, the author's exact-head approval is used."""
+
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "policy upgrade")
+    monkeypatch.setattr(
+        policy,
+        "_github_json",
+        _upgrade_lookup_stub(
+            candidate_sha,
+            [_review(1, "APPROVED", candidate_sha, "pull-request-author")],
+            [{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}],
+            {"pull-request-author": "admin"},
+        ),
+    )
+
+    reviewer, relaxed = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        111,
+        base_sha,
+        candidate_sha,
+        "pull-request-author",
+        "token",
+    )
+
+    assert reviewer == "pull-request-author"
+    assert relaxed is True
+
+
+def test_single_maintainer_fallback_still_requires_exact_head_approval(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The fallback relaxes who may approve, never the exact-head or permission rules."""
+
+    repository, base_sha = _init_policy_repository(tmp_path)
+    checker = repository / TRUST_ROOTS[1]
+    checker.write_text(checker.read_text(encoding="utf-8") + "\n# upgrade\n", encoding="utf-8")
+    candidate_sha = _commit(repository, "policy upgrade")
+    monkeypatch.setattr(
+        policy,
+        "_github_json",
+        _upgrade_lookup_stub(
+            candidate_sha,
+            [_review(1, "APPROVED", base_sha, "pull-request-author")],
+            [{"login": "pull-request-author", "type": "User", "permissions": {"admin": True}}],
+            {"pull-request-author": "admin"},
+        ),
+    )
+
+    reviewer, relaxed = policy._live_upgrade_approver(
+        repository,
+        "dcc-mcp/dcc-mcp-photoshop",
+        111,
+        base_sha,
+        candidate_sha,
+        "pull-request-author",
+        "token",
+    )
+
+    assert reviewer is None
+    assert relaxed is True
 
 
 def test_codeowners_covers_every_release_policy_trust_root() -> None:
