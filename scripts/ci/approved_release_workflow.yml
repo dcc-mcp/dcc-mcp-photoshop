@@ -322,6 +322,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # upload-artifact reports `artifact-digest` as bare hex, while the REST API
+          # returns `sha256:<hex>`. Canonicalise the build output before comparing so
+          # the two sides can actually match, and fail closed on any other shape.
+          case "$PYTHON_ARTIFACT_DIGEST" in
+            sha256:*) ;;
+            *) PYTHON_ARTIFACT_DIGEST="sha256:$PYTHON_ARTIFACT_DIGEST" ;;
+          esac
+          [[ "$PYTHON_ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
           ARTIFACTS=$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?per_page=100")
           test "$(jq -r '.total_count' <<< "$ARTIFACTS")" = "4"
           resolve_artifact() {
@@ -336,7 +344,11 @@ jobs:
             expired=$(jq -r --arg name "$name" '.artifacts[] | select(.name == $name) | .expired' <<< "$ARTIFACTS")
             [[ "$id" =~ ^[1-9][0-9]*$ ]]
             [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]]
-            test "$head_sha" = "$VERIFIED_SOURCE_SHA"
+            # The artifact belongs to this run, so bind it to $GITHUB_SHA. On a
+            # workflow_dispatch rebuild of an existing tag the run head is the branch
+            # tip while the verified source is the tag commit, and the two differ.
+            # Source verification stays with the build job checkout.
+            test "$head_sha" = "$GITHUB_SHA"
             test "$expired" = "false"
             echo "${key}_id=$id" >> "$GITHUB_OUTPUT"
             echo "${key}_digest=$digest" >> "$GITHUB_OUTPUT"

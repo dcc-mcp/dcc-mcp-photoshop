@@ -1355,6 +1355,172 @@ def _write_bundle(tmp_path: Path) -> Path:
     return bundle
 
 
+RESOLVE_VERSION = "1.2.3"
+RESOLVE_RUN_ID = "4242"
+
+_RESOLVE_FAKE_GH = """#!/usr/bin/env bash
+set -euo pipefail
+if [[ "$*" == *"/actions/runs/"*"/artifacts"* ]]; then
+  cat "$GH_STATE/artifacts.json"
+  exit 0
+fi
+echo "unexpected gh invocation: $*" >&2
+exit 1
+"""
+
+
+def _resolve_artifact_names(version: str, run_id: str) -> tuple[str, ...]:
+    """The names the resolve step interpolates for this version and run."""
+
+    return (
+        f"python-dist-{version}-{run_id}",
+        f"dcc-mcp-photoshop-windows-{version}-{run_id}",
+        f"dcc-mcp-photoshop-linux-{version}-{run_id}",
+        f"dcc-mcp-photoshop-macos-{version}-{run_id}",
+    )
+
+
+def _run_resolve_gate(
+    tmp_path: Path,
+    *,
+    rest_digest: str | None,
+    head_sha: str,
+    build_digest: str,
+    run_head: str | None = None,
+) -> subprocess.CompletedProcess[str]:
+    """Run the `Resolve exact build artifact identities` step against a fake `gh`.
+
+    `rest_digest` is what the artifacts REST API reports (`sha256:<hex>`), while
+    `build_digest` is what upload-artifact put in the `artifact-digest` job output
+    (bare hex). The step has to reconcile the two instead of comparing them raw.
+
+    `run_head` defaults to `head_sha`; pass a different value to simulate an
+    artifact uploaded by another run.
+    """
+
+    fake_gh = tmp_path / "gh"
+    _write_text(fake_gh, _RESOLVE_FAKE_GH)
+    fake_gh.chmod(0o755)
+    state = tmp_path / "gh-state"
+    state.mkdir(exist_ok=True)
+    names = _resolve_artifact_names(RESOLVE_VERSION, RESOLVE_RUN_ID)
+    payload = {
+        "total_count": len(names),
+        "artifacts": [
+            {
+                "id": 900 + index,
+                "name": name,
+                "digest": rest_digest,
+                "workflow_run": {"head_sha": head_sha},
+                "expired": False,
+            }
+            for index, name in enumerate(names)
+        ],
+    }
+    _write_text(state / "artifacts.json", json.dumps(payload))
+
+    script = tmp_path / "resolve.sh"
+    _write_text(
+        script,
+        _step(_workflow()["jobs"]["bind-release-artifacts"], "Resolve exact build artifact identities")["run"],
+    )
+    script.chmod(0o755)
+    environment = {
+        **_release_environment(),
+        "PATH": f"{tmp_path}{os.pathsep}{os.environ['PATH']}",
+        "GITHUB_REPOSITORY": "dcc-mcp/dcc-mcp-photoshop",
+        "GITHUB_RUN_ID": RESOLVE_RUN_ID,
+        "GITHUB_SHA": head_sha if run_head is None else run_head,
+        "VERSION": RESOLVE_VERSION,
+        "GH_STATE": str(state),
+        "GITHUB_OUTPUT": str(tmp_path / "gh-output"),
+        "PYTHON_ARTIFACT_ID": "900",
+        "PYTHON_ARTIFACT_DIGEST": build_digest,
+    }
+    return subprocess.run(
+        [_bash(), script.name],
+        cwd=tmp_path,
+        env=environment,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_resolve_binds_the_artifact_to_the_run_head_not_the_verified_source(tmp_path: Path) -> None:
+    """A workflow_dispatch rebuild runs from a branch tip, not from the tag commit.
+
+    The artifact belongs to the run that uploaded it, so binding it to
+    `$VERIFIED_SOURCE_SHA` fails every rebuild of an existing tag.
+    """
+
+    result = _run_resolve_gate(
+        tmp_path,
+        rest_digest=f"sha256:{'b' * 64}",
+        head_sha="c" * 40,
+        build_digest="b" * 64,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+
+
+def test_resolve_reconciles_a_bare_hex_build_digest_with_the_prefixed_rest_value(tmp_path: Path) -> None:
+    """`artifact-digest` is bare hex while the REST API returns `sha256:<hex>`.
+
+    Comparing the two without canonicalising them fails every release.
+    """
+
+    result = _run_resolve_gate(
+        tmp_path,
+        rest_digest=f"sha256:{'b' * 64}",
+        head_sha="c" * 40,
+        build_digest="b" * 64,
+    )
+
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert f"sha256:{'b' * 64}" in (tmp_path / "gh-output").read_text(encoding="utf-8")
+
+
+def test_resolve_rejects_a_null_rest_digest(tmp_path: Path) -> None:
+    """An artifact whose digest is still null must never resolve."""
+
+    result = _run_resolve_gate(
+        tmp_path,
+        rest_digest=None,
+        head_sha="c" * 40,
+        build_digest="b" * 64,
+    )
+
+    assert result.returncode != 0
+
+
+def test_resolve_rejects_a_digest_mismatch_after_canonicalisation(tmp_path: Path) -> None:
+    """Canonicalising the build digest must not paper over a real difference."""
+
+    result = _run_resolve_gate(
+        tmp_path,
+        rest_digest=f"sha256:{'b' * 64}",
+        head_sha="c" * 40,
+        build_digest="d" * 64,
+    )
+
+    assert result.returncode != 0
+
+
+def test_resolve_rejects_an_artifact_from_another_run(tmp_path: Path) -> None:
+    """Binding to $GITHUB_SHA still catches an artifact uploaded by a different run."""
+
+    result = _run_resolve_gate(
+        tmp_path,
+        rest_digest=f"sha256:{'b' * 64}",
+        head_sha="c" * 40,
+        build_digest="b" * 64,
+        run_head="e" * 40,
+    )
+
+    assert result.returncode != 0
+
+
 def test_attach_gate_uploads_every_bundle_asset_and_polls_for_the_digest(tmp_path: Path) -> None:
     _write_bundle(tmp_path)
     marker = tmp_path / "mutated"
