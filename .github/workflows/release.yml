@@ -196,7 +196,7 @@ jobs:
         run: pip install hatchling build
 
       - name: Install dev dependencies
-        run: pip install ".[dev]"
+        run: pip install -e ".[dev]"
 
       - name: Smoke test — CLI entry point
         run: dcc-mcp-photoshop --version
