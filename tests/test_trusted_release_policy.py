@@ -35,11 +35,17 @@ def test_base_owned_checker_accepts_the_reviewed_release_target() -> None:
     assert TARGET_HEAD in result.stdout
 
 
-def test_base_owned_checker_rejects_the_old_main_release_workflow() -> None:
+def test_base_owned_checker_accepts_the_deployed_release_workflow() -> None:
+    """The deployed release workflow must stay aligned with the approved policy.
+
+    The gate rejects any release workflow whose canonical digest differs from
+    ``APPROVED_RELEASE_WORKFLOW_SHA256``, so drift here fails release changes.
+    """
+
     result = _run_checker(ROOT / ".github" / "workflows" / "release.yml")
 
-    assert result.returncode != 0
-    assert "approved release policy" in result.stderr
+    assert result.returncode == 0, result.stdout + result.stderr
+    assert TARGET_HEAD in result.stdout
 
 
 def test_variable_upload_and_synchronized_pr_checker_cannot_replace_base_policy(tmp_path: Path) -> None:
