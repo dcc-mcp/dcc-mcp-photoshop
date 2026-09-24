@@ -290,6 +290,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: dist
+          merge-multiple: true
       - name: Verify immutable artifact identity
         env:
           GH_HOST: github.com
@@ -304,7 +305,7 @@ jobs:
           set -euo pipefail
           test "$BUILD_SOURCE_SHA" = "$VERIFIED_SOURCE_SHA"
           test -n "$ARTIFACT_ID"
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
           TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
           RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
           test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
@@ -332,6 +333,7 @@ jobs:
         with:
           artifact-ids: ${{ needs.build.outputs.artifact_id }}
           path: release-assets
+          merge-multiple: true
       - name: Download Windows standalone archive
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
@@ -361,7 +363,7 @@ jobs:
           set -euo pipefail
           test "$BUILD_SOURCE_SHA" = "$VERIFIED_SOURCE_SHA"
           test -n "$ARTIFACT_ID"
-          [[ "$ARTIFACT_DIGEST" =~ ^sha256:[0-9a-f]{64}$ ]]
+          [[ "$ARTIFACT_DIGEST" =~ ^[0-9a-f]{64}$ ]]
           TAG_SOURCE=$(gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$TAG_NAME" --jq '.object.sha')
           RELEASE_TARGET=$(gh api "repos/$GITHUB_REPOSITORY/releases/tags/$TAG_NAME" --jq '.target_commitish')
           test "$TAG_SOURCE" = "$VERIFIED_SOURCE_SHA"
