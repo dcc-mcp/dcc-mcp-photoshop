@@ -11,10 +11,33 @@ RELEASE_WORKFLOW = Path(".github/workflows/release.yml")
 
 # actions/upload-artifact@v4 exposes `artifact-digest` as a bare lowercase
 # sha256 hex digest (src/shared/upload-artifact.ts:22 -> @actions/artifact
-# lib/internal/upload/blob-upload.js:77-88). The `sha256:` prefix only ever
-# appears in the internal finalize request, so an assertion demanding that
-# prefix can never match and aborts the job under `set -euo pipefail`.
-BARE_DIGEST = "a" * 64
+# lib/internal/upload/blob-upload.js:77-88).
+#
+# Mind the prefix asymmetry: the server-side artifact metadata and the
+# `Expected Digest` line printed by the download log DO carry a `sha256:`
+# prefix, but the `steps.*.outputs.artifact-digest` step output consumed here
+# does NOT. An assertion demanding the prefix on the step output can therefore
+# never match, and aborts the job under `set -euo pipefail`.
+#
+# Captured from a real attach-release-assets run (run 36175991243) rather than
+# a synthetic filler, so the fixture reflects a digest a run actually produced.
+REAL_DIGEST = "4da0ee69d11cbdc0dd818ea966624333a86b7534cbff8db021b6907187db0ca7"
+# Complements the real value by mixing digits and a-f letters throughout, so a
+# pattern that only happened to match one sample cannot pass unnoticed.
+MIXED_DIGEST = "1f2e3d4c5b6a798807162534435261708f9eadbc0123456789abcdef01234567"
+
+VALID_DIGESTS = [REAL_DIGEST, MIXED_DIGEST]
+
+# Rejected shapes: wrong length either side of 64, a non-hex letter, the wrong
+# case, and the `sha256:` prefix that only other surfaces carry.
+INVALID_DIGESTS = {
+    "63 chars": "a" * 63,
+    "65 chars": "a" * 65,
+    "contains g": "g" * 64,
+    "uppercase": "A" * 64,
+    "sha256 prefix": "sha256:" + "a" * 64,
+}
+
 DIGEST_ASSERTION = re.compile(r'\[\[ "\$ARTIFACT_DIGEST" =~ (\^\S*) \]\]')
 
 
@@ -76,8 +99,14 @@ def test_artifact_digest_assertion_matches_bare_hex():
 
     for pattern in patterns:
         assert not pattern.startswith("^sha256:"), (
-            f"ARTIFACT_DIGEST assertion {pattern!r} requires a 'sha256:' prefix that upload-artifact never emits"
+            f"ARTIFACT_DIGEST assertion {pattern!r} requires a 'sha256:' prefix "
+            "that the artifact-digest step output never carries"
         )
-        assert re.fullmatch(pattern, BARE_DIGEST), (
-            f"ARTIFACT_DIGEST assertion {pattern!r} does not match a bare 64-char hex digest"
-        )
+        for digest in VALID_DIGESTS:
+            assert re.fullmatch(pattern, digest), (
+                f"ARTIFACT_DIGEST assertion {pattern!r} does not match the bare hex digest {digest}"
+            )
+        for label, digest in INVALID_DIGESTS.items():
+            assert re.fullmatch(pattern, digest) is None, (
+                f"ARTIFACT_DIGEST assertion {pattern!r} wrongly accepts {label}: {digest}"
+            )
