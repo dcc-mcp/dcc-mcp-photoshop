@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.41](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.40...v0.1.41) (2026-09-25)
+
+
+### Bug Fixes
+
+* **ci:** align release workflow with the approved policy snapshot ([#127](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/127)) ([d3f50a6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d3f50a6e2fd44a1c7885b61c6d32139297e2298d))
+
 ## [0.1.40](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.39...v0.1.40) (2026-09-21)
 
 
