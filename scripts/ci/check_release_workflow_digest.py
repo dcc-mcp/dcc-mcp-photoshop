@@ -14,6 +14,11 @@ it. Structural changes do, which is exactly the signal we want: adding a
 permission, swapping a pinned action, or dropping a publish-path assertion all
 move the digest, while reformatting the file does not.
 
+The one exception is the body of a `run:` block, which is a shell script and
+therefore content down to its whitespace: there, trailing spaces, blank lines
+and comment lines all move the digest. Whitespace that cannot change YAML
+meaning is still ignored everywhere outside those blocks.
+
 Scope: this is a drift check, **not** an approval gate. The snapshot is an
 ordinary tracked file refreshed by an ordinary pull request, deliberately so —
 the previous trust-root approval path deadlocked on repositories with a single
@@ -38,7 +43,7 @@ import re
 import stat
 import sys
 from pathlib import Path
-from typing import Any, Dict, List, Mapping
+from typing import Any, Dict, Mapping
 
 import yaml
 from yaml.constructor import ConstructorError
@@ -123,14 +128,19 @@ def _load_workflow(path: Path) -> Mapping[str, Any]:
 
 
 def _normalize_run(value: Any) -> str:
-    normalized = str(value).replace("\r\n", "\n").replace("\r", "\n")
-    lines: List[str] = []
-    for line in normalized.split("\n"):
-        clean = line.rstrip()
-        if not clean.strip() or clean.lstrip().startswith("#"):
-            continue
-        lines.append(clean)
-    return "\n".join(lines)
+    """Normalize only line endings; preserve every other byte of a `run` block.
+
+    A `run:` block scalar is a shell script, not a list of independent commands,
+    so whitespace inside it is content: a space after a line-continuation
+    backslash breaks the continuation and turns the next line into a new
+    command, and a blank line inside a heredoc changes the file the script
+    writes. Dropping trailing whitespace, blank lines or `#` lines would make
+    both edits invisible to the digest, so none of them are normalized. Only
+    CRLF and lone CR are folded, which is what keeps the digest identical
+    across Windows and Linux checkouts of the same commit.
+    """
+
+    return str(value).replace("\r\n", "\n").replace("\r", "\n")
 
 
 def _canonicalize(value: Any, key: str = "") -> Any:

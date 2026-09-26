@@ -8,10 +8,13 @@ by asserting nothing.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 import sys
 from pathlib import Path
 
 import pytest
+import yaml
 
 from scripts.ci.check_release_workflow_digest import (
     APPROVED_SNAPSHOT,
@@ -37,6 +40,42 @@ jobs:
     steps:
       - run: echo publish
 """
+
+# A `run:` block scalar is a shell script, so its whitespace is content. The
+# two pairs below differ only inside that block, in ways YAML parsing preserves
+# and bash then executes differently.
+CONTINUATION_WORKFLOW = (
+    "name: Release\n"
+    "jobs:\n"
+    "  build:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - run: |\n"
+    "          echo one \\\n"
+    "            two\n"
+)
+
+# One trailing space after the line-continuation backslash: bash then reads
+# `<space>` as the escaped character, ends the command at the newline, and
+# runs `two` as its own command.
+CONTINUATION_TAMPERED = CONTINUATION_WORKFLOW.replace("echo one \\\n", "echo one \\ \n")
+
+HEREDOC_WORKFLOW = (
+    "name: Release\n"
+    "jobs:\n"
+    "  build:\n"
+    "    runs-on: ubuntu-latest\n"
+    "    steps:\n"
+    "      - run: |\n"
+    "          cat > out.txt <<'EOF'\n"
+    "          line1\n"
+    "          line2\n"
+    "          EOF\n"
+)
+
+# One blank line inside the heredoc body: the script writes a different file.
+HEREDOC_TAMPERED = HEREDOC_WORKFLOW.replace("          line1\n", "          line1\n\n")
+
 
 # Same document as MINIMAL_WORKFLOW, different bytes: key order, comments,
 # blank lines, CRLF endings and quoting style all differ.
@@ -207,3 +246,62 @@ def test_print_digest_emits_the_canonical_digest(tmp_path, monkeypatch, capsys):
     assert code == 0
     assert out.strip() == release_workflow_digest(workflow)
     assert len(out.strip()) == 64
+
+
+def test_trailing_space_after_a_line_continuation_is_detected(tmp_path, monkeypatch, capsys):
+    """A space after a `\\` continuation changes what bash runs.
+
+    The trailing space is invisible to YAML, so only the digest can catch it.
+    """
+
+    original = _write(tmp_path / "original.yml", CONTINUATION_WORKFLOW)
+    tampered = _write(tmp_path / "tampered.yml", CONTINUATION_TAMPERED)
+
+    assert tampered.read_text() != original.read_text()
+    assert "\\\n" in yaml.safe_load(original.read_text())["jobs"]["build"]["steps"][0]["run"]
+    assert release_workflow_digest(original) != release_workflow_digest(tampered)
+
+    code, _, err = _run(monkeypatch, capsys, tampered, original)
+    assert code == 1
+    assert "drifted" in err
+
+
+def test_blank_line_inside_a_heredoc_is_detected(tmp_path, monkeypatch, capsys):
+    """A blank line inside a heredoc body changes the file the script writes."""
+
+    original = _write(tmp_path / "original.yml", HEREDOC_WORKFLOW)
+    tampered = _write(tmp_path / "tampered.yml", HEREDOC_TAMPERED)
+
+    assert release_workflow_digest(original) != release_workflow_digest(tampered)
+
+    code, _, err = _run(monkeypatch, capsys, tampered, original)
+    assert code == 1
+    assert "drifted" in err
+
+
+def test_comment_line_inside_a_run_block_is_detected(tmp_path):
+    """Inside a `run` block even a comment is script content, so it moves the digest."""
+
+    original = _write(tmp_path / "original.yml", HEREDOC_WORKFLOW)
+    commented = _write(
+        tmp_path / "commented.yml",
+        HEREDOC_WORKFLOW.replace("          line1\n", "          # a shell comment\n          line1\n"),
+    )
+
+    assert release_workflow_digest(original) != release_workflow_digest(commented)
+
+
+@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to prove the semantic difference")
+def test_the_continuation_tamper_actually_changes_what_bash_runs(tmp_path):
+    """Evidence that the P2 finding is a real defect, not a digest curiosity.
+
+    Without bash on the runner the digest assertions above still hold; this
+    test only documents that the two scripts behave differently.
+    """
+
+    def _exit_code(workflow_text: str) -> int:
+        script = yaml.safe_load(workflow_text)["jobs"]["build"]["steps"][0]["run"]
+        return subprocess.run(["bash", "-c", script], capture_output=True).returncode
+
+    assert _exit_code(CONTINUATION_WORKFLOW) == 0
+    assert _exit_code(CONTINUATION_TAMPERED) != 0
