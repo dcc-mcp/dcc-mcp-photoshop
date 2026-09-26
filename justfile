@@ -96,3 +96,11 @@ clean:
 # Run all checks (equivalent to CI: test + lint + lint-skills)
 ci: test lint-all
     @echo "All CI checks passed"
+
+# Verify the release workflow against its approved snapshot
+check-release-workflow:
+    python scripts/ci/check_release_workflow_digest.py
+
+# Refresh the approved release workflow snapshot after an intentional edit
+refresh-release-snapshot:
+    python scripts/ci/check_release_workflow_digest.py --update-snapshot
