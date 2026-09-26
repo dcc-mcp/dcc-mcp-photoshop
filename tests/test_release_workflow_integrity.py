@@ -291,12 +291,16 @@ def test_comment_line_inside_a_run_block_is_detected(tmp_path):
     assert release_workflow_digest(original) != release_workflow_digest(commented)
 
 
-@pytest.mark.skipif(shutil.which("bash") is None, reason="bash is required to prove the semantic difference")
-def test_the_continuation_tamper_actually_changes_what_bash_runs(tmp_path):
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="the bash proof needs POSIX argv handling; Windows bash builds mangle a multi-line -c argument",
+)
+def test_the_continuation_tamper_actually_changes_what_bash_runs():
     """Evidence that the P2 finding is a real defect, not a digest curiosity.
 
-    Without bash on the runner the digest assertions above still hold; this
-    test only documents that the two scripts behave differently.
+    Running the two scripts under bash shows the trailing space really does
+    split one command into two. The digest assertions above do not depend on
+    this test: they hold on every platform, with or without bash.
     """
 
     def _exit_code(workflow_text: str) -> int:
