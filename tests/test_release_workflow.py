@@ -5,8 +5,10 @@ from pathlib import Path
 
 import yaml
 
-# The release workflow is the single source of truth for the publish path now
-# that the trusted-release-policy snapshot and its checker have been dropped.
+# The release workflow is the single source of truth for the publish path. Its
+# integrity is pinned separately by `scripts/ci/check_release_workflow_digest.py`,
+# which binds it to the approved snapshot in `scripts/ci/`; these tests pin the
+# invariants inside it that the digest cannot express as an intent.
 RELEASE_WORKFLOW = Path(".github/workflows/release.yml")
 
 # actions/upload-artifact@v4 exposes `artifact-digest` as a bare lowercase

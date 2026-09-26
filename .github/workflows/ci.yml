@@ -185,12 +185,50 @@ jobs:
           kill $SERVER_PID 2>/dev/null || true
         continue-on-error: true
 
+  release-workflow-integrity:
+    name: Release workflow integrity
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v4
+
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: "3.12"
+
+      - name: Install PyYAML
+        run: python -m pip install pyyaml
+
+      - name: Verify the release workflow against its approved snapshot
+        run: python scripts/ci/check_release_workflow_digest.py
+
+      - name: Record the approved digest
+        run: |
+          {
+            echo "### Release workflow digest"
+            echo
+            echo "Canonical digest of \`.github/workflows/release.yml\`, bound to the approved snapshot in \`scripts/ci/\`:"
+            echo
+            echo '```'
+            python scripts/ci/check_release_workflow_digest.py --print-digest
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
   ci-gate:
     name: CI Gate
     if: always()
-    needs: [test, lint, lint-skills, adobepy_cli_floor, dependency-contract, lock-contract, cli-smoke]
+    needs:
+      [
+        test,
+        lint,
+        lint-skills,
+        adobepy_cli_floor,
+        dependency-contract,
+        lock-contract,
+        cli-smoke,
+        release-workflow-integrity,
+      ]
     runs-on: ubuntu-latest
     steps:
       - name: Require all CI jobs to pass
-        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.adobepy_cli_floor.result != 'success' || needs.dependency-contract.result != 'success' || needs.lock-contract.result != 'success' || needs.cli-smoke.result != 'success'
+        if: needs.test.result != 'success' || needs.lint.result != 'success' || needs.lint-skills.result != 'success' || needs.adobepy_cli_floor.result != 'success' || needs.dependency-contract.result != 'success' || needs.lock-contract.result != 'success' || needs.cli-smoke.result != 'success' || needs.release-workflow-integrity.result != 'success'
         run: exit 1
