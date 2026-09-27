@@ -1,10 +1,30 @@
 # AGENTS.md — dcc-mcp-photoshop
 
-> **Navigation map, not a reference manual.**
-> Follow the links; don't read everything upfront.
-> Agent-specific files (`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`) intentionally point back here.
+> Adobe Photoshop adapter for the DCC Model Context Protocol. MCP tools reach
+> Photoshop through a Python sidecar and a UXP WebSocket bridge.
+> Navigation map for AI agents, not a reference manual. Follow the links; do not
+> read everything up front.
 
-## Agent Control Path
+## Build & test
+
+```bash
+vx just dev        # install the package in editable mode with dev extras
+vx just test       # run the pytest suite
+vx just ci         # everything CI runs: test + lint + lint-format + lint-skills
+```
+
+Other verified recipes — run `vx just` to list all: `lint`, `lint-format`,
+`lint-skills`, `fix`, `format`, `test-cov`, `build` (wheel + sdist),
+`build-binary` (standalone binary), `clean`, `check-release-workflow`.
+
+## Read order
+
+1. `AGENTS.md` — this navigation map.
+2. `llms.txt` — compact runtime chain, CLI options, failure modes.
+3. `docs/bridge-protocol.md` — WebSocket JSON-RPC protocol, Python bridge ↔ UXP plugin.
+4. `docs/distribution.md` — distribution channels and release workflow.
+
+## Agent control path
 
 AI agent runtimes default to the shared gateway through the
 `dcc-mcp` skill and `dcc-mcp-cli` REST commands:
@@ -33,94 +53,104 @@ dcc-mcp-cli update apply
 `update apply` stages the latest CLI for the next launch; it does not replace
 a running server.
 
-## Project Overview
-
-**dcc-mcp-photoshop** turns Adobe Photoshop into an MCP Streamable HTTP backend via a UXP WebSocket plugin. The Python bridge runs a WebSocket server on port 9001; the UXP plugin inside Photoshop connects as a client.
-
-## Agent Entry Path
+## Runtime chain
 
 ```
-AI Agent
+AI agent
   │  MCP Streamable HTTP → http://127.0.0.1:9765/mcp
   ▼
-dcc-mcp-server Gateway (auto-discovers DCC via capability index)
+dcc-mcp-server gateway (auto-discovers the DCC via capability index)
   │
   ▼
 PhotoshopMcpServer [Python sidecar]
-  │  WebSocket JSON-RPC (port 9001)
+  │  WebSocket JSON-RPC
   ▼
-UXP Plugin [JavaScript, runs inside Photoshop]
+UXP bridge plugin [JavaScript, runs inside Photoshop]
   │  UXP API calls
   ▼
 Adobe Photoshop 2022+
 ```
 
-## Entry Strategy
+The UXP bridge is **generated, not vendored**: `adobepy install-bridge photoshop
+--dest <dir>` writes it (see `llms.txt` and `install.md`). There is no
+`bridge/` directory in this repository.
+
+## Entry strategy
 
 | Scenario | Path |
-|----------|------|
-| AI agent / CLI runtime | `dcc-mcp` + `dcc-mcp-cli` over gateway REST `/v1/search`, `/v1/describe`, and `/v1/call` |
+|---|---|
+| AI agent / CLI runtime | `dcc-mcp` + `dcc-mcp-cli` over gateway REST `/v1/search`, `/v1/describe`, `/v1/call` |
 | IDE user (Cursor, Claude Desktop) | Configure `mcpServers` → `url: "http://127.0.0.1:9765/mcp"` |
 | Development / debugging | Embedded mode: `dcc-mcp-photoshop --embedded` (MCP server + bridge in one process) |
 
-## Skills-First Workflow
+## Skills-first workflow
 
-When using Photoshop through dcc-mcp-photoshop, prefer skills over raw scripting:
+Prefer skills over raw scripting:
 
 ```
-1. SEARCH: search_skills(query="photoshop") → find available skill packages
-2. CHECK: Read the skill's SKILL.md description and tools
-3. LOAD:   load_skill("photoshop-document") → expose the tools
-4. CALL:   Call the specific tool with validated parameters
-5. FOLLOW UP: Check structured results for next steps
+1. SEARCH:  search_skills(query="photoshop") → find available skill packages
+2. CHECK:   read the skill's SKILL.md description and tools
+3. LOAD:    load_skill("photoshop-document") → expose the tools
+4. CALL:    call the specific tool with validated parameters
+5. FOLLOW:  check the structured result for next steps
 ```
-
-### Available Skills
-
 | Skill | Tools | Purpose |
-|-------|-------|---------|
+|---|---|---|
 | `photoshop-setup` | 6 | Install, configure, verify bridge connection |
 | `photoshop-document` | 2 | Document info, list layers |
 | `photoshop-image` | 7 | Create document, export, resize, flatten, merge |
 | `photoshop-layers` | 8 | Layer CRUD, opacity, visibility, blend mode, fill |
 | `photoshop-text` | 3 | Create, update, inspect text layers |
 
-## CLI Modes
+Fall back to raw scripting only when no typed skill fits.
 
-| Mode | Command | Use Case |
-|------|---------|----------|
-| Bridge-only (default) | `dcc-mcp-photoshop` | Deployment with external `dcc-mcp-server` |
+## CLI modes
+
+| Mode | Command | Use case |
+|---|---|---|
+| Bridge-only (default) | `dcc-mcp-photoshop` | Deployment with an external `dcc-mcp-server` |
 | Embedded | `dcc-mcp-photoshop --embedded` | Development (MCP + bridge in one process) |
 | Daemon | `dcc-mcp-photoshop --daemon` | Non-interactive background startup |
 
-## Distribution Channels
+Requires Python `>=3.8`; the standalone binary and the UXP bridge need no Python.
 
-| Channel | Artifact | Python Required |
-|---------|----------|-----------------|
-| PyPI | `dcc-mcp-photoshop` wheel + sdist | Yes (3.8+) |
-| GitHub Release | Standalone binary (Win/Linux/Mac) | No |
-| GitHub Release | UXP `.ccx` plugin | No |
+## Repo layout
 
-## Key Files
+| Path | Role |
+|---|---|
+| `src/dcc_mcp_photoshop/` | Python adapter package — server, bridge client, install lifecycle, CLI |
+| `tests/` | pytest suite, including contract tests for skills and release workflow |
+| `docs/` | `bridge-protocol.md`, `distribution.md`, `PRD.md` |
+| `tools/` | `build_binary.py`, `lint_skills.py`, `download_dcc_mcp_server.py` |
+| `scripts/ci/` | CI support, e.g. the release-workflow digest check |
+| `llms.txt` | Compact agent entry point (runtime chain, install, failure modes) |
+| `justfile` | Task runner; list recipes with `vx just` |
 
-| File | Purpose |
-|------|---------|
-| `README.md` | Human-readable project documentation (EN) |
-| `README_zh.md` | Human-readable project documentation (ZH) |
-| `CHANGELOG.md` | Release history |
-| `docs/PRD.md` | Product Requirements Document |
-| `docs/bridge-protocol.md` | WebSocket JSON-RPC 2.0 bridge protocol spec |
-| `docs/distribution.md` | Distribution & release guide |
-| `src/dcc_mcp_photoshop/` | Python package source |
-| `bridge/uxp-plugin/` | UXP plugin (JavaScript, runs inside Photoshop) |
+## Release
 
-## Response Language
+- release-please drives versioning from Conventional Commits on `main`.
+- `feat:` → minor, `fix:` → patch, `chore:`/`docs:`/`ci:` → **no release**.
+- Version is mirrored into `pyproject.toml`, `src/dcc_mcp_photoshop/__version__.py`,
+  `README.md`, and `README_zh.md`; do not edit those by hand.
+- Use `chore:`/`docs:` for config and doc work so release-please does not cut a
+  valueless version.
+
+## Response language
 
 - Reply to the user in **Simplified Chinese** by default.
-- Keep all code, identifiers, commit messages, and file contents in **English**.
+- Keep code, identifiers, commit messages, and file contents in **English**.
 
-## PR / Commit Rules
+## Do / Don't
 
-- No AI-attribution footers in PR bodies or commit messages.
-- Rebase onto main before merging — no merge commits.
-- CI must pass before review.
+- **Do** single-source agent instructions here — this is the only agent contract
+  file at the repo root. Rebase onto `main` before merging (no merge commits);
+  CI must pass before review.
+- **Don't** add `CLAUDE.md` / `GEMINI.md` / `CURSOR.md` / `ANTHROPIC.md` /
+  `OPENAI.md` / `COPILOT.md` / `CODEBUDDY.md` / `.cursorrules` / `.clinerules` /
+  `.windsurfrules` at the root. Vendor-specific notes live under
+  `docs/integrations/`, linked from here.
+- **Don't** hardcode an exact version in tests (`assert __version__ == "X.Y.Z"`)
+  — release-please bumps will break it. Use `>=` or read package metadata.
+- **Don't** commit build artifacts to the repo root (`dist/`, `build/`,
+  `coverage.json`, `*.egg-info`); `vx just clean` removes them.
+- **Don't** add AI-attribution footers to PR bodies or commit messages.
