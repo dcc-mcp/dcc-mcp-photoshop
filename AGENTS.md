@@ -2,7 +2,8 @@
 
 > **Navigation map, not a reference manual.**
 > Follow the links; don't read everything upfront.
-> Agent-specific files (`CLAUDE.md`, `GEMINI.md`, `COPILOT.md`) intentionally point back here.
+> **This file is the only agent contract file at the repository root** — see
+> [Agent Contract Files](#agent-contract-files).
 
 ## Agent Control Path
 
@@ -101,7 +102,53 @@ When using Photoshop through dcc-mcp-photoshop, prefer skills over raw scripting
 | GitHub Release | Standalone binary (Win/Linux/Mac) | No |
 | GitHub Release | UXP `.ccx` plugin | No |
 
-## Key Files
+## Agent Contract Files
+
+`AGENTS.md` is the **only** agent contract file at the repository root. It is the
+native instruction file for Codex, OpenCode, Cursor, GitHub Copilot, Windsurf,
+Cline, Roo Code, Kiro, Trae, and Augment, and Claude Code falls back to it when
+no `CLAUDE.md` exists. Guidance that used to live in `CLAUDE.md` has been folded
+into [**Agent Workflow**](#agent-workflow) below.
+
+
+
+---
+
+## Agent Workflow
+
+`CLAUDE.md` was a thin shim that only redirected to this file. Its content
+lives here now.
+
+**Read order.**
+
+1. `AGENTS.md` (this file) — navigation map, available skills, response rules.
+2. `llms.txt` — compact API index with all tools and CLI options.
+3. `docs/bridge-protocol.md` — WebSocket JSON-RPC protocol between the Python bridge and the UXP plugin.
+4. `docs/distribution.md` — distribution channels and release workflow.
+
+**Mandatory DCC workflow.** Drive Photoshop through the Skills-First workflow
+described above — never through raw subprocess or Adobe CLI calls:
+
+1. `search_skills("photoshop")` → find available skills.
+2. `load_skill("photoshop-<name>")` → load the skill.
+3. Call the specific tool with validated parameters.
+
+**Build and test** — always go through `vx just`; do not call `uv` or `pytest`
+directly.
+
+| Task | Command |
+|------|---------|
+| Install (editable) | `vx just dev` |
+| Run tests | `vx just test` |
+| Tests with coverage | `vx just test-cov` |
+| Lint | `vx just lint` |
+| Format | `vx just format` |
+| Lint everything | `vx just lint-all` |
+| Full CI locally | `vx just ci` |
+
+---
+
+## ## Key Files
 
 | File | Purpose |
 |------|---------|
