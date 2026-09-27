@@ -2,10 +2,6 @@
 python = "3.12"
 uv = "latest"
 
-[settings]
-cache_duration = "7d"
-auto_install = true
-
 [scripts]
 # === Development ===
 dev = "uv pip install -e \".[dev]\""
