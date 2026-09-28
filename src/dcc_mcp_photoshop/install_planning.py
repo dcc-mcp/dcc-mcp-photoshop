@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
     ADOBEPY_SPECIFIER,
+    ALLOW_UNVERIFIED_HOST_ENV,
     CORE_SPECIFIER,
     INSTALL_EXIT_ACQUIRE,
     INSTALL_EXIT_OK,
@@ -148,6 +149,13 @@ def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[st
     }
 
 
+# How the operator accepted an unverified host, so the report never credits the wrong mechanism.
+_UNVERIFIED_HOST_SOURCES = {
+    "flag": "--allow-unverified-host",
+    "environment": ALLOW_UNVERIFIED_HOST_ENV,
+}
+
+
 def _host_provenance_failure(host: Path, *, allow_unverified_host: bool) -> str:
     """Name the provenance check that rejected the host so the report is actionable."""
     reason = host_provenance_reason(host, allow_unverified=allow_unverified_host)
@@ -161,7 +169,7 @@ def _host_provenance_failure(host: Path, *, allow_unverified_host: bool) -> str:
 def _host_provenance_warnings(
     host_identity: dict[str, Any] | None,
     *,
-    allow_unverified_host: bool,
+    allow_unverified_source: str | None,
 ) -> list[dict[str, Any]]:
     """Describe host facts that were accepted only because the operator opted in."""
     if not host_identity or host_identity.get("signature") != "authenticode_hash_mismatch":
@@ -170,7 +178,7 @@ def _host_provenance_warnings(
         {
             "code": "host_signature_hash_mismatch",
             "stage": "preflight",
-            "accepted_by": "--allow-unverified-host" if allow_unverified_host else "unknown",
+            "accepted_by": _UNVERIFIED_HOST_SOURCES.get(allow_unverified_source or "", "unknown"),
             "message": (
                 "The selected Photoshop executable reports an Adobe signer and Adobe product "
                 "metadata, but its Authenticode hash no longer matches its bytes "
@@ -182,7 +190,13 @@ def _host_provenance_warnings(
 
 
 def build_install_report(
-    *, verb: str, dcc_path: str, python: str, dry_run: bool, allow_unverified_host: bool = False
+    *,
+    verb: str,
+    dcc_path: str,
+    python: str,
+    dry_run: bool,
+    allow_unverified_host: bool = False,
+    allow_unverified_source: str | None = None,
 ) -> tuple[dict[str, Any], int]:
     """Build a read-only install or upgrade plan and run all preflight checks."""
     lifecycle_state = state_dir()
@@ -269,7 +283,7 @@ def build_install_report(
     if not os.environ.get("ADOBEPY_TOKEN"):
         failures.append(("preflight", "ADOBEPY_TOKEN must be configured in the environment"))
 
-    warnings = _host_provenance_warnings(host_identity, allow_unverified_host=allow_unverified_host)
+    warnings = _host_provenance_warnings(host_identity, allow_unverified_source=allow_unverified_source)
 
     failure_stage, failure_reason = failures[0] if failures else (None, None)
     exit_code = (

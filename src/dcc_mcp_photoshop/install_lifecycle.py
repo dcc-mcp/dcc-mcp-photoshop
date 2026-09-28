@@ -31,7 +31,13 @@ def run_install_lifecycle(
     process_probe: Callable[[int], dict[str, Any]] = observe_process_identity,
 ) -> int:
     """Execute the public lifecycle command and emit one result document."""
-    allow_unverified_host = bool(getattr(args, "allow_unverified_host", False)) or truthy_env(ALLOW_UNVERIFIED_HOST_ENV)
+    if getattr(args, "allow_unverified_host", False):
+        allow_unverified_source: str | None = "flag"
+    elif truthy_env(ALLOW_UNVERIFIED_HOST_ENV):
+        allow_unverified_source = "environment"
+    else:
+        allow_unverified_source = None
+    allow_unverified_host = allow_unverified_source is not None
     try:
         if args.command in {"status", "verify", "uninstall"}:
             report, exit_code = inspect_existing_install(
@@ -50,6 +56,7 @@ def run_install_lifecycle(
                 python=args.python,
                 dry_run=args.dry_run,
                 allow_unverified_host=allow_unverified_host,
+                allow_unverified_source=allow_unverified_source,
             )
         if exit_code == INSTALL_EXIT_OK and args.command in {"install", "upgrade"} and args.yes and not args.dry_run:
             report, exit_code = apply_install(
