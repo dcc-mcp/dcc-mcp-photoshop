@@ -31,7 +31,10 @@ _PORTABLE_WINDOWS_GLOBS = (
     f"*/{_PORTABLE_BIN_DIR}/{_WINDOWS_HOST_EXECUTABLE}",
     f"*/*/{_PORTABLE_BIN_DIR}/{_WINDOWS_HOST_EXECUTABLE}",
 )
-_BARE_VERSION = re.compile(r"20[0-9]{2}|[1-9][0-9](?:\.[0-9]+)?")
+# A layout directory name may carry a release year (2024), a product version (26.10), or a
+# package directory of the form <year>.<major>.<minor>.<patch> (2025.26.5.0).
+_YEAR_TO_MAJOR_OFFSET = 1999
+_MAX_VERSION_COMPONENTS = 4
 
 
 def _is_link_or_reparse(path: Path) -> bool:
@@ -388,6 +391,19 @@ def _default_roots(platform_name: str) -> list[Path]:
     return roots + _configured_roots()
 
 
+def _version_components(value: str) -> tuple[int, ...]:
+    """Parse a bounded dotted numeric version, or return ``()`` when it is not one."""
+    parts = value.split(".")
+    if not 1 <= len(parts) <= _MAX_VERSION_COMPONENTS:
+        return ()
+    numbers: list[int] = []
+    for part in parts:
+        if not part.isdigit() or len(part) > 4:
+            return ()
+        numbers.append(int(part))
+    return tuple(numbers)
+
+
 def _directory_version_token(name: str) -> str | None:
     """Return the version token carried by a product or portable layout directory name."""
     token = name.strip()
@@ -396,19 +412,29 @@ def _directory_version_token(name: str) -> str | None:
     known = host_version(Path(token))
     if known:
         return known
-    match = _BARE_VERSION.fullmatch(token)
-    return match.group(0) if match else None
+    return token if _version_components(token) else None
 
 
-def _candidate_rank(token: str | None) -> int:
-    try:
-        return int(float(token)) if token else 0
-    except ValueError:
-        return 0
+def _candidate_rank(token: str | None) -> tuple[int, ...]:
+    """Normalize a layout token onto the product-version scale, keeping every component.
+
+    Release years and product majors live on different scales, so both are mapped onto the
+    product version before comparison: a bare year becomes its major (2024 -> 25) and a
+    package directory keeps the components after the year (2025.26.5.0 -> 26.5.0). Discarding
+    components here is what previously made 26.9 and 26.10 tie.
+    """
+    if not token:
+        return ()
+    components = _version_components(token)
+    if not components:
+        return ()
+    if components[0] >= 2000:
+        return components[1:] or (components[0] - _YEAR_TO_MAJOR_OFFSET,)
+    return components
 
 
-def _windows_candidates(root: Path) -> list[tuple[int, Path, str | None]]:
-    found: list[tuple[int, Path, str | None]] = []
+def _windows_candidates(root: Path) -> list[tuple[tuple[int, ...], Path, str | None]]:
+    found: list[tuple[tuple[int, ...], Path, str | None]] = []
     seen: set[Path] = set()
 
     def add(executable: Path, token: str | None) -> None:
@@ -439,7 +465,7 @@ def discover_photoshop_executable(
     """Return the newest executable from Adobe's Windows/macOS and portable layouts."""
     system = platform_name or platform.system()
     search_roots = list(_default_roots(system) if roots is None else roots)
-    candidates: list[tuple[int, Path, str | None]] = []
+    candidates: list[tuple[tuple[int, ...], Path, str | None]] = []
     if system == "Windows":
         for root in search_roots:
             candidates.extend(_windows_candidates(root))
@@ -453,9 +479,9 @@ def discover_photoshop_executable(
                     product / f"Adobe Photoshop {version}.app" / "Contents" / "MacOS" / f"Adobe Photoshop {version}"
                 )
                 if executable.is_file():
-                    candidates.append((int(version), executable, version))
+                    candidates.append((_candidate_rank(version), executable, version))
     if not candidates:
         return None, None
-    # Rank by version, then by path so equally ranked layouts stay deterministic.
+    # Compare every version component; fall back to path order only for genuine ties.
     _, executable, version = max(candidates, key=lambda item: (item[0], str(item[1])))
     return executable, version
