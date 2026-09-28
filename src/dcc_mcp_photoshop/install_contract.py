@@ -20,6 +20,12 @@ CORE_SPECIFIER = ">=0.20.14,<0.21.0"
 ADOBEPY_SPECIFIER = "==0.6.2"
 MIN_PYTHON_VERSION = (3, 8)
 INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
+# Opt-in relaxation of host provenance. See install_discovery.attest_photoshop_executable: a
+# repackaged host whose signature hash no longer matches cannot be distinguished from a forged
+# signature blob, so the mismatch stays fatal unless an operator accepts the risk explicitly.
+ALLOW_UNVERIFIED_HOST_ENV = "DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST"
+# Extra host search roots for package-managed or portable Photoshop layouts.
+HOST_ROOTS_ENV = "DCC_MCP_PHOTOSHOP_HOST_ROOTS"
 _MAX_VERSION_LENGTH = 39
 _MAX_SCHEMA_SIZE = 16_777_216
 _SHA256_HEX_LENGTH = 64
@@ -113,6 +119,11 @@ def core_schema_identity_is_bounded(identity: object) -> bool:
     if isinstance(size, bool) or not isinstance(size, int) or not 0 < size <= _MAX_SCHEMA_SIZE:
         return False
     return isinstance(digest, str) and len(digest) == _SHA256_HEX_LENGTH
+
+
+def truthy_env(name: str) -> bool:
+    """Return whether an environment opt-in is set to an affirmative value."""
+    return os.environ.get(name, "").strip().casefold() in {"1", "true", "yes", "on"}
 
 
 def state_dir() -> Path:

@@ -7,7 +7,13 @@ import os
 import subprocess
 from typing import Any, Callable
 
-from dcc_mcp_photoshop.install_contract import INSTALL_EXIT_INSTALL, INSTALL_EXIT_OK, package_version
+from dcc_mcp_photoshop.install_contract import (
+    ALLOW_UNVERIFIED_HOST_ENV,
+    INSTALL_EXIT_INSTALL,
+    INSTALL_EXIT_OK,
+    package_version,
+    truthy_env,
+)
 from dcc_mcp_photoshop.install_planning import build_install_report
 from dcc_mcp_photoshop.install_service import apply_install, inspect_existing_install
 from dcc_mcp_photoshop.install_verification import observe_process_identity, probe_target_import
@@ -25,6 +31,13 @@ def run_install_lifecycle(
     process_probe: Callable[[int], dict[str, Any]] = observe_process_identity,
 ) -> int:
     """Execute the public lifecycle command and emit one result document."""
+    if getattr(args, "allow_unverified_host", False):
+        allow_unverified_source: str | None = "flag"
+    elif truthy_env(ALLOW_UNVERIFIED_HOST_ENV):
+        allow_unverified_source = "environment"
+    else:
+        allow_unverified_source = None
+    allow_unverified_host = allow_unverified_source is not None
     try:
         if args.command in {"status", "verify", "uninstall"}:
             report, exit_code = inspect_existing_install(
@@ -42,6 +55,8 @@ def run_install_lifecycle(
                 dcc_path=args.dcc_path,
                 python=args.python,
                 dry_run=args.dry_run,
+                allow_unverified_host=allow_unverified_host,
+                allow_unverified_source=allow_unverified_source,
             )
         if exit_code == INSTALL_EXIT_OK and args.command in {"install", "upgrade"} and args.yes and not args.dry_run:
             report, exit_code = apply_install(

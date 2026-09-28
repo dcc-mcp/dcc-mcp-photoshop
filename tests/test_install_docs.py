@@ -38,6 +38,15 @@ def test_root_install_runbook_documents_the_canonical_cross_platform_contract() 
     assert "real Photoshop RPC" in guide
 
 
+def test_install_runbook_documents_the_unverified_host_opt_in() -> None:
+    guide = (ROOT / "install.md").read_text(encoding="utf-8")
+
+    assert "--allow-unverified-host" in guide
+    assert "DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST" in guide
+    assert "DCC_MCP_PHOTOSHOP_HOST_ROOTS" in guide
+    assert "HashMismatch" in guide
+
+
 def test_all_public_and_skill_install_surfaces_route_to_install_md() -> None:
     readme = (ROOT / "README.md").read_text(encoding="utf-8")
     distribution = (ROOT / "docs" / "distribution.md").read_text(encoding="utf-8")

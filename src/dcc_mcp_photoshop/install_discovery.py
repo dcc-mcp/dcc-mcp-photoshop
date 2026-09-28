@@ -13,12 +13,28 @@ import subprocess
 from pathlib import Path
 from typing import Any, Callable, Iterable
 
-from dcc_mcp_photoshop.install_contract import version_tuple
+from dcc_mcp_photoshop.install_contract import HOST_ROOTS_ENV, version_tuple
 
 ExternalRunner = Callable[..., subprocess.CompletedProcess]
 _ADOBE_TEAM_IDENTIFIER = "JQ525L2MZD"
 _PHOTOSHOP_BUNDLE_IDENTIFIER = "com.adobe.Photoshop"
 _MAX_METADATA_BYTES = 65_536
+_SIGNATURE_VALID = "authenticode_valid"
+_SIGNATURE_HASH_MISMATCH = "authenticode_hash_mismatch"
+_AUTHENTICODE_VALID = "Valid"
+_AUTHENTICODE_HASH_MISMATCH = "HashMismatch"
+_ADOBE_PRODUCT_GLOB = "Adobe Photoshop*"
+_WINDOWS_HOST_EXECUTABLE = "Photoshop.exe"
+_PORTABLE_BIN_DIR = "bin"
+# Bounded portable layouts: <root>/<version>/bin/Photoshop.exe and <root>/<bundle>/<version>/bin.
+_PORTABLE_WINDOWS_GLOBS = (
+    f"*/{_PORTABLE_BIN_DIR}/{_WINDOWS_HOST_EXECUTABLE}",
+    f"*/*/{_PORTABLE_BIN_DIR}/{_WINDOWS_HOST_EXECUTABLE}",
+)
+# A layout directory name may carry a release year (2024), a product version (26.10), or a
+# package directory of the form <year>.<major>.<minor>.<patch> (2025.26.5.0).
+_YEAR_TO_MAJOR_OFFSET = 1999
+_MAX_VERSION_COMPONENTS = 4
 
 
 def _is_link_or_reparse(path: Path) -> bool:
@@ -67,12 +83,23 @@ def _is_adobe_signer_subject(subject: str) -> bool:
     )
 
 
-def _windows_host_identity(path: Path, runner: ExternalRunner) -> dict[str, Any] | None:
-    if path.name.casefold() != "photoshop.exe":
-        return None
+def _powershell_single_quoted(value: str) -> str:
+    """Quote a value for a PowerShell single-quoted string literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _windows_host_identity(
+    path: Path,
+    runner: ExternalRunner,
+    *,
+    allow_unverified: bool = False,
+) -> tuple[dict[str, Any] | None, str | None]:
+    """Return the Windows host identity, or ``None`` and the check that rejected it."""
+    if path.name.casefold() != _WINDOWS_HOST_EXECUTABLE.casefold():
+        return None, f"the executable is not named {_WINDOWS_HOST_EXECUTABLE}"
     script = (
         "$ErrorActionPreference='Stop';"
-        "$p=(Resolve-Path -LiteralPath $args[0]).Path;"
+        f"$p=(Resolve-Path -LiteralPath {_powershell_single_quoted(str(path))}).Path;"
         "$f=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($p);"
         "$s=Get-AuthenticodeSignature -LiteralPath $p;"
         "[ordered]@{status=[string]$s.Status;subject=[string]$s.SignerCertificate.Subject;"
@@ -83,12 +110,15 @@ def _windows_host_identity(path: Path, runner: ExternalRunner) -> dict[str, Any]
     if platform.system() == "Windows":
         system_root = os.environ.get("SystemRoot")
         if not system_root:
-            return None
+            return None, "SystemRoot is not configured"
         trusted_powershell = Path(system_root) / "System32" / "WindowsPowerShell" / "v1.0" / "powershell.exe"
         if not trusted_powershell.is_file() or path_uses_link(trusted_powershell):
-            return None
+            return None, "no trusted Windows PowerShell host was found"
         powershell = str(trusted_powershell)
     try:
+        # The host path is inlined into the command text: `powershell -Command <script> <arg>`
+        # does not populate `$args`, so a trailing argument would be executed as its own
+        # statement and `$args[0]` would be null.
         result = runner(
             [
                 powershell,
@@ -96,41 +126,74 @@ def _windows_host_identity(path: Path, runner: ExternalRunner) -> dict[str, Any]
                 "-NonInteractive",
                 "-Command",
                 script,
-                str(path),
             ],
             capture_output=True,
             text=True,
             timeout=15,
         )
     except (OSError, subprocess.SubprocessError):
-        return None
+        return None, "the Authenticode probe could not be executed"
     metadata = _bounded_json(result)
     if metadata is None:
-        return None
+        return None, "the Authenticode probe returned unusable metadata"
     status = metadata.get("status")
     subject = metadata.get("subject")
     company = metadata.get("company")
     product = metadata.get("product")
     product_version = metadata.get("product_version")
+    if not isinstance(subject, str) or not _is_adobe_signer_subject(subject):
+        return None, "the signer subject is not Adobe"
+    if not isinstance(company, str) or company.strip().casefold() not in {
+        "adobe",
+        "adobe inc.",
+        "adobe systems incorporated",
+    }:
+        return None, "the product company is not Adobe"
     if (
-        status != "Valid"
-        or not isinstance(subject, str)
-        or not _is_adobe_signer_subject(subject)
-        or not isinstance(company, str)
-        or company.strip().casefold() not in {"adobe", "adobe inc.", "adobe systems incorporated"}
-        or not isinstance(product, str)
+        not isinstance(product, str)
         or re.fullmatch(r"Adobe Photoshop(?: 20[0-9]{2})?", product.strip(), re.IGNORECASE) is None
-        or not isinstance(product_version, str)
-        or not version_tuple(product_version.strip())
     ):
-        return None
+        return None, "the product name is not Adobe Photoshop"
+    if not isinstance(product_version, str) or not version_tuple(product_version.strip()):
+        return None, "the product version is not a usable release version"
+    signature = _windows_signature_label(status, allow_unverified=allow_unverified)
+    if signature is None:
+        return None, _windows_signature_rejection(status, allow_unverified=allow_unverified)
     return {
         "executable": str(path),
         "version": product_version.strip(),
         "product": product.strip(),
         "publisher": "Adobe Inc.",
-        "signature": "authenticode_valid",
-    }
+        "signature": signature,
+        "signature_status": str(status),
+    }, None
+
+
+def _windows_signature_label(status: Any, *, allow_unverified: bool) -> str | None:
+    """Map an Authenticode status onto an accepted provenance label.
+
+    A ``HashMismatch`` host reports an Adobe signer subject and Adobe product metadata, but its
+    bytes no longer match the signed digest. Repackaged hosts land here, and so does a forged
+    signature blob that merely embeds Adobe's public certificate, because the version resource is
+    attacker-controlled. The mismatch therefore stays fatal unless an operator accepts it.
+    """
+    if status == _AUTHENTICODE_VALID:
+        return _SIGNATURE_VALID
+    if status == _AUTHENTICODE_HASH_MISMATCH and allow_unverified:
+        return _SIGNATURE_HASH_MISMATCH
+    return None
+
+
+def _windows_signature_rejection(status: Any, *, allow_unverified: bool) -> str:
+    reported = status if isinstance(status, str) and status else "unknown"
+    if status == _AUTHENTICODE_HASH_MISMATCH:
+        return (
+            f"Authenticode status is {reported}; the host bytes were changed after signing "
+            "(re-run with --allow-unverified-host to accept a repackaged host you own)"
+        )
+    if allow_unverified:
+        return f"Authenticode status is {reported}; only {_AUTHENTICODE_HASH_MISMATCH} can be accepted"
+    return f"Authenticode status is {reported}, not {_AUTHENTICODE_VALID}"
 
 
 def _macos_bundle(path: Path) -> Path | None:
@@ -208,32 +271,32 @@ def _macos_host_identity(path: Path, runner: ExternalRunner) -> dict[str, Any] |
     }
 
 
-def attest_photoshop_executable(
+def _host_identity_with_reason(
     path: Path,
     *,
-    platform_name: str | None = None,
-    runner: ExternalRunner = subprocess.run,
-) -> dict[str, Any] | None:
-    """Return product-derived Photoshop identity only for an Adobe-authenticated executable."""
+    platform_name: str | None,
+    runner: ExternalRunner,
+    allow_unverified: bool,
+) -> tuple[dict[str, Any] | None, str | None]:
     candidate = path.expanduser()
     try:
         if path_uses_link(candidate):
-            return None
+            return None, "the executable path is redirected by a link or reparse point"
         resolved = candidate.resolve(strict=True)
         if not resolved.is_file() or resolved.stat().st_size <= 0:
-            return None
+            return None, "the executable is missing or empty"
         initial = resolved.stat()
     except OSError:
-        return None
+        return None, "the executable could not be inspected"
     system = platform_name or platform.system()
     if system == "Windows":
-        identity = _windows_host_identity(resolved, runner)
+        identity, reason = _windows_host_identity(resolved, runner, allow_unverified=allow_unverified)
     elif system == "Darwin":
-        identity = _macos_host_identity(resolved, runner)
+        identity, reason = _macos_host_identity(resolved, runner), None
     else:
-        identity = None
+        return None, f"host provenance is unsupported on {system or 'this platform'}"
     if identity is None:
-        return None
+        return None, reason or "the executable is not an Adobe-authenticated Photoshop host"
     try:
         digest = hashlib.sha256()
         with resolved.open("rb") as stream:
@@ -244,17 +307,56 @@ def attest_photoshop_executable(
                 digest.update(chunk)
         final = resolved.stat()
     except OSError:
-        return None
+        return None, "the executable could not be read"
     if (initial.st_dev, initial.st_ino, initial.st_size, initial.st_mtime_ns) != (
         final.st_dev,
         final.st_ino,
         final.st_size,
         final.st_mtime_ns,
     ):
-        return None
+        return None, "the executable changed while it was being read"
     identity["bytes"] = final.st_size
     identity["sha256"] = digest.hexdigest()
+    return identity, None
+
+
+def attest_photoshop_executable(
+    path: Path,
+    *,
+    platform_name: str | None = None,
+    runner: ExternalRunner = subprocess.run,
+    allow_unverified: bool = False,
+) -> dict[str, Any] | None:
+    """Return product-derived Photoshop identity only for an Adobe-authenticated executable.
+
+    ``allow_unverified`` is an operator opt-in that accepts a Windows host whose signature hash no
+    longer matches its bytes. Every other identity fact still has to hold, and an unsigned or
+    untrusted host is never accepted.
+    """
+    identity, _reason = _host_identity_with_reason(
+        path,
+        platform_name=platform_name,
+        runner=runner,
+        allow_unverified=allow_unverified,
+    )
     return identity
+
+
+def host_provenance_reason(
+    path: Path,
+    *,
+    platform_name: str | None = None,
+    runner: ExternalRunner = subprocess.run,
+    allow_unverified: bool = False,
+) -> str | None:
+    """Explain why a host was rejected, for the failure path of ``attest_photoshop_executable``."""
+    identity, reason = _host_identity_with_reason(
+        path,
+        platform_name=platform_name,
+        runner=runner,
+        allow_unverified=allow_unverified,
+    )
+    return None if identity is not None else (reason or "the host is not Adobe-authenticated")
 
 
 def host_version(path: Path) -> str | None:
@@ -266,37 +368,110 @@ def host_version(path: Path) -> str | None:
     return None
 
 
+def _configured_roots() -> list[Path]:
+    """Return operator-configured search roots for package-managed or portable hosts."""
+    configured = os.environ.get(HOST_ROOTS_ENV, "")
+    roots: list[Path] = []
+    for entry in configured.split(os.pathsep):
+        entry = entry.strip()
+        if entry:
+            roots.append(Path(entry).expanduser())
+    return roots
+
+
 def _default_roots(platform_name: str) -> list[Path]:
+    roots: list[Path] = []
     if platform_name == "Windows":
-        roots = []
         for name in ("ProgramFiles", "ProgramFiles(x86)"):
             value = os.environ.get(name)
             if value:
                 roots.append(Path(value) / "Adobe")
-        return roots
-    if platform_name == "Darwin":
-        return [Path("/Applications")]
-    return []
+    elif platform_name == "Darwin":
+        roots.append(Path("/Applications"))
+    return roots + _configured_roots()
+
+
+def _version_components(value: str) -> tuple[int, ...]:
+    """Parse a bounded dotted numeric version, or return ``()`` when it is not one."""
+    parts = value.split(".")
+    if not 1 <= len(parts) <= _MAX_VERSION_COMPONENTS:
+        return ()
+    numbers: list[int] = []
+    for part in parts:
+        if not part.isdigit() or len(part) > 4:
+            return ()
+        numbers.append(int(part))
+    return tuple(numbers)
+
+
+def _directory_version_token(name: str) -> str | None:
+    """Return the version token carried by a product or portable layout directory name."""
+    token = name.strip()
+    if not token:
+        return None
+    known = host_version(Path(token))
+    if known:
+        return known
+    return token if _version_components(token) else None
+
+
+def _candidate_rank(token: str | None) -> tuple[int, ...]:
+    """Normalize a layout token onto the product-version scale, keeping every component.
+
+    Release years and product majors live on different scales, so both are mapped onto the
+    product version before comparison: a bare year becomes its major (2024 -> 25) and a
+    package directory keeps the components after the year (2025.26.5.0 -> 26.5.0). Discarding
+    components here is what previously made 26.9 and 26.10 tie.
+    """
+    if not token:
+        return ()
+    components = _version_components(token)
+    if not components:
+        return ()
+    if components[0] >= 2000:
+        return components[1:] or (components[0] - _YEAR_TO_MAJOR_OFFSET,)
+    return components
+
+
+def _windows_candidates(root: Path) -> list[tuple[tuple[int, ...], Path, str | None]]:
+    found: list[tuple[tuple[int, ...], Path, str | None]] = []
+    seen: set[Path] = set()
+
+    def add(executable: Path, token: str | None) -> None:
+        if not executable.is_file() or executable in seen:
+            return
+        seen.add(executable)
+        found.append((_candidate_rank(token), executable, token))
+
+    # Classic Adobe layout, plus a portable payload staged inside a versioned product directory.
+    for product in root.glob(_ADOBE_PRODUCT_GLOB):
+        if not product.is_dir():
+            continue
+        token = _directory_version_token(product.name)
+        for executable in (product / _WINDOWS_HOST_EXECUTABLE, product / _PORTABLE_BIN_DIR / _WINDOWS_HOST_EXECUTABLE):
+            if token:
+                add(executable, token)
+    # Package-manager layout: <root>/<version>/bin/Photoshop.exe, optionally under a bundle directory.
+    for pattern in _PORTABLE_WINDOWS_GLOBS:
+        for executable in root.glob(pattern):
+            add(executable, _directory_version_token(executable.parent.parent.name))
+    return found
 
 
 def discover_photoshop_executable(
     platform_name: str | None = None,
     roots: Iterable[Path] | None = None,
 ) -> tuple[Path | None, str | None]:
-    """Return the newest executable from Adobe's Windows/macOS layouts."""
+    """Return the newest executable from Adobe's Windows/macOS and portable layouts."""
     system = platform_name or platform.system()
     search_roots = list(_default_roots(system) if roots is None else roots)
-    candidates: list[tuple[int, Path, str]] = []
+    candidates: list[tuple[tuple[int, ...], Path, str | None]] = []
     if system == "Windows":
         for root in search_roots:
-            for product in root.glob("Adobe Photoshop 20*"):
-                executable = product / "Photoshop.exe"
-                version = host_version(product)
-                if executable.is_file() and version:
-                    candidates.append((int(version), executable, version))
+            candidates.extend(_windows_candidates(root))
     elif system == "Darwin":
         for root in search_roots:
-            for product in root.glob("Adobe Photoshop 20*"):
+            for product in root.glob(_ADOBE_PRODUCT_GLOB):
                 version = host_version(product)
                 if not version:
                     continue
@@ -304,8 +479,9 @@ def discover_photoshop_executable(
                     product / f"Adobe Photoshop {version}.app" / "Contents" / "MacOS" / f"Adobe Photoshop {version}"
                 )
                 if executable.is_file():
-                    candidates.append((int(version), executable, version))
+                    candidates.append((_candidate_rank(version), executable, version))
     if not candidates:
         return None, None
-    _, executable, version = max(candidates, key=lambda item: item[0])
+    # Compare every version component; fall back to path order only for genuine ties.
+    _, executable, version = max(candidates, key=lambda item: (item[0], str(item[1])))
     return executable, version

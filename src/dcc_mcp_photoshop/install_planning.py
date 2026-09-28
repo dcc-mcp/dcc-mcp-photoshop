@@ -14,6 +14,7 @@ from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
     ADOBEPY_SPECIFIER,
+    ALLOW_UNVERIFIED_HOST_ENV,
     CORE_SPECIFIER,
     INSTALL_EXIT_ACQUIRE,
     INSTALL_EXIT_OK,
@@ -29,6 +30,7 @@ from dcc_mcp_photoshop.install_contract import (
 from dcc_mcp_photoshop.install_discovery import (
     attest_photoshop_executable,
     discover_photoshop_executable,
+    host_provenance_reason,
     path_uses_link,
 )
 from dcc_mcp_photoshop.install_io import load_receipt, receipt_files_match
@@ -147,7 +149,55 @@ def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[st
     }
 
 
-def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool) -> tuple[dict[str, Any], int]:
+# How the operator accepted an unverified host, so the report never credits the wrong mechanism.
+_UNVERIFIED_HOST_SOURCES = {
+    "flag": "--allow-unverified-host",
+    "environment": ALLOW_UNVERIFIED_HOST_ENV,
+}
+
+
+def _host_provenance_failure(host: Path, *, allow_unverified_host: bool) -> str:
+    """Name the provenance check that rejected the host so the report is actionable."""
+    reason = host_provenance_reason(host, allow_unverified=allow_unverified_host)
+    return (
+        "Photoshop executable lacks valid Adobe product provenance"
+        if reason is None
+        else f"Photoshop executable lacks valid Adobe product provenance: {reason}"
+    )
+
+
+def _host_provenance_warnings(
+    host_identity: dict[str, Any] | None,
+    *,
+    allow_unverified_source: str | None,
+) -> list[dict[str, Any]]:
+    """Describe host facts that were accepted only because the operator opted in."""
+    if not host_identity or host_identity.get("signature") != "authenticode_hash_mismatch":
+        return []
+    return [
+        {
+            "code": "host_signature_hash_mismatch",
+            "stage": "preflight",
+            "accepted_by": _UNVERIFIED_HOST_SOURCES.get(allow_unverified_source or "", "unknown"),
+            "message": (
+                "The selected Photoshop executable reports an Adobe signer and Adobe product "
+                "metadata, but its Authenticode hash no longer matches its bytes "
+                f"(status={host_identity.get('signature_status')}). The host package was likely "
+                "repackaged; provenance could not be proven and was accepted on operator request."
+            ),
+        }
+    ]
+
+
+def build_install_report(
+    *,
+    verb: str,
+    dcc_path: str,
+    python: str,
+    dry_run: bool,
+    allow_unverified_host: bool = False,
+    allow_unverified_source: str | None = None,
+) -> tuple[dict[str, Any], int]:
     """Build a read-only install or upgrade plan and run all preflight checks."""
     lifecycle_state = state_dir()
     receipt_path = lifecycle_state / "receipts" / "photoshop.json"
@@ -167,7 +217,9 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         discovered_host, _layout_version = discover_photoshop_executable()
         host = discovered_host or Path()
         host_source = "discovery"
-    host_identity = attest_photoshop_executable(host) if host.is_file() else None
+    host_identity = (
+        attest_photoshop_executable(host, allow_unverified=allow_unverified_host) if host.is_file() else None
+    )
     detected_host_version = host_identity.get("version") if host_identity else None
     if python:
         interpreter = Path(python).expanduser()
@@ -215,7 +267,7 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
     if not host.is_file():
         failures.append(("preflight", "Photoshop executable was not found"))
     elif host_identity is None:
-        failures.append(("preflight", "Photoshop executable lacks valid Adobe product provenance"))
+        failures.append(("preflight", _host_provenance_failure(host, allow_unverified_host=allow_unverified_host)))
     elif not _host_supported(detected_host_version):
         failures.append(("preflight", "Photoshop 2022 or newer is required"))
     if python_version is None:
@@ -230,6 +282,8 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
         failures.append(("acquire", f"adobepy {ADOBEPY_SPECIFIER} is required"))
     if not os.environ.get("ADOBEPY_TOKEN"):
         failures.append(("preflight", "ADOBEPY_TOKEN must be configured in the environment"))
+
+    warnings = _host_provenance_warnings(host_identity, allow_unverified_source=allow_unverified_source)
 
     failure_stage, failure_reason = failures[0] if failures else (None, None)
     exit_code = (
@@ -252,6 +306,7 @@ def build_install_report(*, verb: str, dcc_path: str, python: str, dry_run: bool
     report: dict[str, Any] = {
         "schema_version": 1,
         "status": status,
+        "warnings": warnings,
         "dcc_type": "photoshop",
         "adapter_version": package_version("dcc-mcp-photoshop"),
         "core_version": core_version,
