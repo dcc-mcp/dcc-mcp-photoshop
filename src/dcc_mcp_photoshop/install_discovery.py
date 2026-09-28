@@ -80,6 +80,11 @@ def _is_adobe_signer_subject(subject: str) -> bool:
     )
 
 
+def _powershell_single_quoted(value: str) -> str:
+    """Quote a value for a PowerShell single-quoted string literal."""
+    return "'" + value.replace("'", "''") + "'"
+
+
 def _windows_host_identity(
     path: Path,
     runner: ExternalRunner,
@@ -91,7 +96,7 @@ def _windows_host_identity(
         return None, f"the executable is not named {_WINDOWS_HOST_EXECUTABLE}"
     script = (
         "$ErrorActionPreference='Stop';"
-        "$p=(Resolve-Path -LiteralPath $args[0]).Path;"
+        f"$p=(Resolve-Path -LiteralPath {_powershell_single_quoted(str(path))}).Path;"
         "$f=[System.Diagnostics.FileVersionInfo]::GetVersionInfo($p);"
         "$s=Get-AuthenticodeSignature -LiteralPath $p;"
         "[ordered]@{status=[string]$s.Status;subject=[string]$s.SignerCertificate.Subject;"
@@ -108,6 +113,9 @@ def _windows_host_identity(
             return None, "no trusted Windows PowerShell host was found"
         powershell = str(trusted_powershell)
     try:
+        # The host path is inlined into the command text: `powershell -Command <script> <arg>`
+        # does not populate `$args`, so a trailing argument would be executed as its own
+        # statement and `$args[0]` would be null.
         result = runner(
             [
                 powershell,
@@ -115,7 +123,6 @@ def _windows_host_identity(
                 "-NonInteractive",
                 "-Command",
                 script,
-                str(path),
             ],
             capture_output=True,
             text=True,
