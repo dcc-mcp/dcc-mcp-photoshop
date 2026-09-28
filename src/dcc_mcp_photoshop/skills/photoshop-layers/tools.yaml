@@ -90,6 +90,21 @@ tools:
       opacity:
         type: number
         description: Opacity value 0 (transparent) to 100 (opaque).
+      verify:
+        type: boolean
+        description: Measure how much the layer actually changes the composite after the
+          change and report ``effect.no_op``. Enabled by default; set ``false`` to skip
+          the read-back for large batches.
+        default: true
+      per_axis:
+        type: integer
+        description: Composite sample points per axis inside the layer bounds (``per_axis **
+          2`` samples in total) used when ``verify`` is enabled.
+        default: 3
+      tolerance:
+        type: number
+        description: Largest per-channel composite delta (0-255) still reported as invisible.
+        default: 1.0
     additionalProperties: false
     required:
     - name
@@ -130,10 +145,56 @@ tools:
       blend_mode:
         type: string
         description: Blend mode string, e.g. ``"multiply"``, ``"screen"``, ``"overlay"``, ``"soft_light"``, ``"normal"``.
+      verify:
+        type: boolean
+        description: Measure how much the layer actually changes the composite after the
+          change and report ``effect.no_op``. Blend modes such as ``overlay`` over a white
+          backdrop are mathematical no-ops, so this is enabled by default; set ``false``
+          to skip the read-back for large batches.
+        default: true
+      per_axis:
+        type: integer
+        description: Composite sample points per axis inside the layer bounds (``per_axis **
+          2`` samples in total) used when ``verify`` is enabled.
+        default: 3
+      tolerance:
+        type: number
+        description: Largest per-channel composite delta (0-255) still reported as invisible.
+        default: 1.0
     additionalProperties: false
     required:
     - name
     - blend_mode
+- name: verify_layer_batch
+  description: >-
+    Report which layers contribute nothing to the composite. Hides each layer in turn, samples
+    the composite inside its bounds, and flags every layer whose contribution is zero — this
+    catches silent no-ops such as an ``overlay`` blend mode over a solid white backdrop, a hidden
+    layer, or zero opacity, none of which raise an error on their own.
+  source_file: scripts/verify_layer_batch.py
+  execution: sync
+  read_only: true
+  destructive: false
+  idempotent: true
+  input_schema:
+    type: object
+    properties:
+      layers:
+        type: array
+        description: Layer names to check. Defaults to every top-level layer of the active
+          document.
+        items:
+          type: string
+      per_axis:
+        type: integer
+        description: Composite sample points per axis inside each layer bounds (``per_axis **
+          2`` samples in total).
+        default: 3
+      tolerance:
+        type: number
+        description: Largest per-channel composite delta (0-255) still reported as invisible.
+        default: 1.0
+    additionalProperties: false
 - name: fill_layer
   description: Fill a layer with a solid color (hex or RGB) or transparent.
   source_file: scripts/fill_layer.py

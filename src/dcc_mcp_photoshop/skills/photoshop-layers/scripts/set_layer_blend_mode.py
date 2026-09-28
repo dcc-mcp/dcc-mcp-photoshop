@@ -6,6 +6,12 @@ from adobe.dcc_mcp import action_result
 from adobe.photoshop import Photoshop
 from dcc_mcp_core.skill import skill_entry
 
+from dcc_mcp_photoshop._layer_effect import (
+    DEFAULT_PER_AXIS,
+    DEFAULT_TOLERANCE,
+    probe_layer_effect,
+)
+
 VALID_BLEND_MODES = [
     "normal",
     "dissolve",
@@ -38,26 +44,55 @@ VALID_BLEND_MODES = [
 
 
 @skill_entry
-def set_layer_blend_mode(name: str, blend_mode: str, **kwargs) -> dict:
+def set_layer_blend_mode(
+    name: str,
+    blend_mode: str,
+    verify: bool = True,
+    per_axis: int = DEFAULT_PER_AXIS,
+    tolerance: float = DEFAULT_TOLERANCE,
+    **kwargs,
+) -> dict:
     """Set the blend mode of a named layer.
+
+    Several blend modes are mathematical no-ops over particular backdrops —
+    ``OVERLAY`` over solid white evaluates to exactly white again, so the layer
+    disappears from the composite while still reporting the requested mode.
+    With ``verify`` enabled (the default) the call also measures how much the
+    layer actually changes the composite and reports ``effect.no_op``.
 
     Args:
         name: Exact layer name.
         blend_mode: Blend mode string, e.g. ``"multiply"``, ``"screen"``,
             ``"overlay"``, ``"soft_light"``, ``"normal"``.
+        verify: Measure the composite effect after the change. Set to ``False``
+            to skip the read-back and keep the call cheap.
+        per_axis: Sample points per axis used by the verification probe.
+        tolerance: Largest per-channel delta (0-255) still counted as invisible.
 
     Returns:
-        dict: ActionResultModel confirming the blend mode change.
+        dict: ActionResultModel confirming the blend mode change, with an
+        ``effect`` block describing the measured composite contribution.
     """
     app = Photoshop()
 
     return action_result(
         f"Set blend mode of '{name}' to '{blend_mode}'",
-        lambda: _set_blend_mode(app, name, blend_mode),
+        lambda: _set_blend_mode(app, name, blend_mode, verify, per_axis, tolerance),
+        prompt=(
+            "If 'effect.no_op' is true the layer is invisible in the composite "
+            "at this blend mode — pick a mode that contrasts with the backdrop."
+        ),
     )
 
 
-def _set_blend_mode(app: Photoshop, name: str, blend_mode: str) -> dict:
+def _set_blend_mode(
+    app: Photoshop,
+    name: str,
+    blend_mode: str,
+    verify: bool = True,
+    per_axis: int = DEFAULT_PER_AXIS,
+    tolerance: float = DEFAULT_TOLERANCE,
+) -> dict:
     app.batch_play(
         [
             {
@@ -69,7 +104,13 @@ def _set_blend_mode(app: Photoshop, name: str, blend_mode: str) -> dict:
         modal=True,
         command_name="Set layer blend mode",
     )
-    return {"layer_name": name, "blend_mode": blend_mode}
+    payload = {"layer_name": name, "blend_mode": blend_mode}
+    if verify:
+        effect = probe_layer_effect(app, name, per_axis=per_axis, tolerance=tolerance)
+        payload["effect"] = effect
+        payload["no_op"] = effect["no_op"]
+        payload["warning"] = effect.get("reason") if effect["no_op"] else None
+    return payload
 
 
 def main(**kwargs) -> dict:
