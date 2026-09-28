@@ -2088,6 +2088,111 @@ def test_external_installer_secret_output_is_discarded_before_commit(tmp_path: P
     assert not (state_dir / "receipts" / "photoshop.json").exists()
 
 
+def _probe_command_carries_host(command: list[str], host: Path) -> bool:
+    """Assert the probe carries the host path in the command text, never as a trailing argument.
+
+    `powershell -Command <script> <arg>` leaves `$args` empty and runs the trailing argument as its
+    own statement, so a path appended after the script never reaches the probe.
+    """
+    resolved = str(host.resolve())
+    return len(command) > 1 and command[-2] == "-Command" and resolved in command[-1]
+
+
+def test_windows_probe_passes_the_host_inside_the_command_text(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "Adobe Photoshop 2024" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"signed-product-bytes")
+    commands: list[list[str]] = []
+
+    def recording_probe(command, **_kwargs):
+        commands.append(list(command))
+        return subprocess.CompletedProcess(
+            command,
+            0,
+            json.dumps(
+                {
+                    "status": "Valid",
+                    "subject": "CN=Adobe Inc., O=Adobe Inc., C=US",
+                    "company": "Adobe Inc.",
+                    "product": "Adobe Photoshop",
+                    "product_version": "26.4.0.0",
+                }
+            ),
+            "",
+        )
+
+    attest_photoshop_executable(host, platform_name="Windows", runner=recording_probe)
+
+    assert len(commands) == 1
+    assert _probe_command_carries_host(commands[0], host)
+    # Nothing may follow the script: a trailing argument would be executed as its own statement.
+    assert commands[0][-4:] == ["-NoProfile", "-NonInteractive", "-Command", commands[0][-1]]
+    assert len(commands[0]) == 5
+
+
+def test_windows_probe_quotes_a_host_path_containing_an_apostrophe(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "Adobe's Photoshop 2024" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"signed-product-bytes")
+    commands: list[list[str]] = []
+
+    def recording_probe(command, **_kwargs):
+        commands.append(list(command))
+        return subprocess.CompletedProcess(command, 0, "{}", "")
+
+    attest_photoshop_executable(host, platform_name="Windows", runner=recording_probe)
+
+    assert "'" + str(host.resolve()).replace("'", "''") + "'" in commands[0][-1]
+
+
+def test_windows_probe_runs_a_real_powershell_with_the_host_path(tmp_path: Path) -> None:
+    """Exercise the real probe end to end so argument-passing regressions cannot hide behind doubles."""
+    if os.name != "nt":
+        pytest.skip("the live Authenticode probe is Windows-only")
+
+    from dcc_mcp_photoshop.install_discovery import _windows_host_identity
+
+    control_target = Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32" / "notepad.exe"
+    try:
+        control = subprocess.run(
+            [
+                "powershell.exe",
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                f"[string](Get-AuthenticodeSignature -LiteralPath '{control_target}').Status",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        control = None
+    if control is None or control.returncode != 0 or not (control.stdout or "").strip():
+        pytest.skip("this host cannot evaluate Authenticode signatures")
+
+    host = tmp_path / "Adobe Photoshop 2024" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"signed-product-bytes")
+    commands: list[list[str]] = []
+
+    def live_runner(command, **_kwargs):
+        commands.append(list(command))
+        return subprocess.run(command, capture_output=True, text=True, timeout=30)
+
+    _identity, reason = _windows_host_identity(host, live_runner)
+
+    assert _probe_command_carries_host(commands[0], host)
+    # With the path inlined the probe reaches a decision and reports the status it saw. The broken
+    # form surfaced as "unusable metadata" because `$args[0]` was null.
+    assert reason is not None
+    assert "unusable metadata" not in reason, reason
+
+
 def test_windows_host_attestation_uses_signed_product_metadata_not_the_filename(tmp_path: Path) -> None:
     from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
 
@@ -2096,7 +2201,7 @@ def test_windows_host_attestation_uses_signed_product_metadata_not_the_filename(
     host.write_bytes(b"signed-product-bytes")
 
     def valid_probe(command, **_kwargs):
-        assert command[-1] == str(host.resolve())
+        assert _probe_command_carries_host(command, host)
         return subprocess.CompletedProcess(
             command,
             0,
