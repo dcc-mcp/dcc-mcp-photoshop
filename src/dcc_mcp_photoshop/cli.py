@@ -69,6 +69,12 @@ Environment variables:
   DCC_MCP_PHOTOSHOP_LOG_DIR     Log directory (default: ~/.dcc-mcp/logs)
   DCC_MCP_PHOTOSHOP_LOG_LEVEL   Log level (default: INFO)
   DCC_MCP_PHOTOSHOP_TIMEOUT     Timeout in seconds (default: 30.0)
+
+Install lifecycle environment overrides:
+  DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST
+                              Accept a repackaged host whose signature hash no longer
+                              matches (same effect as --allow-unverified-host)
+  DCC_MCP_PHOTOSHOP_HOST_ROOTS  Extra Photoshop search roots, separated by os.pathsep
 """,
     )
     parser.add_argument(
@@ -86,6 +92,14 @@ Environment variables:
         default="",
         metavar="PATH",
         help="Target Python override (current interpreter for install; receipt value for upgrade)",
+    )
+    parser.add_argument(
+        "--allow-unverified-host",
+        action="store_true",
+        help=(
+            "Accept a Photoshop host whose Adobe signature hash no longer matches its bytes "
+            "(repackaged or package-managed portable installs); recorded as a report warning"
+        ),
     )
     parser.add_argument(
         "--mcp-port",
