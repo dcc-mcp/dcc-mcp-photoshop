@@ -36,10 +36,12 @@ def _load_script(name: str) -> ModuleType:
     return module
 
 
-def _layer(name="Layer 1", visible=True):
+def _layer(name="Layer 1", visible=True, children=()):
     layer = Mock()
     layer.name = name
     layer.visible = visible
+    # ``layers`` must be iterable: the probe walks into groups.
+    layer.layers = list(children)
     return layer
 
 
@@ -112,7 +114,7 @@ class TestVerifyLayerBatch:
         assert result["context"]["no_op_count"] == 0
         assert result["context"]["warning"] is None
 
-    def test_defaults_to_every_top_level_layer(self):
+    def test_defaults_to_every_layer(self):
         module = _load_script("verify_layer_batch.py")
         module.Photoshop = lambda: _app([_layer("batch_01"), _layer("batch_02")])
         module.probe_layer_effect = _scripted_probe({"batch_01": BLUE, "batch_02": BLUE})
@@ -160,6 +162,75 @@ class TestVerifyLayerBatch:
 
         assert result["context"]["missing_layers"] == ["ghost"]
         assert "not found: ghost" in result["context"]["warning"]
+
+    def test_unmeasurable_layer_is_not_reported_as_a_no_op(self):
+        # Regression: bounds lookup used to fail into a false "invisible",
+        # telling the caller to fix a layer that may be perfectly fine.
+        module = _load_script("verify_layer_batch.py")
+        module.Photoshop = lambda: _app([_layer("batch_01")])
+
+        def unreadable_bounds(app, name, **_kwargs):
+            return _layer_effect.probe_layer_effect(app, name, **_kwargs)
+
+        app = _app([_layer("batch_01")], bounds=[{}])  # no bounds key
+        module.Photoshop = lambda: app
+        module.probe_layer_effect = unreadable_bounds
+
+        result = module.verify_layer_batch()
+
+        report = result["context"]["per_layer"][0]
+        assert report["status"] == "no_bounds"
+        assert report["no_op"] is None
+        # Not actionable, and explicitly called out as a coverage gap.
+        assert result["context"]["no_op_layers"] == []
+        assert result["context"]["inconclusive_layers"] == ["batch_01"]
+        assert "could not be sampled" in result["context"]["warning"]
+
+    def test_unrestored_layer_is_surfaced(self):
+        module = _load_script("verify_layer_batch.py")
+        module.Photoshop = lambda: _app([_layer("batch_01")])
+
+        def fake_probe(_app, name, **_kwargs):
+            return {
+                "layer": name,
+                "status": "error",
+                "no_op": None,
+                "visibility_restored": False,
+                "reason": "could not be shown again",
+            }
+
+        module.probe_layer_effect = fake_probe
+
+        result = module.verify_layer_batch()
+
+        assert result["context"]["unrestored_layers"] == ["batch_01"]
+        assert "may still be hidden: batch_01" in result["context"]["warning"]
+
+    def test_layers_nested_in_a_group_are_covered(self):
+        # A group-only scan would report nested layers as missing and make an
+        # unchecked batch look clean.
+        module = _load_script("verify_layer_batch.py")
+        nested = _layer("nested")
+        group = _layer("Group 1", children=[nested])
+        module.Photoshop = lambda: _app([group])
+        module.probe_layer_effect = _scripted_probe({"nested": WHITE})
+
+        result = module.verify_layer_batch()
+
+        assert result["context"]["checked_layers"] == ["Group 1", "nested"]
+        assert result["context"]["missing_layers"] == []
+
+    def test_tool_declares_that_it_mutates_visibility(self):
+        # The probe hides and shows layers, so it must not advertise read-only:
+        # a gateway trusting that flag could interleave calls and strand a
+        # layer in the hidden state.
+        import yaml
+
+        payload = yaml.safe_load((_LAYERS_SCRIPTS.parent / "tools.yaml").read_text(encoding="utf-8"))
+        tool = next(item for item in payload["tools"] if item["name"] == "verify_layer_batch")
+
+        assert tool["read_only"] is False
+        assert tool["destructive"] is False
 
     def test_no_active_document_reports_an_error(self):
         module = _load_script("verify_layer_batch.py")

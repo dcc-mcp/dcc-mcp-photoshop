@@ -19,7 +19,7 @@ Python so the decision logic can be unit tested without a Photoshop instance.
 from __future__ import annotations
 
 import json
-from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, Iterable, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 # Default number of sample points per axis inside a layer's bounds.  Three
 # gives a 3x3 grid: enough to survive a hole in the middle of a layer without
@@ -35,11 +35,14 @@ STATUS_OK = "ok"
 STATUS_HIDDEN = "hidden"
 STATUS_MISSING = "missing"
 STATUS_NO_BOUNDS = "no_bounds"
+STATUS_EMPTY = "empty"
 STATUS_UNSUPPORTED = "unsupported"
 STATUS_ERROR = "error"
 
-# Statuses where the probe could not say anything about the composite.
-_INCONCLUSIVE = (STATUS_UNSUPPORTED, STATUS_ERROR, STATUS_MISSING)
+# Statuses where the probe could not say anything about the composite.  These
+# must never reach the actionable no-op list: "we could not tell" is not the
+# same claim as "we measured it and it does nothing".
+_INCONCLUSIVE = (STATUS_UNSUPPORTED, STATUS_ERROR, STATUS_MISSING, STATUS_NO_BOUNDS)
 
 
 class EffectProbeUnavailable(RuntimeError):
@@ -187,6 +190,11 @@ def summarise(samples: Sequence[Mapping[str, Any]], tolerance: float = DEFAULT_T
     }
 
 
+def is_inconclusive(status: str) -> bool:
+    """True when the probe could not determine the composite contribution."""
+    return status in _INCONCLUSIVE
+
+
 def build_effect(
     layer: str,
     status: str,
@@ -194,6 +202,7 @@ def build_effect(
     *,
     samples: Optional[Sequence[Mapping[str, Any]]] = None,
     tolerance: float = DEFAULT_TOLERANCE,
+    visibility_restored: bool = True,
 ) -> Dict[str, Any]:
     """Assemble the per-layer effect report returned by the tools."""
     sample_list = list(samples or [])
@@ -201,6 +210,7 @@ def build_effect(
         "layer": layer,
         "status": status,
         "no_op": None,
+        "visibility_restored": visibility_restored,
         "reason": reason,
         "sample_count": len(sample_list),
     }
@@ -209,7 +219,7 @@ def build_effect(
         effect["samples"] = sample_list
         return effect
     if status != STATUS_OK:
-        # Hidden / boundless layers genuinely contribute nothing right now.
+        # Hidden layers and zero-area layers genuinely contribute nothing.
         effect["no_op"] = True
         effect["samples"] = sample_list
         return effect
@@ -272,12 +282,30 @@ def _parse_colors(raw: Any, expected: int) -> List[List[float]]:
     return parsed
 
 
+# Guard against a host that reports a cyclic layer tree.
+MAX_LAYER_DEPTH = 32
+
+
+def iter_layers(layers: Any, depth: int = 0) -> Iterator[Any]:
+    """Yield ``layers`` and every nested descendant, depth-first.
+
+    A batch is not necessarily flat. Scanning only the top level would report
+    layers inside a group as missing, which makes an unchecked batch look
+    clean rather than uncovered.
+    """
+    if depth > MAX_LAYER_DEPTH or not isinstance(layers, Iterable):
+        return
+    for layer in layers:
+        yield layer
+        yield from iter_layers(getattr(layer, "layers", None), depth + 1)
+
+
 def find_layer(app: Any, name: str) -> Optional[Any]:
     """Return the named layer proxy from the active document, if present."""
     document = getattr(app, "activeDocument", None)
     if document is None:
         return None
-    for layer in getattr(document, "layers", None) or []:
+    for layer in iter_layers(getattr(document, "layers", None)):
         if getattr(layer, "name", None) == name:
             return layer
     return None
@@ -317,6 +345,19 @@ def set_layer_visibility(app: Any, name: str, visible: bool) -> None:
         modal=True,
         command_name=f"{'Show' if visible else 'Hide'} layer",
     )
+
+
+def _restore_visibility(app: Any, name: str) -> Optional[str]:
+    """Show a layer again, returning an error message instead of raising.
+
+    The probe's only write to the document is hiding a layer, so a failed
+    restore has to be surfaced rather than swallowed.
+    """
+    try:
+        set_layer_visibility(app, name, True)
+    except Exception as exc:  # noqa: BLE001 - reported by the caller
+        return str(exc)
+    return None
 
 
 def document_size(app: Any) -> Optional[Tuple[float, float]]:
@@ -374,12 +415,17 @@ def probe_layer_effect(
 
     bounds = layer_bounds(app, name)
     if bounds is None:
-        return build_effect(name, STATUS_NO_BOUNDS, f"layer '{name}' reports no bounds to sample")
+        return build_effect(
+            name,
+            STATUS_NO_BOUNDS,
+            f"could not read bounds for '{name}', so its composite contribution is unknown",
+        )
 
     try:
         points = grid_points(bounds, per_axis, document_size(app))
     except ValueError as exc:
-        return build_effect(name, STATUS_NO_BOUNDS, str(exc))
+        # Zero-area bounds: there is nowhere for this layer to change anything.
+        return build_effect(name, STATUS_EMPTY, str(exc))
 
     try:
         with_layer = read(app, points)
@@ -390,17 +436,31 @@ def probe_layer_effect(
 
     try:
         set_layer_visibility(app, name, False)
-        try:
-            without_layer = read(app, points)
-        except EffectProbeUnavailable as exc:
-            return build_effect(name, STATUS_UNSUPPORTED, f"composite pixels unavailable: {exc}")
-        except Exception as exc:  # noqa: BLE001
-            return build_effect(name, STATUS_ERROR, f"composite probe failed: {exc}")
+    except Exception as exc:  # noqa: BLE001 - never break the caller's own operation
+        return build_effect(name, STATUS_ERROR, f"could not hide '{name}' to measure the baseline: {exc}")
+
+    probe_error: Optional[Tuple[str, str]] = None
+    without_layer: List[List[float]] = []
+    try:
+        without_layer = read(app, points)
+    except EffectProbeUnavailable as exc:
+        probe_error = (STATUS_UNSUPPORTED, f"composite pixels unavailable: {exc}")
+    except Exception as exc:  # noqa: BLE001
+        probe_error = (STATUS_ERROR, f"composite probe failed: {exc}")
     finally:
-        try:
-            set_layer_visibility(app, name, True)
-        except Exception:  # noqa: BLE001 - restoration failure is reported, not raised
-            pass
+        # Always attempt the restore; a layer left hidden is the one side
+        # effect this probe can leave behind, so it gets its own verdict.
+        restore_error = _restore_visibility(app, name)
+
+    if restore_error:
+        return build_effect(
+            name,
+            STATUS_ERROR,
+            f"'{name}' could not be shown again ({restore_error}); it may still be hidden",
+            visibility_restored=False,
+        )
+    if probe_error:
+        return build_effect(name, probe_error[0], probe_error[1])
 
     samples = build_samples(points, with_layer, without_layer)
     effect = build_effect(name, STATUS_OK, "", samples=samples, tolerance=tolerance)

@@ -12,6 +12,7 @@ import pytest
 
 from dcc_mcp_photoshop._layer_effect import (
     DEFAULT_TOLERANCE,
+    STATUS_EMPTY,
     STATUS_ERROR,
     STATUS_HIDDEN,
     STATUS_MISSING,
@@ -24,6 +25,8 @@ from dcc_mcp_photoshop._layer_effect import (
     document_size,
     find_layer,
     grid_points,
+    is_inconclusive,
+    iter_layers,
     layer_bounds,
     probe_layer_effect,
     read_composite_colors,
@@ -204,6 +207,38 @@ class TestHostAccess:
     def test_find_layer_without_document(self):
         assert find_layer(Mock(activeDocument=None), "x") is None
 
+    def test_find_layer_walks_into_groups(self):
+        child = _layer("nested")
+        child.layers = []
+        group = _layer("Group 1")
+        group.layers = [child]
+
+        assert find_layer(_app([_layer("Top"), group]), "nested") is child
+
+
+class TestIterLayers:
+    def test_flattens_nested_groups(self):
+        child = _layer("child")
+        child.layers = []
+        group = _layer("group")
+        group.layers = [child]
+        top = _layer("top")
+        top.layers = []
+
+        assert [layer.name for layer in iter_layers([top, group])] == ["top", "group", "child"]
+
+    def test_accepts_none(self):
+        assert list(iter_layers(None)) == []
+
+    def test_terminates_on_a_cyclic_tree(self):
+        # A host reporting a cycle must not hang the caller.
+        cyclic = _layer("loop")
+        cyclic.layers = [cyclic]
+
+        names = [layer.name for layer in iter_layers([cyclic])]
+
+        assert len(names) <= 33
+
     def test_layer_bounds_parses_the_get_descriptor(self):
         app = Mock()
         app.batch_play.return_value = [{"bounds": {"top": 411, "left": 94, "bottom": 520, "right": 1106}}]
@@ -334,7 +369,68 @@ class TestProbeLayerEffect:
 
         assert effect["status"] == STATUS_UNSUPPORTED
         assert effect["no_op"] is None
+        assert effect["visibility_restored"] is True
         assert app.batch_play.call_args_list[-1].args[0][0]["_obj"] == "show"
+
+    def test_restore_failure_is_reported_not_swallowed(self):
+        # Hiding is the probe's only write; a failure to undo it must surface.
+        app = _app([_layer("batch_04")])
+        app.batch_play.side_effect = [
+            [{"bounds": {"left": 0, "top": 0, "right": 9, "bottom": 9}}],  # bounds
+            None,  # hide succeeds
+            RuntimeError("show failed"),  # restore fails
+        ]
+
+        effect = probe_layer_effect(
+            app,
+            "batch_04",
+            sampler=self._sampler(NOOP_WITH, NOOP_WITHOUT),
+        )
+
+        assert effect["status"] == STATUS_ERROR
+        assert effect["no_op"] is None
+        assert effect["visibility_restored"] is False
+        assert "could not be shown again" in effect["reason"]
+        assert "show failed" in effect["reason"]
+
+    def test_restore_failure_wins_over_a_clean_no_op_verdict(self):
+        # The samples say "invisible", but the document is now wrong; the
+        # dangerous state has to take precedence over the tidy verdict.
+        app = _app([_layer("batch_04")])
+        app.batch_play.side_effect = [
+            [{"bounds": {"left": 0, "top": 0, "right": 9, "bottom": 9}}],
+            None,
+            RuntimeError("show failed"),
+        ]
+
+        effect = probe_layer_effect(
+            app,
+            "batch_04",
+            sampler=self._sampler(VISIBLE_WITH, VISIBLE_WITHOUT),
+        )
+
+        assert effect["status"] == STATUS_ERROR
+        assert effect["visibility_restored"] is False
+
+    def test_hide_failure_is_reported_and_needs_no_restore(self):
+        app = _app([_layer("batch_04")])
+        app.batch_play.side_effect = [
+            [{"bounds": {"left": 0, "top": 0, "right": 9, "bottom": 9}}],
+            RuntimeError("hide failed"),  # hide fails
+        ]
+
+        effect = probe_layer_effect(
+            app,
+            "batch_04",
+            sampler=self._sampler(NOOP_WITH, NOOP_WITHOUT),
+        )
+
+        assert effect["status"] == STATUS_ERROR
+        assert effect["no_op"] is None
+        assert effect["visibility_restored"] is True
+        assert "could not hide" in effect["reason"]
+        # Nothing was hidden, so no show must be attempted.
+        assert app.batch_play.call_count == 2
 
     def test_unreadable_pixels_are_inconclusive_not_a_false_no_op(self):
         app = _app([_layer("batch_04")])
@@ -368,9 +464,14 @@ class TestProbeLayerEffect:
 
         assert effect["status"] == STATUS_HIDDEN
         assert effect["no_op"] is True
+        assert effect["visibility_restored"] is True
         assert "hidden" in effect["reason"]
         # No sampling needed once the layer is known to be hidden.
         assert effect["sample_count"] == 0
+
+    def test_hidden_layer_is_a_measured_verdict(self):
+        # A hidden layer genuinely affects nothing, so it stays actionable.
+        assert is_inconclusive(STATUS_HIDDEN) is False
 
     def test_missing_layer_is_reported(self):
         effect = probe_layer_effect(_app(), "nope")
@@ -378,22 +479,39 @@ class TestProbeLayerEffect:
         assert effect["status"] == STATUS_MISSING
         assert effect["no_op"] is None
 
-    def test_layer_without_bounds_is_reported(self):
+    def test_unreadable_bounds_are_inconclusive_not_a_no_op(self):
+        # A layer we could not measure must never be reported as "invisible",
+        # otherwise the caller is told to fix a layer that may be fine.
         app = _app([_layer("batch_04")])
         app.batch_play.return_value = [{}]
 
         effect = probe_layer_effect(app, "batch_04")
 
         assert effect["status"] == STATUS_NO_BOUNDS
-        assert effect["no_op"] is True
+        assert effect["no_op"] is None
+        assert effect["visibility_restored"] is True
+        assert "unknown" in effect["reason"]
 
-    def test_degenerate_bounds_are_reported(self):
+    def test_unreadable_bounds_are_inconclusive(self):
+        assert is_inconclusive(STATUS_NO_BOUNDS) is True
+        assert is_inconclusive(STATUS_UNSUPPORTED) is True
+        assert is_inconclusive(STATUS_ERROR) is True
+        assert is_inconclusive(STATUS_MISSING) is True
+
+    def test_measured_statuses_are_not_inconclusive(self):
+        assert is_inconclusive(STATUS_OK) is False
+        assert is_inconclusive(STATUS_HIDDEN) is False
+        assert is_inconclusive(STATUS_EMPTY) is False
+
+    def test_zero_area_bounds_are_a_measured_no_op(self):
+        # Nothing to sample is a real answer, unlike "bounds unavailable".
         app = _app([_layer("batch_04")])
         app.batch_play.return_value = [{"bounds": {"left": 5, "top": 5, "right": 5, "bottom": 50}}]
 
         effect = probe_layer_effect(app, "batch_04")
 
-        assert effect["status"] == STATUS_NO_BOUNDS
+        assert effect["status"] == STATUS_EMPTY
+        assert effect["no_op"] is True
         assert "no area" in effect["reason"]
 
     def test_default_tolerance_is_applied(self):

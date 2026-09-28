@@ -168,12 +168,14 @@ tools:
 - name: verify_layer_batch
   description: >-
     Report which layers contribute nothing to the composite. Hides each layer in turn, samples
-    the composite inside its bounds, and flags every layer whose contribution is zero — this
-    catches silent no-ops such as an ``overlay`` blend mode over a solid white backdrop, a hidden
-    layer, or zero opacity, none of which raise an error on their own.
+    the composite inside its bounds, then shows it again, and flags every layer whose contribution
+    is zero — this catches silent no-ops such as an ``overlay`` blend mode over a solid white
+    backdrop, a hidden layer, or zero opacity, none of which raise an error on their own. The probe
+    toggles layer visibility while it runs and reports ``unrestored_layers`` if any layer could not
+    be shown again.
   source_file: scripts/verify_layer_batch.py
   execution: sync
-  read_only: true
+  read_only: false
   destructive: false
   idempotent: true
   input_schema:

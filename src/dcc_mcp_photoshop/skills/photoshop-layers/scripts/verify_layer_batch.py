@@ -21,13 +21,11 @@ from dcc_mcp_core.skill import skill_entry
 from dcc_mcp_photoshop._layer_effect import (
     DEFAULT_PER_AXIS,
     DEFAULT_TOLERANCE,
-    STATUS_ERROR,
     STATUS_MISSING,
-    STATUS_UNSUPPORTED,
+    is_inconclusive,
+    iter_layers,
     probe_layer_effect,
 )
-
-_INCONCLUSIVE = (STATUS_UNSUPPORTED, STATUS_ERROR)
 
 
 @skill_entry
@@ -77,13 +75,15 @@ def _verify_batch(
     if layers:
         names: List[str] = [str(name) for name in layers]
     else:
-        names = [layer.name for layer in (document.layers or []) if getattr(layer, "name", None)]
+        # Walk into groups: a layer nested in a group is part of the batch too.
+        names = [layer.name for layer in iter_layers(getattr(document, "layers", None)) if getattr(layer, "name", None)]
 
     reports = [probe_layer_effect(app, name, per_axis=per_axis, tolerance=tolerance) for name in names]
 
     no_op_layers = [report["layer"] for report in reports if report.get("no_op") is True]
-    inconclusive = [report["layer"] for report in reports if report.get("status") in _INCONCLUSIVE]
+    inconclusive = [report["layer"] for report in reports if is_inconclusive(report.get("status"))]
     missing = [report["layer"] for report in reports if report.get("status") == STATUS_MISSING]
+    unrestored = [report["layer"] for report in reports if report.get("visibility_restored") is False]
 
     return {
         "layer_count": len(reports),
@@ -92,15 +92,21 @@ def _verify_batch(
         "no_op_count": len(no_op_layers),
         "inconclusive_layers": inconclusive,
         "missing_layers": missing,
+        "unrestored_layers": unrestored,
         "per_axis": per_axis,
         "samples_per_layer": per_axis**2,
         "tolerance": tolerance,
         "per_layer": reports,
-        "warning": _warning(no_op_layers, inconclusive, missing),
+        "warning": _warning(no_op_layers, inconclusive, missing, unrestored),
     }
 
 
-def _warning(no_op_layers: List[str], inconclusive: List[str], missing: List[str]) -> Optional[str]:
+def _warning(
+    no_op_layers: List[str],
+    inconclusive: List[str],
+    missing: List[str],
+    unrestored: List[str],
+) -> Optional[str]:
     """Build a one-line warning, or ``None`` when there is nothing to flag."""
     parts = []
     if no_op_layers:
@@ -109,6 +115,8 @@ def _warning(no_op_layers: List[str], inconclusive: List[str], missing: List[str
         parts.append(f"{len(inconclusive)} layer(s) could not be sampled: {', '.join(inconclusive)}")
     if missing:
         parts.append(f"{len(missing)} layer(s) not found: {', '.join(missing)}")
+    if unrestored:
+        parts.append(f"{len(unrestored)} layer(s) may still be hidden: {', '.join(unrestored)}")
     return "; ".join(parts) or None
 
 

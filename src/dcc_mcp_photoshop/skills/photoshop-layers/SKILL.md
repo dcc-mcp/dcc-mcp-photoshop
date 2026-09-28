@@ -59,6 +59,34 @@ rather than silent:
 
 The probe samples the composite inside each layer's bounds, hides the layer,
 samples again, and restores visibility — so it measures what the document
-actually looks like, not what the layer properties claim. When the host cannot
-provide composite pixels, the report carries `status: "unsupported"` and
-`no_op: null` instead of guessing.
+actually looks like, not what the layer properties claim.
+
+`verify_layer_batch` toggles visibility while it runs, so it is **not** a
+read-only tool.
+
+## Reading the report
+
+`no_op` is tri-state, and only `true` means "measured and invisible":
+
+| `no_op` | meaning |
+| --- | --- |
+| `true` | measured: the layer changes nothing (`ok`), or it is hidden / zero-area |
+| `false` | measured: the layer does change the composite |
+| `null` | **unknown** — the probe could not measure this layer, so nothing is claimed |
+
+A `null` never reaches `no_op_layers`. The report separates the outcomes so an
+unsampleable layer is never mistaken for a clean one:
+
+- `no_op_layers` — measured, contributes nothing. Safe to act on.
+- `inconclusive_layers` — `status` is `unsupported`, `error`, `missing` or
+  `no_bounds`. Coverage gap, not a pass.
+- `unrestored_layers` — the probe could not show these layers again; check them
+  before continuing.
+
+Each per-layer report also carries `visibility_restored`. If restoring
+visibility fails, the layer is reported as `status: "error"` with
+`visibility_restored: false` rather than a normal verdict — a layer silently
+left hidden is the one side effect this probe can leave behind.
+
+Layer groups are walked into, so layers nested inside a group are covered by
+the default scan rather than reported as missing.
