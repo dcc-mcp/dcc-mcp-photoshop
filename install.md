@@ -79,6 +79,13 @@ Discovery then also recognizes versioned `bin/Photoshop.exe` layouts below those
 roots, for example `<root>/portable_photoshop/26.10/bin/Photoshop.exe`. Passing
 `--dcc-path` remains an exact override and wins over discovery.
 
+Layout names are compared on one scale before any ordering happens: a release
+year is mapped to its product major (`Adobe Photoshop 2024` and `2024` both rank
+as 25), and a package directory of the form `<year>.<major>.<minor>.<patch>`
+ranks by the components after the year (`2025.26.5.0` ranks as 26.5.0). Every
+component counts, so `26.10` outranks `26.9`, and a portable payload outranks an
+older conventional install. Directory order only breaks genuine ties.
+
 ## Internal prebuilt bridge deployment
 
 An Internal workstation image may provide an already-built and approved UXP

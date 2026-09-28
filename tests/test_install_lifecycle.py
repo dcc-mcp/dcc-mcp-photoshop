@@ -375,21 +375,73 @@ def test_install_plan_records_a_warning_for_an_opted_in_repackaged_host(tmp_path
     assert "product provenance" in report["verify"]["failure_reason"]
     assert report["warnings"] == []
 
-    report, exit_code = install_planning.build_install_report(
-        verb="install",
-        dcc_path=str(host),
-        python=sys.executable,
-        dry_run=True,
-        allow_unverified_host=True,
+    for source, expected in (
+        ("flag", "--allow-unverified-host"),
+        ("environment", "DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST"),
+        (None, "unknown"),
+    ):
+        report, exit_code = install_planning.build_install_report(
+            verb="install",
+            dcc_path=str(host),
+            python=sys.executable,
+            dry_run=True,
+            allow_unverified_host=True,
+            allow_unverified_source=source,
+        )
+
+        _canonical_install_validator().validate(report)
+        assert exit_code == 0
+        assert report["status"] == "planned"
+        assert report["plan"]["host"]["signature"] == "authenticode_hash_mismatch"
+        assert [warning["code"] for warning in report["warnings"]] == ["host_signature_hash_mismatch"]
+        # The report must credit the mechanism the operator actually used.
+        assert report["warnings"][0]["accepted_by"] == expected
+        assert "repackaged-host-token" not in json.dumps(report)
+
+
+def test_lifecycle_credits_the_environment_opt_in_not_the_flag(tmp_path: Path, monkeypatch, capsys) -> None:
+    from dcc_mcp_photoshop import install_planning
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST", "1")
+    monkeypatch.setenv("ADOBEPY_CLI", str(_fake_adobepy_cli(tmp_path)))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "env-opt-in-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        install_planning,
+        "probe_target_import",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "modules": {"core": {"version": "0.20.36"}, "adobepy": {"version": "0.6.2"}},
+        },
     )
 
+    def repackaged(path: Path, *, allow_unverified: bool = False):
+        if not allow_unverified:
+            return None
+        return {
+            "executable": str(path),
+            "version": "26.10",
+            "product": "Adobe Photoshop 2025",
+            "publisher": "Adobe Inc.",
+            "signature": "authenticode_hash_mismatch",
+            "signature_status": "HashMismatch",
+        }
+
+    monkeypatch.setattr(install_planning, "attest_photoshop_executable", repackaged)
+
+    exit_code = run_install_lifecycle(
+        Namespace(command="install", json=True, yes=False, dry_run=True, dcc_path=str(host), python=sys.executable)
+    )
+
+    report = json.loads(capsys.readouterr().out)
     _canonical_install_validator().validate(report)
     assert exit_code == 0
-    assert report["status"] == "planned"
     assert report["plan"]["host"]["signature"] == "authenticode_hash_mismatch"
-    assert [warning["code"] for warning in report["warnings"]] == ["host_signature_hash_mismatch"]
-    assert report["warnings"][0]["accepted_by"] == "--allow-unverified-host"
-    assert "repackaged-host-token" not in json.dumps(report)
+    # The namespace carries no flag, so the report must credit the environment variable.
+    assert report["warnings"][0]["accepted_by"] == "DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST"
 
 
 def test_preflight_names_the_provenance_check_that_rejected_the_host(tmp_path: Path, monkeypatch) -> None:
@@ -1670,18 +1722,83 @@ def test_photoshop_discovery_finds_package_managed_portable_layouts(tmp_path: Pa
     assert version == "26.10"
 
 
+def _layout(root: Path, *relative_executables: str) -> dict[str, Path]:
+    created: dict[str, Path] = {}
+    for relative in relative_executables:
+        executable = root / relative / "Photoshop.exe"
+        executable.parent.mkdir(parents=True, exist_ok=True)
+        executable.write_bytes(b"")
+        created[relative] = executable
+    return created
+
+
 def test_photoshop_discovery_prefers_the_newest_known_layout(tmp_path: Path) -> None:
     from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable
 
     root = tmp_path / "Adobe"
-    classic = root / "Adobe Photoshop 2024" / "Photoshop.exe"
-    classic.parent.mkdir(parents=True)
-    classic.write_bytes(b"")
-    portable = root / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
-    portable.parent.mkdir(parents=True)
-    portable.write_bytes(b"")
+    created = _layout(
+        root,
+        "Adobe Photoshop 2024",
+        str(Path("portable_photoshop") / "26.10" / "bin"),
+    )
 
-    assert discover_photoshop_executable("Windows", [root]) == (classic, "2024")
+    # Photoshop 2024 is product major 25, so the portable 26.10 payload is the newer host.
+    assert discover_photoshop_executable("Windows", [root]) == (
+        created[str(Path("portable_photoshop") / "26.10" / "bin")],
+        "26.10",
+    )
+
+
+def test_photoshop_discovery_compares_every_version_component(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable
+
+    root = tmp_path / "Adobe"
+    created = _layout(
+        root,
+        str(Path("portable_photoshop") / "26.9" / "bin"),
+        str(Path("portable_photoshop") / "26.10" / "bin"),
+    )
+
+    assert discover_photoshop_executable("Windows", [root]) == (
+        created[str(Path("portable_photoshop") / "26.10" / "bin")],
+        "26.10",
+    )
+
+
+def test_photoshop_discovery_ranks_package_directories_against_a_classic_install(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable
+
+    root = tmp_path / "Adobe"
+    created = _layout(
+        root,
+        "Adobe Photoshop 2024",
+        str(Path("portable_photoshop") / "2025.26.5.0" / "bin"),
+    )
+
+    assert discover_photoshop_executable("Windows", [root]) == (
+        created[str(Path("portable_photoshop") / "2025.26.5.0" / "bin")],
+        "2025.26.5.0",
+    )
+
+
+def test_layout_tokens_normalize_onto_one_comparable_scale() -> None:
+    from dcc_mcp_photoshop.install_discovery import _candidate_rank, _directory_version_token
+
+    # A release year maps to its product major; a package directory keeps the components
+    # after the year; a product version is used as written.
+    assert _candidate_rank(_directory_version_token("Adobe Photoshop 2024")) == (25,)
+    assert _candidate_rank(_directory_version_token("2024")) == (25,)
+    assert _candidate_rank(_directory_version_token("2025.26.5.0")) == (26, 5, 0)
+    assert _candidate_rank(_directory_version_token("2024.25.0.0")) == (25, 0, 0)
+    assert _candidate_rank(_directory_version_token("26.9")) == (26, 9)
+    assert _candidate_rank(_directory_version_token("26.10")) == (26, 10)
+    assert _candidate_rank(_directory_version_token("unversioned")) == ()
+    assert _candidate_rank(None) == ()
+
+    assert _candidate_rank(_directory_version_token("26.10")) > _candidate_rank(_directory_version_token("26.9"))
+    assert _candidate_rank(_directory_version_token("2025.26.5.0")) > _candidate_rank(
+        _directory_version_token("2024.25.0.0")
+    )
 
 
 def test_photoshop_discovery_honors_configured_host_roots(tmp_path: Path, monkeypatch) -> None:
