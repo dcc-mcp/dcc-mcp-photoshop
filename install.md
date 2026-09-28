@@ -39,6 +39,46 @@ export ADOBEPY_CLI="$HOME/.local/bin/adobepy"
 export ADOBEPY_TOKEN="$(cat "$HOME/.config/adobepy/token")"
 ```
 
+## Repackaged and portable hosts
+
+Package managers that distribute Photoshop as a portable payload rewrite the host
+bytes, so `Get-AuthenticodeSignature` reports `HashMismatch` instead of `Valid`
+even though the signer subject and product metadata are genuine Adobe values.
+Preflight treats that as fatal by default, because a tampered file and a forged
+signature blob that merely embeds Adobe's public certificate are
+indistinguishable at this layer: without a matching hash, neither the signed
+digest nor the version resource proves anything.
+
+When you own the host and accept that risk, opt in explicitly:
+
+```bash
+dcc-mcp-photoshop install --json --dry-run --allow-unverified-host \
+  --dcc-path "/path/to/Photoshop.exe" --python "/path/to/python"
+```
+
+The same opt-in is available as `DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST=1` for
+non-interactive runners that cannot extend the command line. The opt-in only
+relaxes the hash check: an unsigned host, a non-Adobe signer, or foreign product
+metadata still fails closed, and the accepted risk is recorded as a
+`host_signature_hash_mismatch` entry in the report `warnings` array and as
+`plan.host.signature: authenticode_hash_mismatch`.
+
+Portable payloads are not under `%ProgramFiles%/Adobe`, so auto-discovery needs
+to be told where to look. Point it at the package root with
+os.pathsep-separated entries:
+
+```powershell
+$env:DCC_MCP_PHOTOSHOP_HOST_ROOTS = "C:\Tools\portable;D:\apps\photoshop"
+```
+
+```bash
+export DCC_MCP_PHOTOSHOP_HOST_ROOTS="/opt/photoshop:/srv/apps/photoshop"
+```
+
+Discovery then also recognizes versioned `bin/Photoshop.exe` layouts below those
+roots, for example `<root>/portable_photoshop/26.10/bin/Photoshop.exe`. Passing
+`--dcc-path` remains an exact override and wins over discovery.
+
 ## Internal prebuilt bridge deployment
 
 An Internal workstation image may provide an already-built and approved UXP
@@ -60,7 +100,7 @@ bridges, receipt ownership, upgrades, and uninstall.
 
 | Platform | Photoshop host | Adapter lifecycle |
 |---|---|---|
-| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata | Preflight/staging supported with the pinned adobepy 0.6.2 CLI; live readiness remains fail-closed on `adobepy#64` and `#67` |
+| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata. A repackaged or package-managed host whose signature hash no longer matches is rejected unless an operator accepts it (see [Repackaged and portable hosts](#repackaged-and-portable-hosts)) | Preflight/staging supported with the pinned adobepy 0.6.2 CLI; live readiness remains fail-closed on `adobepy#64` and `#67` |
 | macOS | Photoshop 2022+ with `com.adobe.Photoshop` Info.plist and Adobe Team ID `JQ525L2MZD` code signature | Preflight only until an official checksum-pinned macOS adobepy CLI is published |
 | Linux | Adobe does not ship a Photoshop desktop host | Plan/status tooling only; live verification is unsupported |
 
@@ -171,6 +211,8 @@ successful no-op.
 # Troubleshooting
 
 - **Exit `10`, host not found/untrusted:** pass the full Photoshop executable with `--dcc-path`; the lifecycle requires nonempty Adobe-signed product bytes and derives the version from product metadata rather than the directory name.
+- **Exit `10`, host signature `HashMismatch`:** the host was repackaged. Reinstall an untouched Adobe build when provenance matters; otherwise opt in with `--allow-unverified-host` (or `DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST=1`) and review the `warnings` array. See [Repackaged and portable hosts](#repackaged-and-portable-hosts).
+- **Host not discovered:** set `DCC_MCP_PHOTOSHOP_HOST_ROOTS` to the portable package root, or pass `--dcc-path`.
 - **Exit `10`, interpreter/Core floor:** pass a Python 3.8+ executable and upgrade `dcc-mcp-core` to the reported minimum.
 - **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.6.2 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute.
 - **Exit `30`, bridge staging:** inspect the redacted stage result. External output containing the configured token is rejected and discarded.

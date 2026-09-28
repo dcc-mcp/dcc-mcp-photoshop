@@ -173,7 +173,7 @@ def _trusted_install_artifact_test_doubles(monkeypatch, request) -> None:
     """Keep lifecycle tests host-free while production provenance stays fail-closed."""
     from dcc_mcp_photoshop import install_planning
 
-    def fake_host_attestation(path: Path):
+    def fake_host_attestation(path: Path, *, allow_unverified: bool = False):
         try:
             resolved = path.resolve(strict=True)
         except OSError:
@@ -303,6 +303,117 @@ def test_upgrade_cli_leaves_python_unset_for_receipt_reuse() -> None:
     args = _build_parser().parse_args(["upgrade", "--json", "--dry-run"])
 
     assert args.python == ""
+
+
+def test_install_cli_exposes_an_explicit_unverified_host_opt_in() -> None:
+    args = _build_parser().parse_args(["install", "--json", "--allow-unverified-host"])
+
+    assert args.allow_unverified_host is True
+    assert _build_parser().parse_args(["install", "--json"]).allow_unverified_host is False
+
+
+def test_lifecycle_forwards_the_unverified_host_environment_opt_in(tmp_path: Path, monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_planning
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST", "1")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+    recorded: list[bool] = []
+
+    def fake_attestation(path: Path, *, allow_unverified: bool = False):
+        recorded.append(allow_unverified)
+        return None
+
+    monkeypatch.setattr(install_planning, "attest_photoshop_executable", fake_attestation)
+
+    run_install_lifecycle(
+        Namespace(command="install", json=False, yes=False, dry_run=True, dcc_path=str(host), python=sys.executable)
+    )
+
+    assert recorded == [True]
+
+
+def test_install_plan_records_a_warning_for_an_opted_in_repackaged_host(tmp_path: Path, monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_planning
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+    monkeypatch.setenv("ADOBEPY_CLI", str(_fake_adobepy_cli(tmp_path)))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "repackaged-host-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(
+        install_planning,
+        "probe_target_import",
+        lambda *_args, **_kwargs: {
+            "ok": True,
+            "modules": {"core": {"version": "0.20.36"}, "adobepy": {"version": "0.6.2"}},
+        },
+    )
+
+    def repackaged(path: Path, *, allow_unverified: bool = False):
+        if not allow_unverified:
+            return None
+        return {
+            "executable": str(path),
+            "version": "26.10",
+            "product": "Adobe Photoshop 2025",
+            "publisher": "Adobe Inc.",
+            "signature": "authenticode_hash_mismatch",
+            "signature_status": "HashMismatch",
+        }
+
+    monkeypatch.setattr(install_planning, "attest_photoshop_executable", repackaged)
+
+    report, exit_code = install_planning.build_install_report(
+        verb="install", dcc_path=str(host), python=sys.executable, dry_run=True
+    )
+
+    assert exit_code == 10
+    assert "product provenance" in report["verify"]["failure_reason"]
+    assert report["warnings"] == []
+
+    report, exit_code = install_planning.build_install_report(
+        verb="install",
+        dcc_path=str(host),
+        python=sys.executable,
+        dry_run=True,
+        allow_unverified_host=True,
+    )
+
+    _canonical_install_validator().validate(report)
+    assert exit_code == 0
+    assert report["status"] == "planned"
+    assert report["plan"]["host"]["signature"] == "authenticode_hash_mismatch"
+    assert [warning["code"] for warning in report["warnings"]] == ["host_signature_hash_mismatch"]
+    assert report["warnings"][0]["accepted_by"] == "--allow-unverified-host"
+    assert "repackaged-host-token" not in json.dumps(report)
+
+
+def test_preflight_names_the_provenance_check_that_rejected_the_host(tmp_path: Path, monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_planning
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+    monkeypatch.setattr(install_planning, "attest_photoshop_executable", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        install_planning,
+        "host_provenance_reason",
+        lambda *_args, **_kwargs: "Authenticode status is HashMismatch",
+    )
+
+    report, exit_code = install_planning.build_install_report(
+        verb="install", dcc_path=str(host), python="", dry_run=True
+    )
+
+    assert exit_code == 10
+    assert report["verify"]["failure_reason"] == (
+        "Photoshop executable lacks valid Adobe product provenance: Authenticode status is HashMismatch"
+    )
 
 
 def test_install_plan_honors_environment_interpreter_override(tmp_path: Path, monkeypatch) -> None:
@@ -1545,6 +1656,48 @@ def test_photoshop_discovery_uses_real_windows_and_macos_application_layouts(tmp
     assert discover_photoshop_executable("Darwin", [mac_root]) == (mac_host, "2025")
 
 
+def test_photoshop_discovery_finds_package_managed_portable_layouts(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable
+
+    package_root = tmp_path / "packages"
+    portable_host = package_root / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    portable_host.parent.mkdir(parents=True)
+    portable_host.write_bytes(b"")
+
+    executable, version = discover_photoshop_executable("Windows", [package_root])
+
+    assert executable == portable_host
+    assert version == "26.10"
+
+
+def test_photoshop_discovery_prefers_the_newest_known_layout(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable
+
+    root = tmp_path / "Adobe"
+    classic = root / "Adobe Photoshop 2024" / "Photoshop.exe"
+    classic.parent.mkdir(parents=True)
+    classic.write_bytes(b"")
+    portable = root / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    portable.parent.mkdir(parents=True)
+    portable.write_bytes(b"")
+
+    assert discover_photoshop_executable("Windows", [root]) == (classic, "2024")
+
+
+def test_photoshop_discovery_honors_configured_host_roots(tmp_path: Path, monkeypatch) -> None:
+    from dcc_mcp_photoshop.install_discovery import discover_photoshop_executable
+
+    portable_root = tmp_path / "portable_photoshop"
+    portable_host = portable_root / "2025" / "bin" / "Photoshop.exe"
+    portable_host.parent.mkdir(parents=True)
+    portable_host.write_bytes(b"")
+    monkeypatch.delenv("ProgramFiles", raising=False)
+    monkeypatch.delenv("ProgramFiles(x86)", raising=False)
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_HOST_ROOTS", str(portable_root))
+
+    assert discover_photoshop_executable("Windows") == (portable_host, "2025")
+
+
 def test_preflight_rejects_arbitrary_host_and_cli_executables(tmp_path: Path, monkeypatch, capsys) -> None:
     fake_host = tmp_path / "Adobe Photoshop 2025" / "not-photoshop.exe"
     fake_host.parent.mkdir()
@@ -1989,6 +2142,96 @@ def test_windows_host_attestation_uses_signed_product_metadata_not_the_filename(
         return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
 
     assert attest_photoshop_executable(host, platform_name="Windows", runner=spoofed_signer_name) is None
+
+
+def _repackaged_probe(payload: dict[str, str]):
+    def probe(command, **_kwargs):
+        return subprocess.CompletedProcess(command, 0, json.dumps(payload), "")
+
+    return probe
+
+
+_REPACKAGED_HOST = {
+    "status": "HashMismatch",
+    "subject": "CN=Adobe Inc., OU=Photoshop, Bridge, O=Adobe Inc.",
+    "company": "Adobe Inc.",
+    "product": "Adobe Photoshop 2025",
+    "product_version": "26.10.0",
+}
+
+
+def test_repackaged_host_is_rejected_without_an_operator_opt_in(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+
+    assert (
+        attest_photoshop_executable(host, platform_name="Windows", runner=_repackaged_probe(_REPACKAGED_HOST)) is None
+    )
+
+
+def test_repackaged_host_is_accepted_only_with_an_operator_opt_in(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+
+    identity = attest_photoshop_executable(
+        host,
+        platform_name="Windows",
+        runner=_repackaged_probe(_REPACKAGED_HOST),
+        allow_unverified=True,
+    )
+
+    assert identity is not None
+    assert identity["signature"] == "authenticode_hash_mismatch"
+    assert identity["signature_status"] == "HashMismatch"
+    assert identity["version"] == "26.10.0"
+    assert identity["product"] == "Adobe Photoshop 2025"
+
+
+def test_unsigned_and_untrusted_hosts_are_never_accepted(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"unsigned-product-bytes")
+
+    for status in ("NotSigned", "UnknownError", "InvalidSignature", "", None):
+        payload = dict(_REPACKAGED_HOST, status=status)
+        assert attest_photoshop_executable(host, platform_name="Windows", runner=_repackaged_probe(payload)) is None
+        assert (
+            attest_photoshop_executable(
+                host,
+                platform_name="Windows",
+                runner=_repackaged_probe(payload),
+                allow_unverified=True,
+            )
+            is None
+        )
+
+
+def test_repackaged_host_with_foreign_product_metadata_is_rejected(tmp_path: Path) -> None:
+    from dcc_mcp_photoshop.install_discovery import attest_photoshop_executable
+
+    host = tmp_path / "portable_photoshop" / "26.10" / "bin" / "Photoshop.exe"
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"repackaged-product-bytes")
+
+    forged = dict(_REPACKAGED_HOST, product="Photo Editor Pro", company="Example Corp.")
+
+    assert (
+        attest_photoshop_executable(
+            host,
+            platform_name="Windows",
+            runner=_repackaged_probe(forged),
+            allow_unverified=True,
+        )
+        is None
+    )
 
 
 def test_host_attestation_rejects_zero_byte_and_symlink_spoofs(tmp_path: Path) -> None:
