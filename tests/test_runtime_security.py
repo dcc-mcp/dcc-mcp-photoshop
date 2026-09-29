@@ -65,7 +65,9 @@ def test_target_import_does_not_inherit_adobe_credentials(monkeypatch) -> None:
 
     monkeypatch.setattr(install_verification.subprocess, "run", fake_run)
 
-    assert install_verification.probe_target_import(sys.executable, 1.0)["ok"] is True
+    # The probe spawns an interpreter that imports adobe, dcc-mcp-core and this adapter.
+    # A 1s budget was below cold-start cost on a loaded runner and made this test flaky.
+    assert install_verification.probe_target_import(sys.executable, 30.0)["ok"] is True
 
 
 def test_broker_probe_classifies_a_non_object_payload_without_raw_error(monkeypatch) -> None:

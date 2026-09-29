@@ -9,11 +9,13 @@ import platform
 import shutil
 import subprocess
 import sys
+import time
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
+    ADOBEPY_FLOOR_SPECIFIER,
     ADOBEPY_MIN_VERSION,
     ADOBEPY_MODULE,
     ADOBEPY_MODULE_ENTRY_POINT,
@@ -28,7 +30,6 @@ from dcc_mcp_photoshop.install_contract import (
     MIN_PYTHON_VERSION,
     package_version,
     satisfies_adobepy_floor,
-    satisfies_adobepy_specifier,
     satisfies_core_specifier,
     state_dir,
     version_tuple,
@@ -45,7 +46,7 @@ from dcc_mcp_photoshop.install_io import (
     load_receipt,
     receipt_files_match,
 )
-from dcc_mcp_photoshop.install_verification import probe_target_import
+from dcc_mcp_photoshop.install_verification import TARGET_IMPORT_PROBE_TIMEOUT, probe_target_import
 
 
 def _host_supported(version: str | None) -> bool:
@@ -58,20 +59,32 @@ def _host_supported(version: str | None) -> bool:
     return major >= 2022 if major >= 2000 else major >= 23
 
 
+# On a loaded Windows runner a spawned `python --version` intermittently reports success
+# with both pipes empty, so a single read is not trustworthy. Retry before concluding the
+# interpreter is unusable: failure here becomes a preflight "could not be executed" exit 10
+# that has nothing to do with the operator's environment.
+_PYTHON_VERSION_ATTEMPTS = 3
+
+
 def _python_version(executable: Path) -> str | None:
-    try:
-        result = subprocess.run(
-            [str(executable), "--version"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-        )
-    except (OSError, subprocess.SubprocessError):
-        return None
-    if result.returncode != 0:
-        return None
-    version = (result.stdout or result.stderr).strip()
-    return version[len("Python ") :] if version.startswith("Python ") else version
+    for attempt in range(_PYTHON_VERSION_ATTEMPTS):
+        try:
+            result = subprocess.run(
+                [str(executable), "--version"],
+                capture_output=True,
+                text=True,
+                timeout=TARGET_IMPORT_PROBE_TIMEOUT,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        version = (result.stdout or result.stderr).strip()
+        if version:
+            return version[len("Python ") :] if version.startswith("Python ") else version
+        if attempt + 1 < _PYTHON_VERSION_ATTEMPTS:
+            time.sleep(0.05 * (attempt + 1))
+    return None
 
 
 # Releases page used when no row below matches the current platform. Keep it pinned to
@@ -114,11 +127,23 @@ def _file_sha256(path: Path, expected_size: int) -> str | None:
         return None
 
 
-def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[str, Any] | None:
+def _adobepy_cli_rows() -> list[tuple[str, str, dict[str, Any]]]:
+    """Return every published release row that applies to the running platform.
+
+    The rows are keyed by release version, but verification must not depend on the
+    installed SDK version: an operator running a newer SDK is still entitled to use
+    the official CLI they installed, so every platform row is a candidate.
+    """
     platform_key = _adobepy_platform_key()
-    release = _ADOBEPY_CLI_RELEASES.get((sdk_version, platform_key))
-    if path is None or not version_tuple(sdk_version) or release is None:
-        return None
+    if platform_key is None:
+        return []
+    return [(version, key, release) for (version, key), release in _ADOBEPY_CLI_RELEASES.items() if key == platform_key]
+
+
+def _adobepy_cli_release_identity(
+    path: Path, version: str, platform_key: str, release: dict[str, Any]
+) -> dict[str, Any] | None:
+    """Verify one executable against exactly one published release row."""
     try:
         if path_uses_link(path):
             return None
@@ -138,10 +163,10 @@ def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[st
     if (
         resolved.name != release["cli_name"]
         or resolved.parent.name != "bin"
-        or resolved.parent.parent.name != f"adobepy-{sdk_version}-{platform_key}"
+        or resolved.parent.parent.name != f"adobepy-{version}-{platform_key}"
         or not isinstance(manifest, dict)
         or manifest.get("name") != "adobepy"
-        or manifest.get("version") != sdk_version
+        or manifest.get("version") != version
         or manifest.get("runtime") != platform_key
         or not isinstance(includes, list)
         or relative_cli not in includes
@@ -149,7 +174,7 @@ def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[st
         return None
     return {
         "executable": str(resolved),
-        "version": sdk_version,
+        "version": version,
         "runtime": platform_key,
         "bytes": release["cli_bytes"],
         "sha256": release["cli_sha256"],
@@ -161,6 +186,22 @@ def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[st
         "release_url": release["release_url"],
         "provenance": "official_checksum_release",
     }
+
+
+def _adobepy_cli_identity(path: Path | None) -> dict[str, Any] | None:
+    """Return the official-release identity of one executable, or ``None``.
+
+    ``None`` means only "this executable is not a known official release". It does not
+    distinguish "no release is published for this platform" from "bytes do not match";
+    callers that need that distinction use :func:`_adobepy_cli_rows`.
+    """
+    if path is None:
+        return None
+    for version, platform_key, release in _adobepy_cli_rows():
+        identity = _adobepy_cli_release_identity(path, version, platform_key, release)
+        if identity is not None:
+            return identity
+    return None
 
 
 def _adobepy_module_identity(interpreter: Path, sdk_version: str | None) -> dict[str, Any] | None:
@@ -211,25 +252,30 @@ def resolve_adobepy_installer(
        verify against the checksum release table the install fails instead of silently
        falling through to something less trusted.
     2. An ``adobepy`` executable on ``PATH`` — still verified against the same table.
-    3. ``<interpreter> -m adobe`` — the wheel-only fallback, used only when no
-       executable was configured or found at all.
+    3. ``<interpreter> -m adobe`` — the wheel-only fallback.
+
+    Step 2 only blocks the fallback when the platform has a published release row, i.e.
+    when a mismatch is real evidence that the binary was replaced. On a platform with no
+    published row (macOS, Linux) nothing can be verified, so an unverifiable executable
+    falls through instead of turning into a dead end: blocking there would forbid the
+    only surface that can work. An explicit ``ADOBEPY_CLI`` pin blocks unconditionally,
+    because the operator asked for that exact binary.
 
     Returns ``None`` when no surface is provable, which the caller reports as an
     actionable acquire failure.
     """
-    candidates: list[Path] = []
     if configured is not None:
-        candidates.append(configured)
-    elif on_path:
-        candidates.append(Path(on_path))
-    for candidate in candidates:
-        identity = _adobepy_cli_identity(candidate, sdk_version)
+        identity = _adobepy_cli_identity(configured)
+        return identity if identity is not None else None
+    if on_path:
+        candidate = Path(on_path)
+        identity = _adobepy_cli_identity(candidate)
         if identity is not None:
             return identity
-        # A configured or PATH-visible executable that fails verification is an error,
-        # never a reason to fall back: that would let a replaced binary downgrade the
-        # checksum path to the unverified module path.
-        return None
+        if _adobepy_cli_rows():
+            # A row exists for this platform and the bytes did not match it. Falling back
+            # would let a replaced binary downgrade the checksum path to the module path.
+            return None
     return _adobepy_module_identity(interpreter, sdk_version)
 
 
@@ -345,7 +391,9 @@ def build_install_report(
         python_source = "current_process"
     python_version = _python_version(interpreter) if interpreter.is_file() else None
     process_core_version = package_version("dcc-mcp-core")
-    target_import = probe_target_import(str(interpreter), 10.0) if python_version else {"ok": False}
+    target_import = (
+        probe_target_import(str(interpreter), TARGET_IMPORT_PROBE_TIMEOUT) if python_version else {"ok": False}
+    )
     adobepy_cli_value = os.environ.get("ADOBEPY_CLI", "")
     adobepy_cli = Path(adobepy_cli_value).expanduser() if adobepy_cli_value else None
     target_modules = target_import.get("modules") if isinstance(target_import, dict) else None
@@ -393,12 +441,11 @@ def build_install_report(
         failures.append(("preflight", "Target Python imports are not owned by their selected distributions"))
     if adobepy_identity is None:
         failures.append(("acquire", adobepy_acquire_failure(adobepy_cli is not None)))
-    elif adobepy_identity.get("provenance") != ADOBEPY_MODULE_PROVENANCE and not satisfies_adobepy_specifier(
-        adobepy_sdk_version or ""
-    ):
-        # The wheel-only surface is gated by the version floor in its own identity check;
-        # only the checksummed CLI surface is held to the exact pin.
-        failures.append(("acquire", f"adobepy {ADOBEPY_SPECIFIER} is required"))
+    elif not satisfies_adobepy_floor(adobepy_sdk_version or ""):
+        # Both surfaces are held to the floor. The official CLI is NOT held to the exact
+        # pin: it is authenticated by the checksum table in _ADOBEPY_CLI_RELEASES, so an
+        # operator running a newer SDK keeps using the official binary they installed.
+        failures.append(("acquire", f"adobepy {ADOBEPY_FLOOR_SPECIFIER} is required"))
     if not os.environ.get("ADOBEPY_TOKEN"):
         failures.append(("preflight", "ADOBEPY_TOKEN must be configured in the environment"))
 
@@ -476,7 +523,11 @@ def build_install_report(
             },
             "requirements": {
                 "core_specifier": CORE_SPECIFIER,
+                # `adobepy_specifier` names the pinned official CLI bundle the checksum
+                # table authenticates; `adobepy_floor` is the range the adapter actually
+                # accepts for the installed SDK.
                 "adobepy_specifier": ADOBEPY_SPECIFIER,
+                "adobepy_floor": ADOBEPY_FLOOR_SPECIFIER,
                 "minimum_core_version": MIN_CORE_VERSION,
                 "minimum_python_version": "3.8",
                 "minimum_photoshop_version": "2022",

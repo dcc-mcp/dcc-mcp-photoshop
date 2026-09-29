@@ -328,6 +328,13 @@ print(json.dumps({
     return payload
 
 
+# Budget for spawning the target interpreter and importing adobe, dcc-mcp-core and this
+# adapter. Cold start measured ~1.6s on a warm desktop; a 10s budget timed out
+# intermittently on loaded multi-lane CI runners and made preflight report a spurious
+# "imports are not owned by their selected distributions" failure.
+TARGET_IMPORT_PROBE_TIMEOUT = 60.0
+
+
 def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
     """Prove target imports belong to their selected distributions and bounds."""
     payload = _probe_target_import_payload(executable, timeout)
@@ -417,7 +424,7 @@ def verify_photoshop_rpc(
     process_probe: ProcessProbe = observe_process_identity,
 ) -> dict[str, Any]:
     """Require one receipt-bound UXP session and independently bound host PID."""
-    target_import = python_probe(python_executable, 10.0)
+    target_import = python_probe(python_executable, TARGET_IMPORT_PROBE_TIMEOUT)
     if not target_import.get("ok"):
         return _failure(
             "target_import",

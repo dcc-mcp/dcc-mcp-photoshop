@@ -31,8 +31,10 @@ ExternalRunner = Callable[..., subprocess.CompletedProcess]
 BRIDGE_HOST = "photoshop"
 _BRIDGE_SUBCOMMAND = "install-bridge"
 _BRIDGE_JSON_FLAG = "--json"
-# Bounded probe: resolve the module entry point in the selected interpreter without
-# importing it, so a wheel-only install is detected before any bridge is staged.
+# Bounded probe: ask the selected interpreter whether it resolves the module entry point.
+# `find_spec` must import the parent `adobe` package to look inside it, so this executes
+# `adobe/__init__.py` — it is not a pure path lookup. The probe therefore runs without the
+# broker token in its environment, and imports nothing beyond that package.
 _MODULE_PROBE_SOURCE = (
     "import importlib.util, sys\n"
     f"sys.exit(0 if importlib.util.find_spec({ADOBEPY_MODULE_ENTRY_POINT!r}) is not None else 1)\n"
@@ -43,12 +45,16 @@ def adobepy_module_available(interpreter: Path) -> bool:
     """Return whether the selected interpreter resolves the ``python -m adobe`` entry point."""
     if not interpreter.is_file():
         return False
+    env = os.environ.copy()
+    # The probe imports the `adobe` package, so keep the broker token out of its reach.
+    env.pop("ADOBEPY_TOKEN", None)
     try:
         result = subprocess.run(
             [str(interpreter), "-c", _MODULE_PROBE_SOURCE],
             capture_output=True,
             text=True,
             timeout=30,
+            env=env,
         )
     except (OSError, subprocess.SubprocessError):
         return False
@@ -175,6 +181,27 @@ def _contains_secret(value: str, secret: str) -> bool:
     return bool(secret and secret in value)
 
 
+# Bound the upstream detail folded into a failure reason: enough to carry the
+# remediation a real `python -m adobe` prints, never enough to flood a report.
+_STAGE_DETAIL_LIMIT = 512
+
+
+def _bridge_stage_failure(stderr: str, token: str) -> str:
+    """Report a non-zero bridge staging exit with the installer's own remediation.
+
+    A wheel-only install fails with `adobepy bridge templates not found`, and that text is
+    the only thing telling the operator what is missing. Dropping it left a bare
+    "bridge staging failed" with no next step. Secrets are redacted and the detail is
+    truncated, so this cannot leak the token or flood the report.
+    """
+    detail = " ".join(stderr.replace(token, "[redacted]").split()) if token else " ".join(stderr.split())
+    if not detail:
+        return "adobepy bridge staging failed"
+    if len(detail) > _STAGE_DETAIL_LIMIT:
+        detail = detail[: _STAGE_DETAIL_LIMIT - 3].rstrip() + "..."
+    return f"adobepy bridge staging failed: {detail}"
+
+
 def _replace_with_retry(replacer: Callable[[Any, Any], Any], source: Any, destination: Any) -> None:
     """Bound transient Windows sharing violations around an atomic rename."""
     for attempt in range(3):
@@ -222,7 +249,7 @@ def stage_bridge(
         return None, "adobepy emitted sensitive output; installation stopped"
     if result.returncode != 0:
         shutil.rmtree(staging, ignore_errors=True)
-        return None, "adobepy bridge staging failed"
+        return None, _bridge_stage_failure(stderr, token)
     try:
         payload = json.loads(stdout)
     except (json.JSONDecodeError, UnicodeError):

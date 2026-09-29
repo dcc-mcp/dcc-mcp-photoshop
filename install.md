@@ -67,8 +67,10 @@ Rules that keep the checksum path authoritative:
 - Bridge **templates** are not bundled in the wheel. `python -m adobe` resolves
   them from `ADOBEPY_BRIDGES_DIR`, `ADOBEPY_HOME/bridges`, a released CLI's
   sibling `bridges/` directory, or a source checkout. In a bare venv with none of
-  those, staging still fails — but with that remediation instead of a bare
-  `FileNotFoundError`.
+  those, staging **still fails** — no published `adobepy` wheel ships templates, so
+  this path cannot yet generate a bridge on its own. The failure is reported with
+  the installer's own remediation (`adobepy bridge templates not found …`) rather
+  than a bare `FileNotFoundError`; see exit `30`.
 
 Diagnose a wheel-only install first:
 
@@ -259,7 +261,7 @@ successful no-op.
 - **Host not discovered:** set `DCC_MCP_PHOTOSHOP_HOST_ROOTS` to the portable package root, or pass `--dcc-path`.
 - **Exit `10`, interpreter/Core floor:** pass a Python 3.8+ executable and upgrade `dcc-mcp-core` to the reported minimum.
 - **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.6.2 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute. With only the PyPI wheel installed, see [Wheel-only installs](#wheel-only-installs).
-- **Exit `30`, bridge staging:** inspect the redacted stage result. External output containing the configured token is rejected and discarded.
+- **Exit `30`, bridge staging:** inspect the redacted stage result; `failure_reason` carries the installer's own stderr (token-redacted, truncated). External output containing the configured token is rejected and discarded. On a wheel-only install the usual cause is missing bridge templates — see [Wheel-only installs](#wheel-only-installs).
 - **Exit `40`, verification:** start the broker, confirm one Photoshop UXP session, and retry `dcc-mcp-photoshop verify --json`.
 - **Exit `50`, UXP load required:** the lifecycle fails closed with the `dcc-mcp/adobepy#67` blocker until bounded bootstrap/load exists. A file-lock restart is separate and may be retried after the operator resolves the lock.
 - **Partial state:** run `dcc-mcp-photoshop install --json --yes` to repair it. Do not delete the bridge before repair.
