@@ -210,21 +210,28 @@ def _adobepy_module_identity(interpreter: Path, sdk_version: str | None) -> dict
     The PyPI ``adobepy`` wheel installs the ``adobe`` import package and no standalone
     executable, so a wheel-only install has nothing to checksum. This identity records
     the argv prefix that will be executed and is re-verified immediately before use.
+
+    The recorded path is the interpreter *as selected*, never its symlink target: a
+    POSIX venv's ``bin/python`` is a symlink to the base interpreter, and the base
+    cannot import a package installed only into that venv. Resolving here would probe
+    one interpreter and then execute another that cannot see the module.
     """
     if not satisfies_adobepy_floor(sdk_version or "") or not adobepy_module_available(interpreter):
         return None
     try:
-        resolved = interpreter.resolve(strict=True)
+        # Existence check only; the resolved path is deliberately not recorded.
+        interpreter.resolve(strict=True)
     except OSError:
         return None
+    selected = interpreter.absolute()
     return {
-        "executable": str(resolved),
+        "executable": str(selected),
         "version": sdk_version,
         "runtime": _adobepy_platform_key(),
         "module": ADOBEPY_MODULE,
         "entry_point": ADOBEPY_MODULE_ENTRY_POINT,
         # argv prefix; `adobepy_bridge_argv` appends the install-bridge arguments.
-        "command_prefix": [str(resolved), "-m", ADOBEPY_MODULE],
+        "command_prefix": [str(selected), "-m", ADOBEPY_MODULE],
         "bytes": None,
         "sha256": None,
         "manifest_path": None,

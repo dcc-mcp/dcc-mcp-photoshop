@@ -2688,17 +2688,18 @@ def _synthetic_release_row(executable: Path, payload: bytes = b"official-release
 def _module_identity(interpreter: Path, version: str = "0.11.0") -> dict[str, Any]:
     """Build the identity a wheel-only install would resolve.
 
-    Mirrors production, which stores the *resolved* interpreter: on Linux a venv's
-    ``bin/python`` is a symlink, and the staging identity guard rejects a link path.
+    Mirrors production, which records the interpreter *as selected*. A POSIX venv's
+    ``bin/python`` resolves to the base interpreter, which cannot import a package
+    installed only into that venv.
     """
-    resolved = interpreter.resolve()
+    selected = interpreter.absolute()
     return {
-        "executable": str(resolved),
+        "executable": str(selected),
         "version": version,
         "runtime": _SYNTHETIC_PLATFORM,
         "module": "adobe",
         "entry_point": "adobe.__main__",
-        "command_prefix": [str(resolved), "-m", "adobe"],
+        "command_prefix": [str(selected), "-m", "adobe"],
         "bytes": None,
         "sha256": None,
         "manifest_path": None,
@@ -2709,6 +2710,44 @@ def _module_identity(interpreter: Path, version: str = "0.11.0") -> dict[str, An
         "release_url": None,
         "provenance": "python_module_entry_point",
     }
+
+
+def _target_import_probe(adobepy_version: str):
+    """Stand in for the real import probe at a chosen installed adobepy version."""
+
+    def _probe(executable: str, timeout: float) -> dict[str, Any]:
+        return {
+            "ok": True,
+            "python_executable": str(Path(executable).resolve()),
+            "modules": {
+                "adapter": {
+                    "distribution": "dcc-mcp-photoshop",
+                    "owned": True,
+                    "version": "0.1.40",
+                    "module_path": __file__,
+                },
+                "core": {
+                    "distribution": "dcc-mcp-core",
+                    "owned": True,
+                    "version": "0.20.36",
+                    "module_path": __file__,
+                },
+                "adobepy": {
+                    "distribution": "adobepy",
+                    "owned": True,
+                    "version": adobepy_version,
+                    "module_path": __file__,
+                },
+            },
+            "core_schema": {
+                "id": INSTALL_SOP_SCHEMA_ID,
+                "record_owned": True,
+                "size": 4_899,
+                "sha256": "2b3a8a101384a5163c7569c4a2b0de6586c672c5ee291735f94334a33b7d37a0",
+            },
+        }
+
+    return _probe
 
 
 def test_adobepy_version_floor_admits_the_pinned_runtime_and_newer() -> None:
@@ -2814,10 +2853,11 @@ def test_wheel_only_install_falls_back_to_python_m_adobe(tmp_path, monkeypatch, 
     bridge = report["plan"]["bridge"]
     assert bridge["installer_provenance"] == "python_module_entry_point"
     assert bridge["installer_module"] == "adobe"
-    # Compare case-insensitively: hostedtoolcache's sys.executable differs in case from
-    # the resolved path on Windows.
+    # Expect the interpreter *as selected*: a POSIX venv's bin/python resolves to a base
+    # interpreter that cannot import venv-only packages. Compare case-insensitively
+    # because hostedtoolcache's sys.executable differs in case from the absolute path.
     assert [part.replace("\\", "/").lower() for part in bridge["installer_command"]] == [
-        str(Path(sys.executable).resolve()).replace("\\", "/").lower(),
+        str(Path(sys.executable).absolute()).replace("\\", "/").lower(),
         "-m",
         "adobe",
         "install-bridge",
@@ -2897,24 +2937,142 @@ def test_official_cli_is_kept_when_the_sdk_version_is_newer(tmp_path: Path, monk
         assert identity["version"] == "0.6.2"
 
 
+def test_report_accepts_an_official_cli_with_a_newer_sdk(tmp_path: Path, monkeypatch) -> None:
+    """Report-level guard for the floor decision.
+
+    The acquire branch judges the installed SDK by floor, not by exact pin, so an
+    official CLI stays usable after the SDK is raised. Without this test that decision
+    is unprotected: reintroducing the exact pin makes the combination fail with
+    "adobepy ==0.6.2 is required" while the operator has done nothing wrong.
+    """
+    from dcc_mcp_photoshop import install_planning
+
+    host = tmp_path / "Adobe Photoshop 2024" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2024")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+
+    executable = _synthetic_bundle(tmp_path / "official")
+    for sdk_version in ("0.6.2", "0.11.0"):
+        monkeypatch.setattr(
+            install_planning,
+            "_adobepy_cli_rows",
+            lambda: [("0.6.2", _SYNTHETIC_PLATFORM, _synthetic_release_row(executable))],
+        )
+        monkeypatch.setattr(install_planning, "probe_target_import", _target_import_probe(sdk_version))
+        monkeypatch.setenv("ADOBEPY_CLI", str(executable))
+        monkeypatch.setenv("ADOBEPY_TOKEN", "official-cli-token")
+        monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state" / sdk_version))
+
+        report, exit_code = install_planning.build_install_report(
+            verb="install", dcc_path=str(host), python=sys.executable, dry_run=True
+        )
+
+        bridge = report["plan"]["bridge"]
+        assert exit_code == 0, (sdk_version, report["verify"]["failure_reason"])
+        # A dry-run always reports not_installed; the regression being guarded against is
+        # an `acquire` rejection, which is what exit 20 would mean.
+        assert report["verify"]["failure_stage"] == "not_installed", (
+            sdk_version,
+            report["verify"]["failure_reason"],
+        )
+        assert bridge["installer_provenance"] == "official_checksum_release"
+        assert bridge["installer_version"] == "0.6.2"
+
+
+def test_module_identity_records_the_selected_interpreter_not_its_link_target(tmp_path: Path, monkeypatch) -> None:
+    """A POSIX venv's bin/python is a symlink to a base that cannot see venv packages.
+
+    Recording the resolved target would probe one interpreter and then execute another
+    that cannot import the module. This test simulates that layout so the guard holds
+    on every platform, including Windows, where resolve() happens to be a no-op.
+    """
+    from dcc_mcp_photoshop import install_planning
+
+    base = tmp_path / "base-python"
+    base.write_bytes(b"base interpreter")
+    base.chmod(0o755)
+    venv = tmp_path / "venv-python"
+    try:
+        venv.symlink_to(base)
+    except (OSError, NotImplementedError):  # pragma: no cover - Windows without privileges
+        pytest.skip("symlinks are unavailable on this runner")
+
+    monkeypatch.setattr(install_planning, "adobepy_module_available", lambda _interpreter: True)
+    identity = install_planning._adobepy_module_identity(venv, "0.11.0")
+
+    assert identity is not None
+    assert identity["executable"] == str(venv.absolute())
+    assert identity["command_prefix"][0] == str(venv.absolute())
+    # The link target must not be what gets executed.
+    assert identity["executable"] != str(base.resolve())
+
+    # The staging re-check must compare the same selected path, or it would accept an
+    # identity built for the venv and then execute the base interpreter that cannot see
+    # it. Drive it through stage_bridge so the guard is exercised on the real path.
+    from dcc_mcp_photoshop import install_io
+    from dcc_mcp_photoshop.install_io import stage_bridge
+
+    commands: list[list[str]] = []
+
+    def fake_run(command, *, env, capture_output, text, timeout):
+        commands.append(list(command))
+        destination = Path(command[command.index("--dest") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "manifest.json").write_text("{}", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, _bridge_stage_receipt(command), "")
+
+    monkeypatch.setattr(install_io, "adobepy_module_available", lambda _interpreter: True)
+    staging, error = stage_bridge(
+        executable=venv,
+        expected_identity=identity,
+        state_dir=tmp_path / "state",
+        token="venv-token",
+        runner=fake_run,
+    )
+
+    assert error is None, error
+    assert staging is not None
+    assert commands and commands[0][0] == str(venv.absolute())
+    # The base interpreter must never be what runs.
+    assert commands[0][0] != str(base.resolve())
+
+    # Decisive: the link target is a different interpreter and must be rejected. If the
+    # re-check compared resolved paths instead of selected ones, both would collapse to
+    # the same path and this would wrongly succeed.
+    staging, error = stage_bridge(
+        executable=base,
+        expected_identity=identity,
+        state_dir=tmp_path / "state",
+        token="venv-token",
+        runner=lambda *args, **kwargs: pytest.fail("the link target must not be executed"),
+    )
+    assert staging is None
+    assert error == "adobepy CLI identity changed before bridge staging"
+
+
 def test_unverifiable_platform_falls_through_to_the_module_surface(tmp_path: Path, monkeypatch) -> None:
     """With no published row nothing can be verified, so the fallback stays reachable."""
     from dcc_mcp_photoshop import install_planning
 
     any_executable = tmp_path / "adobepy"
     any_executable.write_bytes(b"someone's build")
+    any_executable.chmod(0o755)
     monkeypatch.setattr(install_planning, "_adobepy_cli_rows", lambda: [])
+    # Make the module surface resolvable so the assertion is about fall-through, not
+    # about whether this runner happens to have `adobe` installed. Patch the symbol
+    # where _adobepy_module_identity looks it up.
+    monkeypatch.setattr(install_planning, "adobepy_module_available", lambda _interpreter: True)
 
-    # No rows means an unverifiable PATH executable must not block the module surface;
-    # it degrades to whatever the module identity resolves to on this interpreter.
-    expected = install_planning._adobepy_module_identity(Path(sys.executable), "0.11.0")
     identity = install_planning.resolve_adobepy_installer(
         configured=None,
         interpreter=Path(sys.executable),
         sdk_version="0.11.0",
         on_path=str(any_executable),
     )
-    assert identity == expected
+
+    assert identity is not None, "an unverifiable PATH executable must not block the fallback"
+    assert identity["provenance"] == "python_module_entry_point"
+    assert identity["version"] == "0.11.0"
 
     # An explicit pin stays authoritative even when nothing can be verified.
     assert (

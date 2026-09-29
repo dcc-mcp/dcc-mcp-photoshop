@@ -57,6 +57,11 @@ which surface was selected in `plan.bridge.installer_provenance`:
 `official_checksum_release` for the pinned binary, `python_module_entry_point`
 for the wheel.
 
+The official CLI is authenticated by the checksum table, not by the SDK version, so
+**an official CLI paired with a newer `adobepy` wheel is a supported combination**: the
+installed SDK only has to meet the floor (`>=0.6.2`). Do not reintroduce a rule that
+rejects an already-verified CLI because its version string differs from the wheel's.
+
 Rules that keep the checksum path authoritative:
 
 - An explicit `ADOBEPY_CLI` (or an `adobepy` binary found on `PATH`) that fails
