@@ -39,7 +39,44 @@ export ADOBEPY_CLI="$HOME/.local/bin/adobepy"
 export ADOBEPY_TOKEN="$(cat "$HOME/.config/adobepy/token")"
 ```
 
-## Repackaged and portable hosts
+## Wheel-only installs
+
+The PyPI `adobepy` wheel installs the `adobe` import package and **no standalone
+executable**. When neither `ADOBEPY_CLI` nor an `adobepy` executable on `PATH`
+resolves, the lifecycle stages the UXP bridge through the wheel's entry point
+instead:
+
+```bash
+<selected-python> -m adobe install-bridge photoshop --dest <staging> --json
+```
+
+`python -m adobe` emits the same JSON payload as the Rust CLI (`success`, `host`,
+`kind`, `destination`, `config`, `token_configured`), so bridge staging and
+everything downstream of it are identical on both surfaces. The report records
+which surface was selected in `plan.bridge.installer_provenance`:
+`official_checksum_release` for the pinned binary, `python_module_entry_point`
+for the wheel.
+
+Rules that keep the checksum path authoritative:
+
+- An explicit `ADOBEPY_CLI` (or an `adobepy` binary found on `PATH`) that fails
+  verification is an **error**, never a reason to fall back. Falling through would
+  let a replaced binary downgrade the verified path to the unverified one.
+- The wheel-only surface requires an `adobepy` release at or above the pinned
+  floor, because the entry point only exists in newer wheels.
+- Bridge **templates** are not bundled in the wheel. `python -m adobe` resolves
+  them from `ADOBEPY_BRIDGES_DIR`, `ADOBEPY_HOME/bridges`, a released CLI's
+  sibling `bridges/` directory, or a source checkout. In a bare venv with none of
+  those, staging still fails — but with that remediation instead of a bare
+  `FileNotFoundError`.
+
+Diagnose a wheel-only install first:
+
+```bash
+python -m adobe doctor
+```
+
+# Repackaged and portable hosts
 
 Package managers that distribute Photoshop as a portable payload rewrite the host
 bytes, so `Get-AuthenticodeSignature` reports `HashMismatch` instead of `Valid`
@@ -221,7 +258,7 @@ successful no-op.
 - **Exit `10`, host signature `HashMismatch`:** the host was repackaged. Reinstall an untouched Adobe build when provenance matters; otherwise opt in with `--allow-unverified-host` (or `DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST=1`) and review the `warnings` array. See [Repackaged and portable hosts](#repackaged-and-portable-hosts).
 - **Host not discovered:** set `DCC_MCP_PHOTOSHOP_HOST_ROOTS` to the portable package root, or pass `--dcc-path`.
 - **Exit `10`, interpreter/Core floor:** pass a Python 3.8+ executable and upgrade `dcc-mcp-core` to the reported minimum.
-- **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.6.2 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute.
+- **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.6.2 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute. With only the PyPI wheel installed, see [Wheel-only installs](#wheel-only-installs).
 - **Exit `30`, bridge staging:** inspect the redacted stage result. External output containing the configured token is rejected and discarded.
 - **Exit `40`, verification:** start the broker, confirm one Photoshop UXP session, and retry `dcc-mcp-photoshop verify --json`.
 - **Exit `50`, UXP load required:** the lifecycle fails closed with the `dcc-mcp/adobepy#67` blocker until bounded bootstrap/load exists. A file-lock restart is separate and may be retried after the operator resolves the lock.

@@ -17,8 +17,15 @@ INSTALL_EXIT_REQUIRES_RESTART = 50
 MIN_CORE_VERSION = "0.20.14"
 MAX_CORE_VERSION_EXCLUSIVE = "0.21.0"
 CORE_SPECIFIER = ">=0.20.14,<0.21.0"
-ADOBEPY_SPECIFIER = "==0.6.2"
+ADOBEPY_MIN_VERSION = "0.6.2"
+ADOBEPY_SPECIFIER = f"=={ADOBEPY_MIN_VERSION}"
 MIN_PYTHON_VERSION = (3, 8)
+# Provenance value for the wheel-only bridge installer. The PyPI `adobepy` wheel ships the
+# `adobe` import package and no standalone executable, so this surface has no binary to
+# checksum; it is proven by resolving `adobe.__main__` in the selected interpreter.
+ADOBEPY_MODULE_PROVENANCE = "python_module_entry_point"
+ADOBEPY_MODULE = "adobe"
+ADOBEPY_MODULE_ENTRY_POINT = "adobe.__main__"
 INSTALL_SOP_SCHEMA_ID = "https://dcc-mcp.github.io/schemas/adapter-install-sop-v1.schema.json"
 # Opt-in relaxation of host provenance. See install_discovery.attest_photoshop_executable: a
 # repackaged host whose signature hash no longer matches cannot be distinguished from a forged
@@ -64,9 +71,30 @@ def satisfies_core_specifier(value: str) -> bool:
     return minimum <= normalized < maximum
 
 
+def _padded_version_tuple(value: str, width: int = 3) -> tuple[int, ...]:
+    """Return a comparable numeric tuple, or ``()`` when the value is not a final release."""
+    parsed = version_tuple(value)
+    if not parsed:
+        return ()
+    return parsed + (0,) * (width - len(parsed))
+
+
 def satisfies_adobepy_specifier(value: str) -> bool:
     """Return whether a final adobepy SDK version matches the pinned runtime."""
-    return version_tuple(value) == version_tuple("0.6.2")
+    return _padded_version_tuple(value) == _padded_version_tuple(ADOBEPY_MIN_VERSION)
+
+
+def satisfies_adobepy_floor(value: str) -> bool:
+    """Return whether a final adobepy SDK version is the pinned runtime or newer.
+
+    The wheel-only ``python -m adobe`` surface ships no platform bundle, so it has no
+    checksum table to key on and only needs a release new enough to carry the entry
+    point. The CLI surface still pins exactly: ``_ADOBEPY_CLI_RELEASES`` holds a row
+    for the pinned version alone, so any other SDK version resolves no identity and
+    is rejected by the existing acquire check.
+    """
+    parsed = _padded_version_tuple(value)
+    return bool(parsed) and parsed >= _padded_version_tuple(ADOBEPY_MIN_VERSION)
 
 
 class CoreSchemaAnchor(NamedTuple):

@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 import platform
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -13,6 +14,10 @@ from typing import Any
 from urllib.parse import urlparse
 
 from dcc_mcp_photoshop.install_contract import (
+    ADOBEPY_MIN_VERSION,
+    ADOBEPY_MODULE,
+    ADOBEPY_MODULE_ENTRY_POINT,
+    ADOBEPY_MODULE_PROVENANCE,
     ADOBEPY_SPECIFIER,
     ALLOW_UNVERIFIED_HOST_ENV,
     CORE_SPECIFIER,
@@ -22,6 +27,7 @@ from dcc_mcp_photoshop.install_contract import (
     MIN_CORE_VERSION,
     MIN_PYTHON_VERSION,
     package_version,
+    satisfies_adobepy_floor,
     satisfies_adobepy_specifier,
     satisfies_core_specifier,
     state_dir,
@@ -33,7 +39,12 @@ from dcc_mcp_photoshop.install_discovery import (
     host_provenance_reason,
     path_uses_link,
 )
-from dcc_mcp_photoshop.install_io import load_receipt, receipt_files_match
+from dcc_mcp_photoshop.install_io import (
+    adobepy_bridge_argv,
+    adobepy_module_available,
+    load_receipt,
+    receipt_files_match,
+)
 from dcc_mcp_photoshop.install_verification import probe_target_import
 
 
@@ -63,6 +74,9 @@ def _python_version(executable: Path) -> str | None:
     return version[len("Python ") :] if version.startswith("Python ") else version
 
 
+# Releases page used when no row below matches the current platform. Keep it pinned to
+# the project's releases index rather than a mutable `latest` download URL.
+_ADOBEPY_RELEASES_URL = "https://github.com/dcc-mcp/adobepy/releases"
 _ADOBEPY_CLI_RELEASES = {
     ("0.6.2", "windows-x64"): {
         "asset_name": "adobepy-0.6.2-windows-x64.zip",
@@ -147,6 +161,102 @@ def _adobepy_cli_identity(path: Path | None, sdk_version: str | None) -> dict[st
         "release_url": release["release_url"],
         "provenance": "official_checksum_release",
     }
+
+
+def _adobepy_module_identity(interpreter: Path, sdk_version: str | None) -> dict[str, Any] | None:
+    """Describe the wheel-only bridge installer: ``<interpreter> -m adobe``.
+
+    The PyPI ``adobepy`` wheel installs the ``adobe`` import package and no standalone
+    executable, so a wheel-only install has nothing to checksum. This identity records
+    the argv prefix that will be executed and is re-verified immediately before use.
+    """
+    if not satisfies_adobepy_floor(sdk_version or "") or not adobepy_module_available(interpreter):
+        return None
+    try:
+        resolved = interpreter.resolve(strict=True)
+    except OSError:
+        return None
+    return {
+        "executable": str(resolved),
+        "version": sdk_version,
+        "runtime": _adobepy_platform_key(),
+        "module": ADOBEPY_MODULE,
+        "entry_point": ADOBEPY_MODULE_ENTRY_POINT,
+        # argv prefix; `adobepy_bridge_argv` appends the install-bridge arguments.
+        "command_prefix": [str(resolved), "-m", ADOBEPY_MODULE],
+        "bytes": None,
+        "sha256": None,
+        "manifest_path": None,
+        "manifest_bytes": None,
+        "manifest_sha256": None,
+        "release_asset": None,
+        "release_asset_sha256": None,
+        "release_url": None,
+        "provenance": ADOBEPY_MODULE_PROVENANCE,
+    }
+
+
+def resolve_adobepy_installer(
+    *,
+    configured: Path | None,
+    interpreter: Path,
+    sdk_version: str | None,
+    on_path: str | None = None,
+) -> dict[str, Any] | None:
+    """Select the bridge installer, preferring the official CLI over the wheel entry point.
+
+    Resolution order:
+
+    1. ``ADOBEPY_CLI`` — an explicit operator pin. It is authoritative: if it does not
+       verify against the checksum release table the install fails instead of silently
+       falling through to something less trusted.
+    2. An ``adobepy`` executable on ``PATH`` — still verified against the same table.
+    3. ``<interpreter> -m adobe`` — the wheel-only fallback, used only when no
+       executable was configured or found at all.
+
+    Returns ``None`` when no surface is provable, which the caller reports as an
+    actionable acquire failure.
+    """
+    candidates: list[Path] = []
+    if configured is not None:
+        candidates.append(configured)
+    elif on_path:
+        candidates.append(Path(on_path))
+    for candidate in candidates:
+        identity = _adobepy_cli_identity(candidate, sdk_version)
+        if identity is not None:
+            return identity
+        # A configured or PATH-visible executable that fails verification is an error,
+        # never a reason to fall back: that would let a replaced binary downgrade the
+        # checksum path to the unverified module path.
+        return None
+    return _adobepy_module_identity(interpreter, sdk_version)
+
+
+def _adobepy_release_hint() -> str:
+    """Name the platform bundle to download, or the releases page when unlisted."""
+    release = _ADOBEPY_CLI_RELEASES.get((ADOBEPY_MIN_VERSION, _adobepy_platform_key()))
+    if release is None:
+        return f"Download an adobepy {ADOBEPY_MIN_VERSION} runtime bundle from {_ADOBEPY_RELEASES_URL}"
+    return (
+        f"Download {release['asset_name']} from {release['release_url']} "
+        f"(SHA-256 {release['asset_sha256']}) and set ADOBEPY_CLI to the extracted "
+        f"{release['cli_name']}"
+    )
+
+
+def adobepy_acquire_failure(cli_configured: bool) -> str:
+    """Explain how to obtain a bridge installer when none is provable."""
+    steps = [_adobepy_release_hint()]
+    if cli_configured:
+        steps.append(
+            "ADOBEPY_CLI is set but is not the pinned official release; point it at the extracted CLI from that bundle"
+        )
+    else:
+        # With only the PyPI wheel installed there is no executable to find, so the
+        # pure-Python entry point is the surface to check first.
+        steps.append(f"run `python -m adobe doctor` to check the wheel-only entry point ({_ADOBEPY_RELEASES_URL})")
+    return "A supported adobepy CLI is required to stage the UXP bridge. " + "; ".join(steps) + "."
 
 
 # How the operator accepted an unverified host, so the report never credits the wrong mechanism.
@@ -244,7 +354,12 @@ def build_install_report(
     core_version = target_core_version or process_core_version
     adobepy_module = target_modules.get("adobepy") if isinstance(target_modules, dict) else None
     adobepy_sdk_version = adobepy_module.get("version") if isinstance(adobepy_module, dict) else None
-    adobepy_identity = _adobepy_cli_identity(adobepy_cli, adobepy_sdk_version)
+    adobepy_identity = resolve_adobepy_installer(
+        configured=adobepy_cli,
+        interpreter=interpreter,
+        sdk_version=adobepy_sdk_version,
+        on_path=shutil.which("adobepy"),
+    )
     if receipt and bridge_root.is_dir() and receipt_files_match(receipt, bridge_root):
         installed_state = "installed"
     elif receipt or bridge_root.exists():
@@ -277,8 +392,12 @@ def build_install_report(
     elif target_import.get("ok") is not True:
         failures.append(("preflight", "Target Python imports are not owned by their selected distributions"))
     if adobepy_identity is None:
-        failures.append(("acquire", "A supported adobepy CLI is required to stage the UXP bridge"))
-    elif adobepy_sdk_version and not satisfies_adobepy_specifier(adobepy_sdk_version):
+        failures.append(("acquire", adobepy_acquire_failure(adobepy_cli is not None)))
+    elif adobepy_identity.get("provenance") != ADOBEPY_MODULE_PROVENANCE and not satisfies_adobepy_specifier(
+        adobepy_sdk_version or ""
+    ):
+        # The wheel-only surface is gated by the version floor in its own identity check;
+        # only the checksummed CLI surface is held to the exact pin.
         failures.append(("acquire", f"adobepy {ADOBEPY_SPECIFIER} is required"))
     if not os.environ.get("ADOBEPY_TOKEN"):
         failures.append(("preflight", "ADOBEPY_TOKEN must be configured in the environment"))
@@ -350,6 +469,8 @@ def build_install_report(
                 ),
                 "installer_release_url": adobepy_identity["release_url"] if adobepy_identity else None,
                 "installer_provenance": adobepy_identity["provenance"] if adobepy_identity else None,
+                "installer_module": adobepy_identity.get("module") if adobepy_identity else None,
+                "installer_command": adobepy_bridge_argv(adobepy_identity) if adobepy_identity else None,
                 "installer_identity": adobepy_identity,
                 "destination": str(bridge_root),
             },

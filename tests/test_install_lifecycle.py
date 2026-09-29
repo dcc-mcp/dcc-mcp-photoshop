@@ -9,6 +9,7 @@ import subprocess
 import sys
 from argparse import Namespace
 from pathlib import Path
+from typing import Any
 
 import pytest
 from jsonschema import Draft202012Validator
@@ -21,6 +22,8 @@ from dcc_mcp_photoshop.install_contract import (
     INSTALL_SOP_SCHEMA_ID,
     MIN_CORE_VERSION,
     core_schema_anchor,
+    satisfies_adobepy_floor,
+    satisfies_adobepy_specifier,
     version_tuple,
 )
 from dcc_mcp_photoshop.install_io import commit_bridge
@@ -2628,3 +2631,192 @@ def test_repeated_absent_uninstall_is_a_schema_valid_successful_noop(tmp_path: P
         assert report["installed_state"] == "fresh"
         assert report["receipt_path"] is None
         assert report["steps"][-1] == {"id": "uninstall", "status": "not_installed"}
+
+
+# --- adobepy CLI resolution: official binary first, `python -m adobe` as fallback ---
+
+
+def _module_identity(interpreter: Path, version: str = "0.11.0") -> dict[str, Any]:
+    """Build the identity a wheel-only install would resolve."""
+    return {
+        "executable": str(interpreter),
+        "version": version,
+        "runtime": "test-runtime",
+        "module": "adobe",
+        "entry_point": "adobe.__main__",
+        "command_prefix": [str(interpreter), "-m", "adobe"],
+        "bytes": None,
+        "sha256": None,
+        "manifest_path": None,
+        "manifest_bytes": None,
+        "manifest_sha256": None,
+        "release_asset": None,
+        "release_asset_sha256": None,
+        "release_url": None,
+        "provenance": "python_module_entry_point",
+    }
+
+
+def test_adobepy_version_floor_admits_the_pinned_runtime_and_newer() -> None:
+    assert satisfies_adobepy_floor("0.6.2") is True
+    assert satisfies_adobepy_floor("0.11.0") is True
+    assert satisfies_adobepy_floor("0.6.1") is False
+    assert satisfies_adobepy_floor("0.5.2") is False
+    assert satisfies_adobepy_floor("") is False
+    assert satisfies_adobepy_floor("not-a-version") is False
+    # The exact pin is unchanged and still governs the checksummed CLI surface.
+    assert satisfies_adobepy_specifier("0.6.2") is True
+    assert satisfies_adobepy_specifier("0.11.0") is False
+
+
+def test_missing_adobepy_cli_names_the_release_asset_and_the_wheel_entry_point(tmp_path, monkeypatch, capsys) -> None:
+    host = tmp_path / "Adobe Photoshop 2024" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2024")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    from dcc_mcp_photoshop import install_planning
+
+    monkeypatch.setattr(install_planning, "_adobepy_module_identity", lambda *_args, **_kwargs: None)
+    monkeypatch.delenv("ADOBEPY_CLI", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "wheel-only-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+
+    exit_code = run_install_lifecycle(
+        Namespace(command="install", json=True, yes=True, dry_run=True, dcc_path=str(host), python=sys.executable)
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 20
+    assert report["verify"]["failure_stage"] == "acquire"
+    reason = report["verify"]["failure_reason"]
+    # A bare FileNotFoundError is no longer acceptable: the operator needs a URL.
+    assert "https://github.com/dcc-mcp/adobepy/releases" in reason
+    assert "adobepy-0.6.2-windows-x64.zip" in reason
+    assert "ADOBEPY_CLI" in reason
+    assert "python -m adobe doctor" in reason
+
+
+def test_official_cli_on_path_is_preferred_without_adobepy_cli_env(tmp_path, monkeypatch, capsys) -> None:
+    host = tmp_path / "Adobe Photoshop 2024" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2024")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    from dcc_mcp_photoshop import install_planning
+
+    on_path = _fake_adobepy_cli(tmp_path)
+    seen: list[Path | None] = []
+    real_cli_identity = install_planning._adobepy_cli_identity
+
+    def recording_cli_identity(path: Path | None, sdk_version: str | None):
+        seen.append(path)
+        return real_cli_identity(path, sdk_version)
+
+    monkeypatch.setattr(install_planning, "_adobepy_cli_identity", recording_cli_identity)
+    monkeypatch.delenv("ADOBEPY_CLI", raising=False)
+    monkeypatch.setenv("PATH", str(on_path.parent))
+    monkeypatch.setenv("PATHEXT", ".EXE;.COM" if os.name == "nt" else "")
+    monkeypatch.setenv("ADOBEPY_TOKEN", "path-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+
+    run_install_lifecycle(
+        Namespace(command="install", json=True, yes=True, dry_run=True, dcc_path=str(host), python=sys.executable)
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert report["plan"]["bridge"]["installer"] == str(on_path.resolve())
+    assert report["plan"]["bridge"]["installer_provenance"] == "official_checksum_release"
+    assert seen and seen[0] is not None
+
+
+def test_wheel_only_install_falls_back_to_python_m_adobe(tmp_path, monkeypatch, capsys) -> None:
+    host = tmp_path / "Adobe Photoshop 2024" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2024")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    from dcc_mcp_photoshop import install_planning
+
+    monkeypatch.setattr(
+        install_planning, "_adobepy_module_identity", lambda interpreter, _version: _module_identity(interpreter)
+    )
+    monkeypatch.delenv("ADOBEPY_CLI", raising=False)
+    monkeypatch.setenv("PATH", str(tmp_path / "empty-bin"))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "wheel-only-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+
+    exit_code = run_install_lifecycle(
+        Namespace(command="install", json=True, yes=True, dry_run=True, dcc_path=str(host), python=sys.executable)
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    _canonical_install_validator().validate(report)
+    assert exit_code == 0
+    bridge = report["plan"]["bridge"]
+    assert bridge["installer_provenance"] == "python_module_entry_point"
+    assert bridge["installer_module"] == "adobe"
+    assert bridge["installer_command"] == [
+        str(Path(sys.executable).resolve()),
+        "-m",
+        "adobe",
+        "install-bridge",
+        "photoshop",
+        "--dest",
+        "<staging>",
+        "--json",
+    ]
+
+
+def test_configured_adobepy_cli_that_fails_verification_never_falls_back(tmp_path, monkeypatch, capsys) -> None:
+    host = tmp_path / "Adobe Photoshop 2024" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2024")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    from dcc_mcp_photoshop import install_planning
+
+    module_calls: list[Path] = []
+
+    def spy_module_identity(interpreter: Path, _version: str | None):
+        module_calls.append(interpreter)
+        return _module_identity(interpreter)
+
+    monkeypatch.setattr(install_planning, "_adobepy_module_identity", spy_module_identity)
+    untrusted = tmp_path / "adobepy"
+    untrusted.write_bytes(b"not the official release")
+    monkeypatch.setenv("ADOBEPY_CLI", str(untrusted))
+    monkeypatch.setenv("ADOBEPY_TOKEN", "wheel-only-token")
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+
+    exit_code = run_install_lifecycle(
+        Namespace(command="install", json=True, yes=True, dry_run=True, dcc_path=str(host), python=sys.executable)
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 20
+    assert report["verify"]["failure_stage"] == "acquire"
+    # A pin that does not verify stays an error; it must not downgrade to the module path.
+    assert module_calls == []
+    assert "ADOBEPY_CLI is set" in report["verify"]["failure_reason"]
+
+
+def test_stage_bridge_invokes_python_m_adobe_for_the_wheel_only_surface(tmp_path, monkeypatch) -> None:
+    from dcc_mcp_photoshop import install_io
+    from dcc_mcp_photoshop.install_io import stage_bridge
+
+    identity = _module_identity(Path(sys.executable))
+    # The runner below stands in for the entry point; the identity guard is covered by
+    # test_stage_bridge_refuses_the_wheel_only_surface_when_the_entry_point_vanishes.
+    monkeypatch.setattr(install_io, "adobepy_module_available", lambda _interpreter: True)
+    commands: list[list[str]] = []
+
+    def fake_run(command, *, env, capture_output, text, timeout):
+        commands.append(list(command))
+        destination = Path(command[command.index("--dest") + 1])
+        destination.mkdir(parents=True, exist_ok=True)
+        (destination / "manifest.json").write_text("{}", encoding="utf-8")
+        return subprocess.CompletedProcess(command, 0, _bridge_stage_receipt(command), "")
+
+    staging, error = stage_bridge(
+        executable=Path(sys.executable),
+        expected_identity=identity,
+        state_dir=tmp_path / "state",
+        token="wheel-only-token",
+        runner=fake_run,
+    )
+
+    assert error is None, error

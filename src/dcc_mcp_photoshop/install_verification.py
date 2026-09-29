@@ -18,7 +18,7 @@ from dcc_mcp_photoshop.install_contract import (
     INSTALL_SOP_SCHEMA_ID,
     core_schema_anchor,
     core_schema_identity_is_bounded,
-    satisfies_adobepy_specifier,
+    satisfies_adobepy_floor,
     satisfies_core_specifier,
     version_tuple,
 )
@@ -379,7 +379,10 @@ def probe_target_import(executable: str, timeout: float) -> dict[str, Any]:
     if anchor is not None and (core_schema["size"] != anchor.size or core_schema["sha256"] != anchor.sha256):
         return {"ok": False, "error_type": "core_schema_mismatch"}
     adobepy_version = payload["modules"]["adobepy"]["version"]
-    if not satisfies_adobepy_specifier(adobepy_version):
+    # Admit the pinned runtime or newer so the wheel-only `python -m adobe` surface is
+    # reachable. The CLI surface keeps its exact pin: _ADOBEPY_CLI_RELEASES carries a row
+    # for the pinned version alone, so any other SDK version resolves no CLI identity.
+    if not satisfies_adobepy_floor(adobepy_version):
         return {"ok": False, "error_type": "adobepy_version_mismatch"}
     return {
         "ok": True,

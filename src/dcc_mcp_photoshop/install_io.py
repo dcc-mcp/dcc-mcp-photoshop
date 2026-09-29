@@ -17,9 +17,63 @@ from typing import Any, Callable
 
 from dcc_mcp_core.install_lifecycle import inspect_install_root
 
+from dcc_mcp_photoshop.install_contract import (
+    ADOBEPY_MODULE,
+    ADOBEPY_MODULE_ENTRY_POINT,
+    ADOBEPY_MODULE_PROVENANCE,
+)
 from dcc_mcp_photoshop.install_discovery import path_uses_link
 
 ExternalRunner = Callable[..., subprocess.CompletedProcess]
+
+# Host and subcommand the adapter still drives identically on both installer surfaces:
+# `python -m adobe` reproduces the Rust CLI's `install-bridge` JSON payload byte-for-byte.
+BRIDGE_HOST = "photoshop"
+_BRIDGE_SUBCOMMAND = "install-bridge"
+_BRIDGE_JSON_FLAG = "--json"
+# Bounded probe: resolve the module entry point in the selected interpreter without
+# importing it, so a wheel-only install is detected before any bridge is staged.
+_MODULE_PROBE_SOURCE = (
+    "import importlib.util, sys\n"
+    f"sys.exit(0 if importlib.util.find_spec({ADOBEPY_MODULE_ENTRY_POINT!r}) is not None else 1)\n"
+)
+
+
+def adobepy_module_available(interpreter: Path) -> bool:
+    """Return whether the selected interpreter resolves the ``python -m adobe`` entry point."""
+    if not interpreter.is_file():
+        return False
+    try:
+        result = subprocess.run(
+            [str(interpreter), "-c", _MODULE_PROBE_SOURCE],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return result.returncode == 0
+
+
+def adobepy_bridge_argv(identity: dict[str, Any], destination: str = "<staging>") -> list[str] | None:
+    """Return the argv that stages one UXP bridge for a resolved installer.
+
+    The official CLI is invoked as an executable; the wheel-only fallback is invoked as
+    ``<interpreter> -m adobe``. Both take the same arguments and emit the same JSON, so
+    downstream parsing stays identical.
+    """
+    if not isinstance(identity, dict):
+        return None
+    arguments = [_BRIDGE_SUBCOMMAND, BRIDGE_HOST, "--dest", str(destination), _BRIDGE_JSON_FLAG]
+    if identity.get("provenance") == ADOBEPY_MODULE_PROVENANCE:
+        prefix = identity.get("command_prefix")
+        if not isinstance(prefix, list) or not all(isinstance(part, str) and part for part in prefix):
+            return None
+        return [*prefix, *arguments]
+    executable = identity.get("executable")
+    if not isinstance(executable, str) or not executable:
+        return None
+    return [executable, *arguments]
 
 
 def _stream_sha256(path: Path, expected_size: int) -> str | None:
@@ -38,7 +92,31 @@ def _stream_sha256(path: Path, expected_size: int) -> str | None:
         return None
 
 
+def _adobepy_module_matches(executable: Path, expected: dict[str, Any]) -> bool:
+    """Re-prove the wheel-only entry point in the selected interpreter before staging.
+
+    There is no binary to checksum here, so the equivalent guard is: the interpreter is
+    unchanged, it is not reached through a link, and it still resolves the entry point.
+    """
+    if expected.get("module") != ADOBEPY_MODULE or expected.get("entry_point") != ADOBEPY_MODULE_ENTRY_POINT:
+        return False
+    try:
+        expected_path = Path(expected["executable"]).resolve(strict=True)
+        selected_path = executable.resolve(strict=True)
+    except (KeyError, OSError, TypeError):
+        return False
+    if os.path.normcase(str(expected_path)) != os.path.normcase(str(selected_path)):
+        return False
+    if path_uses_link(executable):
+        return False
+    return adobepy_module_available(selected_path)
+
+
 def _adobepy_identity_matches(executable: Path, expected: dict[str, Any]) -> bool:
+    if not isinstance(expected, dict):
+        return False
+    if expected.get("provenance") == ADOBEPY_MODULE_PROVENANCE:
+        return _adobepy_module_matches(executable, expected)
     try:
         expected_path = Path(expected["executable"]).resolve(strict=True)
         selected_path = executable.resolve(strict=True)
@@ -122,7 +200,10 @@ def stage_bridge(
         return None, "adobepy CLI identity changed before bridge staging"
     state_dir.mkdir(parents=True, exist_ok=True)
     staging = Path(tempfile.mkdtemp(prefix=".bridge-stage-", dir=str(state_dir)))
-    command = [str(executable), "install-bridge", "photoshop", "--dest", str(staging), "--json"]
+    command = adobepy_bridge_argv(expected_identity, destination=str(staging))
+    if command is None:
+        shutil.rmtree(staging, ignore_errors=True)
+        return None, "adobepy installer identity is not usable for bridge staging"
     env = os.environ.copy()
     env["ADOBEPY_TOKEN"] = token
     try:
