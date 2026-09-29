@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.41](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.40...v0.1.41) (2026-09-29)
+
+
+### Features
+
+* **install:** fall back to python -m adobe when no adobepy CLI is installed ([#139](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/139)) ([8df387a](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/8df387a7d8cf095445e621782f4deb7827749207))
+* **layers:** surface silent no-op layers in batch operations ([#138](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/138)) ([6457af7](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/6457af788ad4ca4fb149b9afde70ade2a4e2b429))
+
+
+### Bug Fixes
+
+* **ci:** align release workflow with the approved policy snapshot ([#127](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/127)) ([d3f50a6](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d3f50a6e2fd44a1c7885b61c6d32139297e2298d))
+* **install:** accept repackaged hosts on request and discover portable layouts ([cbe08f8](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/cbe08f835418c72632d11dc0c2d2ee7a8c9ba8e6))
+
 ## [0.1.40](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.39...v0.1.40) (2026-09-21)
 
 
