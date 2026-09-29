@@ -102,18 +102,33 @@ def _adobepy_module_matches(executable: Path, expected: dict[str, Any]) -> bool:
     """Re-prove the wheel-only entry point in the selected interpreter before staging.
 
     There is no binary to checksum here, so the equivalent guard is: the interpreter is
-    unchanged, it is not reached through a link, and it still resolves the entry point.
+    unchanged and it still resolves the entry point.
+
+    The comparison uses the path as selected rather than its symlink target. A POSIX
+    venv's ``bin/python`` is a symlink to the base interpreter, and the base cannot
+    import a package installed only into that venv, so comparing resolved paths would
+    accept an identity that cannot actually stage a bridge.
+
+    For the same reason this surface deliberately does not apply ``path_uses_link``:
+    a venv interpreter being a symlink is the normal layout, not a redirect, so that
+    check would reject every POSIX venv. The link guard exists to stop a verified
+    *binary* from being swapped after it was checksummed; here nothing is checksummed
+    and the entry point is re-probed immediately below, which is the property that
+    actually decides whether ``-m adobe`` will run.
     """
     if expected.get("module") != ADOBEPY_MODULE or expected.get("entry_point") != ADOBEPY_MODULE_ENTRY_POINT:
         return False
+    expected_value = expected.get("executable")
+    if not isinstance(expected_value, str) or not expected_value:
+        return False
     try:
-        expected_path = Path(expected["executable"]).resolve(strict=True)
-        selected_path = executable.resolve(strict=True)
+        expected_path = Path(expected_value).absolute()
+        selected_path = executable.absolute()
+        # Existence check only; the resolved path is deliberately not compared.
+        selected_path.resolve(strict=True)
     except (KeyError, OSError, TypeError):
         return False
     if os.path.normcase(str(expected_path)) != os.path.normcase(str(selected_path)):
-        return False
-    if path_uses_link(executable):
         return False
     return adobepy_module_available(selected_path)
 
