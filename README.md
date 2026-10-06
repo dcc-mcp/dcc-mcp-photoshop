@@ -5,7 +5,7 @@
 </p>
 
 <!-- dcc-mcp-coverage-pointer:start -->
-<!-- Generated from dcc-mcp-catalog.yml by scripts/generate_adapter_pointer.py. Do not edit by hand. -->
+<!-- Generated from dcc-mcp-catalog.yml by scripts/generate_adapter_pointer.py in dcc-mcp/dcc-mcp-core. Do not edit by hand. -->
 ## Part of the DCC-MCP host matrix
 
 **dcc-mcp-photoshop** — Core Photoshop adapter for DCC-MCP — Python bridge for a
