@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.1.42](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.41...v0.1.42) (2026-10-06)
+
+
+### Documentation
+
+* **readme:** add the generated DCC-MCP host matrix pointer ([2e1d88d](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/2e1d88d55acce3c358a7b5ca9b8f236b614c835e))
+* **readme:** add the generated DCC-MCP host matrix pointer ([#143](https://github.com/dcc-mcp/dcc-mcp-photoshop/issues/143)) ([637fd6f](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/637fd6fc5ac15a4823c046c2d8565e9db736600c))
+
 ## [0.1.41](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.40...v0.1.41) (2026-09-29)
 
 
