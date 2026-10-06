@@ -40,3 +40,32 @@ bridge/uxp-plugin/node_modules/
 # dcc-mcp-server binary — downloaded dynamically from dcc-mcp-core releases
 bin/dcc-mcp-server*
 !bin/.dcc-mcp-server-version
+
+# Local agent / IDE directories. These are runtime mount points, not source:
+# an agent runtime materialises skills into them at task start, so a copy kept
+# here is never the one that gets loaded and only drifts. Patterns are anchored
+# with a leading "/" so only the repository root matches; unanchored patterns
+# would silently ignore a nested directory of the same name.
+/.agents/
+/.agent_context/
+/.aider/
+/.augment/
+/.beads/
+/.claude/
+/.cline/
+/.clinerules/
+/.codebuddy/
+/.codegraph/
+/.codex/
+/.continue/
+/.cursor/
+/.gemini/
+/.kimi/
+/.kiro/
+/.monica/
+/.multica/
+/.opencode/
+/.roo/
+/.serena/
+/.trae/
+/.windsurf/
