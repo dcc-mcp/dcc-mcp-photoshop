@@ -493,6 +493,64 @@ def test_install_plan_honors_environment_interpreter_override(tmp_path: Path, mo
     assert report["plan"]["python"]["resolution_source"] == "environment"
 
 
+def test_python_version_reports_unknown_when_the_probe_exits_zero_with_empty_output(
+    tmp_path: Path, monkeypatch
+) -> None:
+    """`python --version` intermittently succeeds with both pipes empty on Windows.
+
+    An empty probe is a detection failure, not an old interpreter, so it must surface as
+    "could not be executed" instead of the misleading "Python 3.8 or newer is required".
+    """
+    from dcc_mcp_photoshop import install_planning
+
+    executable = tmp_path / "python"
+    executable.write_bytes(b"interpreter")
+    calls: list[list[str]] = []
+
+    def fake_run(command, **_kwargs):
+        calls.append(list(command))
+        return subprocess.CompletedProcess(command, 0, "", "")
+
+    monkeypatch.setattr(install_planning.subprocess, "run", fake_run)
+    monkeypatch.setattr(install_planning.time, "sleep", lambda _seconds: None)
+
+    assert install_planning._python_version(executable) is None
+    # The retry exists to ride out a transient empty read, not to mask a real failure.
+    assert len(calls) == install_planning._PYTHON_VERSION_ATTEMPTS
+    assert all(command[1:] == ["--version"] for command in calls)
+
+
+def test_preflight_does_not_blame_the_python_version_when_the_probe_output_is_empty(
+    tmp_path: Path, monkeypatch, capsys
+) -> None:
+    """Regression: an empty `python --version` must not read as an unsupported version."""
+    from dcc_mcp_photoshop import install_planning
+
+    host = tmp_path / "Adobe Photoshop 2025" / ("Photoshop.exe" if os.name == "nt" else "Adobe Photoshop 2025")
+    host.parent.mkdir(parents=True)
+    host.write_bytes(b"")
+    monkeypatch.setattr(install_planning, "_python_version", lambda _path: None)
+    monkeypatch.setenv("DCC_MCP_PHOTOSHOP_INSTALL_STATE_DIR", str(tmp_path / "state"))
+
+    exit_code = run_install_lifecycle(
+        Namespace(
+            command="install",
+            json=True,
+            yes=False,
+            dry_run=True,
+            dcc_path=str(host),
+            python=sys.executable,
+        )
+    )
+    report = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 10
+    assert report["verify"]["failure_stage"] == "preflight"
+    assert report["verify"]["failure_reason"] == "Target Python could not be executed"
+    assert "Python 3.8 or newer is required" not in report["verify"]["failure_reason"]
+    _canonical_install_validator().validate(report)
+
+
 def test_version_parser_accepts_only_bounded_final_release_values() -> None:
     assert version_tuple("0.20.14") == (0, 20, 14)
     assert version_tuple("2025") == (2025,)
