@@ -91,15 +91,15 @@ def _python_version(executable: Path) -> str | None:
 # the project's releases index rather than a mutable `latest` download URL.
 _ADOBEPY_RELEASES_URL = "https://github.com/dcc-mcp/adobepy/releases"
 _ADOBEPY_CLI_RELEASES = {
-    ("0.6.2", "windows-x64"): {
-        "asset_name": "adobepy-0.6.2-windows-x64.zip",
-        "asset_sha256": "9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7",
-        "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.6.2",
+    ("0.12.0", "windows-x64"): {
+        "asset_name": "adobepy-0.12.0-windows-x64.zip",
+        "asset_sha256": "b7c4923b474f01447f6f05666a8bd48c0beb4e0b7409b2842e1b506d1f12b48a",
+        "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.12.0",
         "cli_name": "adobepy.exe",
-        "cli_bytes": 2_974_720,
-        "cli_sha256": "c02f28f07705b69a4f97f9f6639f0f80d1f5292115446801fbd92423336301aa",
-        "manifest_bytes": 663,
-        "manifest_sha256": "3f0cf14b44b1d4c7d98b0175152e7ea58fc3edb92bd61e84983b3ad39de6b554",
+        "cli_bytes": 4_945_920,
+        "cli_sha256": "5ab96c36a913bd39a30af5d77ee3af17e5e080a50d1a27823be97a4eee67bf0d",
+        "manifest_bytes": 815,
+        "manifest_sha256": "9a19ef5517e570070f20d95d876dd68c5cc6f0073c04a0855e2b7f095060713a",
     }
 }
 

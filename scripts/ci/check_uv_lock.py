@@ -16,7 +16,7 @@ except ModuleNotFoundError:  # pragma: no cover - Python 3.8-3.10
 
 
 ROOT_NAME = "dcc-mcp-photoshop"
-TRUSTED_ADOBEPY = "0.6.2"
+TRUSTED_ADOBEPY = "0.12.0"
 CORE_SPECIFIER = ">=0.20.14,<0.21.0"
 FINAL_VERSION = re.compile(r"(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\.(?:0|[1-9][0-9]*)\Z")
 

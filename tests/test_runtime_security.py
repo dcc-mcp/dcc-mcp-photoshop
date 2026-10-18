@@ -8,8 +8,6 @@ import sys
 import types
 from dataclasses import dataclass
 
-import pytest
-
 from dcc_mcp_photoshop import install_verification, runtime_probe
 from dcc_mcp_photoshop.context_snapshot import PhotoshopContextSnapshotProvider
 
@@ -200,7 +198,7 @@ def test_context_snapshot_redacts_failures_before_json_or_logs(monkeypatch, capl
 
 _BROKER_WIRE_IDENTITY = {
     "pid": 2424,
-    "runtimeVersion": "0.6.2",
+    "runtimeVersion": "0.12.0",
     "executablePath": "C:/adobepy/adobepy.exe",
     "processStartIdentity": "windows-filetime:133700000000000000",
     "instanceId": "adobepy-test-instance",
@@ -212,7 +210,7 @@ _ATTESTATION_WIRE = {
         "pid": 2424,
         "processStartIdentity": "windows-filetime:133700000000000000",
         "executablePath": "C:/adobepy/adobepy.exe",
-        "runtimeVersion": "0.6.2",
+        "runtimeVersion": "0.12.0",
         "instanceId": "76db1078-74c9-45c1-87e1-e8258649815e",
     },
     "host": {
@@ -225,7 +223,7 @@ _ATTESTATION_WIRE = {
     "bridge": {
         "target": "default",
         "bridgeKind": "uxp",
-        "bridgeVersion": "0.6.2",
+        "bridgeVersion": "0.12.0",
         "connectedAtEpochMs": 1720000000000,
         "instanceId": "9d31eb71-26cb-4c87-8b5a-4cadcc8e2f99",
         "installedPluginRoot": "C:/UXP/External/com.adobepy.bridge.photoshop",
@@ -242,7 +240,7 @@ _EXPECTED_IDENTITY = {
     "profile_id": "profile-production",
     "target": "default",
     "bridge_kind": "uxp",
-    "bridge_version": "0.6.2",
+    "bridge_version": "0.12.0",
     "instance_id": "9d31eb71-26cb-4c87-8b5a-4cadcc8e2f99",
     "plugin_root": "C:/UXP/External/com.adobepy.bridge.photoshop",
     "plugin_module_origin": "C:/UXP/External/com.adobepy.bridge.photoshop/dist/main.js",
@@ -274,7 +272,7 @@ def test_broker_probe_fetches_and_maps_the_broker_identity(monkeypatch) -> None:
     # camelCase wire identity mapped to the adapter's snake_case shape.
     assert result["identity"] == {
         "pid": 2424,
-        "version": "0.6.2",
+        "version": "0.12.0",
         "executable": "C:/adobepy/adobepy.exe",
         "process_start_identity": "windows-filetime:133700000000000000",
         "instance_id": "adobepy-test-instance",
@@ -314,7 +312,7 @@ def test_broker_probe_drops_a_partial_broker_identity_payload(monkeypatch) -> No
         if url.endswith("/v1/capabilities"):
             return [], None
         if url.endswith("/v1/broker-identity"):
-            return {"pid": 2424, "runtimeVersion": "0.6.2"}, None
+            return {"pid": 2424, "runtimeVersion": "0.12.0"}, None
         return None, "http_error"
 
     monkeypatch.setattr(runtime_probe, "_request_json", fake_request)
@@ -326,7 +324,9 @@ def test_broker_probe_drops_a_partial_broker_identity_payload(monkeypatch) -> No
 
 
 def test_runtime_identity_mapping_flattens_the_sdk_attestation() -> None:
-    runtime_identity = pytest.importorskip("adobe.core.runtime_identity")
+    from adobe.core import runtime_identity
+
+    # Runtime identity is a required dependency contract, never an optional test.
     attestation = runtime_identity.RuntimeIdentityAttestation.from_broker(_ATTESTATION_WIRE)
 
     mapping = runtime_probe._runtime_identity_to_mapping(attestation, "http://127.0.0.1:47391")

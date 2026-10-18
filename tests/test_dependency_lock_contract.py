@@ -41,9 +41,36 @@ def _uv_is_importable() -> bool:
 def test_production_metadata_pins_the_reviewed_adobepy_runtime() -> None:
     dependencies = _toml("pyproject.toml")["project"]["dependencies"]
 
-    assert dependencies.count("adobepy==0.6.2") == 1
+    assert dependencies.count("adobepy==0.12.0") == 1
     assert dependencies.count("dcc-mcp-core>=0.20.14,<0.21.0") == 1
     assert not any(dependency.startswith("adobepy>") for dependency in dependencies)
+
+
+def test_pinned_sdk_exposes_the_required_runtime_identity_contract() -> None:
+    from adobe.core.client import BrokerClient
+    from adobe.core.runtime_identity import RuntimeIdentityAttestation
+    from adobe.photoshop import Photoshop
+
+    # Missing identity APIs must fail CI rather than silently skip the integration
+    # contract, as the old 0.6.2 pin did when the broker endpoint fix landed.
+    assert callable(BrokerClient.broker_identity)
+    assert callable(BrokerClient.broker_identity_async)
+    assert callable(RuntimeIdentityAttestation.from_broker)
+    assert callable(Photoshop.runtime_identity)
+
+
+def test_sdk_cli_and_ci_floor_use_the_same_reviewed_release() -> None:
+    from dcc_mcp_photoshop.install_contract import ADOBEPY_MIN_VERSION
+    from dcc_mcp_photoshop.install_planning import _ADOBEPY_CLI_RELEASES
+
+    dependencies = _toml("pyproject.toml")["project"]["dependencies"]
+    assert f"adobepy=={ADOBEPY_MIN_VERSION}" in dependencies
+    release = _ADOBEPY_CLI_RELEASES[(ADOBEPY_MIN_VERSION, "windows-x64")]
+    assert release["asset_name"] == f"adobepy-{ADOBEPY_MIN_VERSION}-windows-x64.zip"
+    workflow = yaml.safe_load((ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8"))
+    environment = workflow["jobs"]["adobepy_cli_floor"]["env"]
+    assert environment["ADOBEPY_VERSION"] == ADOBEPY_MIN_VERSION
+    assert environment["ADOBEPY_ARCHIVE_SHA256"] == release["asset_sha256"]
 
 
 def test_checked_lock_has_one_current_root_and_reviewed_runtime() -> None:
@@ -58,12 +85,12 @@ def test_checked_lock_has_one_current_root_and_reviewed_runtime() -> None:
     # test_release_version_bump_keeps_the_lock_contract_valid below.
     assert roots[0]["name"] == "dcc-mcp-photoshop"
     assert FINAL_VERSION.fullmatch(roots[0]["version"]) is not None
-    assert [package["version"] for package in adobepy] == ["0.6.2"]
+    assert [package["version"] for package in adobepy] == ["0.12.0"]
     assert len(core) == 1
     assert (0, 20, 14) <= tuple(int(part) for part in core[0]["version"].split(".")) < (0, 21, 0)
     assert {item["name"]: item.get("specifier") for item in roots[0]["metadata"]["requires-dist"]}[
         "adobepy"
-    ] == "==0.6.2"
+    ] == "==0.12.0"
 
 
 def test_lock_checker_accepts_the_checked_in_metadata() -> None:
@@ -150,7 +177,7 @@ def test_lock_resolution_checker_rejects_dependency_drift(tmp_path: Path) -> Non
     _bump_release_version(tmp_path, "9.9.9")
     pyproject_path = tmp_path / "pyproject.toml"
     pyproject_path.write_text(
-        pyproject_path.read_text(encoding="utf-8").replace("adobepy==0.6.2", "adobepy==0.6.1"),
+        pyproject_path.read_text(encoding="utf-8").replace("adobepy==0.12.0", "adobepy==0.6.1"),
         encoding="utf-8",
     )
 
@@ -203,7 +230,7 @@ def test_lock_checker_rejects_dependency_metadata_drift(tmp_path: Path) -> None:
     _copy_lock_inputs(tmp_path)
     lock_path = tmp_path / "uv.lock"
     lock = lock_path.read_text(encoding="utf-8").replace(
-        '{ name = "adobepy", specifier = "==0.6.2" }',
+        '{ name = "adobepy", specifier = "==0.12.0" }',
         '{ name = "adobepy", specifier = ">=0.1.0" }',
         1,
     )

@@ -9,7 +9,7 @@
   `src/dcc_mcp_photoshop/install_contract.py`) instead of one global literal;
   Core releases newer than `CORE_SCHEMA_ANCHOR_MEASURED_THROUGH` verify without
   a pinned digest.
-- On Windows x64, the exact `adobepy` 0.6.2 CLI from the official checksummed
+- On Windows x64, the exact `adobepy` 0.12.0 CLI from the official checksummed
   release bundle. Other CLI builds and self-authored adjacent manifests are not
   accepted as provenance.
 
@@ -21,7 +21,7 @@ python -m pip install dcc-mcp-photoshop
 
 The PyPI `adobepy` wheel is the Python SDK; it does not install the standalone
 adobepy CLI. The lifecycle currently recognizes only the official Windows x64
-0.6.2 checksum release: archive SHA-256 `9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7`.
+0.12.0 checksum release: archive SHA-256 `b7c4923b474f01447f6f05666a8bd48c0beb4e0b7409b2842e1b506d1f12b48a`.
 It independently pins the extracted CLI and package-manifest hashes and checks
 them again immediately before execution. Never scrape a mutable latest-download
 URL or copy an unverified executable beside a locally written manifest.
@@ -30,7 +30,7 @@ Set the CLI path and broker token in the environment. The token is a secret and
 must never be placed in process arguments, JSON output, logs, or receipts.
 
 ```powershell
-$env:ADOBEPY_CLI = "C:\Tools\adobepy\adobepy.exe"
+$env:ADOBEPY_CLI = "C:\Tools\adobepy-0.12.0-windows-x64\bin\adobepy.exe"
 $env:ADOBEPY_TOKEN = (Get-Content "$env:USERPROFILE\.config\adobepy\token" -Raw).Trim()
 ```
 
@@ -38,6 +38,24 @@ $env:ADOBEPY_TOKEN = (Get-Content "$env:USERPROFILE\.config\adobepy\token" -Raw)
 export ADOBEPY_CLI="$HOME/.local/bin/adobepy"
 export ADOBEPY_TOKEN="$(cat "$HOME/.config/adobepy/token")"
 ```
+
+## Broker identity compatibility
+
+The default installation pins the adobepy 0.12.0 SDK and requires the
+checksum-approved 0.12.0 Windows runtime. Older runtime bundles, including 0.6.2 and 0.11.3,
+do not expose the authenticated, session-free `GET /v1/broker-identity` endpoint
+needed by verification. `/health` remains a liveness-only endpoint and is not
+expected to contain an `identity` object. Do not bypass identity verification.
+
+After replacing an older runtime, stop its broker and start the approved runtime
+with the configured environment token. Use the canonical upgrade lifecycle below
+to regenerate the bridge and its receipt; an old receipt still identifies the old
+binary. Keep exactly one matching Photoshop UXP session connected before running
+`dcc-mcp-photoshop verify --json`.
+
+CI validates the SDK contract and official Windows package bytes. A successful
+live Photoshop RPC is still required for `directly_usable: true`; package tests
+alone do not establish Photoshop readiness.
 
 ## Wheel-only installs
 
@@ -59,7 +77,7 @@ for the wheel.
 
 The official CLI is authenticated by the checksum table, not by the SDK version, so
 **an official CLI paired with a newer `adobepy` wheel is a supported combination**: the
-installed SDK only has to meet the floor (`>=0.6.2`). Do not reintroduce a rule that
+installed SDK only has to meet the floor (`>=0.12.0`). Do not reintroduce a rule that
 rejects an already-verified CLI because its version string differs from the wheel's.
 
 Rules that keep the checksum path authoritative:
@@ -151,7 +169,7 @@ bridges, receipt ownership, upgrades, and uninstall.
 
 | Platform | Photoshop host | Adapter lifecycle |
 |---|---|---|
-| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata. A repackaged or package-managed host whose signature hash no longer matches is rejected unless an operator accepts it (see [Repackaged and portable hosts](#repackaged-and-portable-hosts)) | Preflight/staging supported with the pinned adobepy 0.6.2 CLI; live readiness remains fail-closed on `adobepy#64` and `#67` |
+| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata. A repackaged or package-managed host whose signature hash no longer matches is rejected unless an operator accepts it (see [Repackaged and portable hosts](#repackaged-and-portable-hosts)) | Preflight/staging supported with the pinned adobepy 0.12.0 CLI; live readiness remains fail-closed on `adobepy#64` and `#67` |
 | macOS | Photoshop 2022+ with `com.adobe.Photoshop` Info.plist and Adobe Team ID `JQ525L2MZD` code signature | Preflight only until an official checksum-pinned macOS adobepy CLI is published |
 | Linux | Adobe does not ship a Photoshop desktop host | Plan/status tooling only; live verification is unsupported |
 
@@ -265,7 +283,7 @@ successful no-op.
 - **Exit `10`, host signature `HashMismatch`:** the host was repackaged. Reinstall an untouched Adobe build when provenance matters; otherwise opt in with `--allow-unverified-host` (or `DCC_MCP_PHOTOSHOP_ALLOW_UNVERIFIED_HOST=1`) and review the `warnings` array. See [Repackaged and portable hosts](#repackaged-and-portable-hosts).
 - **Host not discovered:** set `DCC_MCP_PHOTOSHOP_HOST_ROOTS` to the portable package root, or pass `--dcc-path`.
 - **Exit `10`, interpreter/Core floor:** pass a Python 3.8+ executable and upgrade `dcc-mcp-core` to the reported minimum.
-- **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.6.2 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute. With only the PyPI wheel installed, see [Wheel-only installs](#wheel-only-installs).
+- **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.12.0 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute. With only the PyPI wheel installed, see [Wheel-only installs](#wheel-only-installs).
 - **Exit `30`, bridge staging:** inspect the redacted stage result; `failure_reason` carries the installer's own stderr (token-redacted, truncated). External output containing the configured token is rejected and discarded. On a wheel-only install the usual cause is missing bridge templates — see [Wheel-only installs](#wheel-only-installs).
 - **Exit `40`, verification:** start the broker, confirm one Photoshop UXP session, and retry `dcc-mcp-photoshop verify --json`.
 - **Exit `50`, UXP load required:** the lifecycle fails closed with the `dcc-mcp/adobepy#67` blocker until bounded bootstrap/load exists. A file-lock restart is separate and may be retried after the operator resolves the lock.

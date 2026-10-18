@@ -17,7 +17,9 @@ INSTALL_EXIT_REQUIRES_RESTART = 50
 MIN_CORE_VERSION = "0.20.14"
 MAX_CORE_VERSION_EXCLUSIVE = "0.21.0"
 CORE_SPECIFIER = ">=0.20.14,<0.21.0"
-ADOBEPY_MIN_VERSION = "0.6.2"
+# First release with authenticated session-free broker identity and canonical
+# process-start tokens. Older SDK/CLI combinations cannot pass live verification.
+ADOBEPY_MIN_VERSION = "0.12.0"
 # `ADOBEPY_SPECIFIER` names the pinned official CLI release bundle that the checksum
 # table authenticates. The installed SDK is held to `ADOBEPY_FLOOR_SPECIFIER` instead,
 # so a newer wheel does not invalidate an official CLI the operator already installed.
