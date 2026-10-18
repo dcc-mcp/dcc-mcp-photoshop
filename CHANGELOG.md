@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.44](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.43...v0.1.44) (2026-10-18)
+
+
+### Bug Fixes
+
+* align Photoshop identity runtime with adobepy 0.12.0 ([d86aa06](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/d86aa0693c3d61405e7e0cd8bf63ccea1bbc8f69))
+
 ## [0.1.43](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.42...v0.1.43) (2026-10-17)
 
 
