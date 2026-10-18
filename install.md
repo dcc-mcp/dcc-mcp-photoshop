@@ -53,9 +53,11 @@ to regenerate the bridge and its receipt; an old receipt still identifies the ol
 binary. Keep exactly one matching Photoshop UXP session connected before running
 `dcc-mcp-photoshop verify --json`.
 
-CI validates the SDK contract and official Windows package bytes. A successful
-live Photoshop RPC is still required for `directly_usable: true`; package tests
-alone do not establish Photoshop readiness.
+CI validates the SDK contract and official Windows package bytes. The adapter
+does not yet integrate adobepy's bounded Photoshop bootstrap API, so updating
+these pins resolves the broker identity incompatibility but does not guarantee
+a new or manually loaded UXP session has the required exact host identity. A
+successful live Photoshop RPC is still required for `directly_usable: true`.
 
 ## Wheel-only installs
 
@@ -169,7 +171,7 @@ bridges, receipt ownership, upgrades, and uninstall.
 
 | Platform | Photoshop host | Adapter lifecycle |
 |---|---|---|
-| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata. A repackaged or package-managed host whose signature hash no longer matches is rejected unless an operator accepts it (see [Repackaged and portable hosts](#repackaged-and-portable-hosts)) | Preflight/staging supported with the pinned adobepy 0.12.0 CLI; live readiness remains fail-closed on `adobepy#64` and `#67` |
+| Windows | Photoshop 2022+ with valid Adobe Authenticode and Photoshop product metadata. A repackaged or package-managed host whose signature hash no longer matches is rejected unless an operator accepts it (see [Repackaged and portable hosts](#repackaged-and-portable-hosts)) | Preflight/staging supported with the pinned adobepy 0.12.0 CLI; exact host/bridge identity and a live RPC remain required; adapter integration of bounded bootstrap is pending |
 | macOS | Photoshop 2022+ with `com.adobe.Photoshop` Info.plist and Adobe Team ID `JQ525L2MZD` code signature | Preflight only until an official checksum-pinned macOS adobepy CLI is published |
 | Linux | Adobe does not ship a Photoshop desktop host | Plan/status tooling only; live verification is unsupported |
 
@@ -199,12 +201,14 @@ Fresh, partial, installed, repair, and upgrade states are reported explicitly.
 Upgrade keeps its backup through live verification; any commit, receipt, or
 verification failure restores the exact previous receipt-backed tree.
 
-The current adobepy release cannot perform a bounded Photoshop UXP bootstrap or
-load. When no exact live UXP session exists, the installer returns an honest
-`bounded_photoshop_uxp_bootstrap_unavailable` blocker, an empty `next_steps`, and
-the exact `dcc-mcp-photoshop verify --json` continuation for use only after the
-upstream capability is delivered. It does not claim `doctor` or a blind verify
-loop as progress and does not automate arbitrary UI or JavaScript.
+adobepy 0.12.0 provides a bounded Photoshop UXP bootstrap API, but this adapter
+does not yet invoke it. When no exact live UXP session exists, the installer
+returns `bounded_photoshop_uxp_bootstrap_unavailable`, an empty `next_steps`, and
+the `dcc-mcp-photoshop verify --json` continuation. The historical dependency
+link points to adobepy#67, which is closed; adapter integration is still pending.
+Run the continuation only after an exact trusted session exists. `doctor` or a
+blind verify loop is not a substitute, and arbitrary UI or JavaScript is not
+part of this lifecycle.
 
 # Manual path
 
@@ -214,9 +218,10 @@ The supported manual flow uses the same canonical lifecycle:
 2. Configure `ADOBEPY_CLI`, `ADOBEPY_TOKEN`, and optionally `ADOBEPY_BROKER_URL`.
 3. Run `dcc-mcp-photoshop install --json --dry-run` with explicit overrides when discovery is ambiguous.
 4. Run `dcc-mcp-photoshop install --json --yes`.
-5. Wait for the bounded adobepy Photoshop UXP bootstrap/load capability tracked
-   in `dcc-mcp/adobepy#67`; do not substitute arbitrary UI automation.
-6. After that capability binds the exact instance, run the reported
+5. If the result reports `bounded_photoshop_uxp_bootstrap_unavailable`, adapter
+   integration is still required even though the upstream API is released. Do
+   not substitute arbitrary UI automation or fabricate host identity.
+6. Only after an exact trusted instance is bound, run the reported
    `dcc-mcp-photoshop verify --json` continuation.
 
 The legacy `scripts/install_photoshop_connector.ps1` and `photoshop-setup`
@@ -286,14 +291,15 @@ successful no-op.
 - **Exit `20`, adobepy CLI missing:** set `ADOBEPY_CLI` to the exact executable extracted from the pinned official Windows 0.12.0 checksum release. The SDK-only wheel, a source build, or an adjacent local manifest is not a substitute. With only the PyPI wheel installed, see [Wheel-only installs](#wheel-only-installs).
 - **Exit `30`, bridge staging:** inspect the redacted stage result; `failure_reason` carries the installer's own stderr (token-redacted, truncated). External output containing the configured token is rejected and discarded. On a wheel-only install the usual cause is missing bridge templates — see [Wheel-only installs](#wheel-only-installs).
 - **Exit `40`, verification:** start the broker, confirm one Photoshop UXP session, and retry `dcc-mcp-photoshop verify --json`.
-- **Exit `50`, UXP load required:** the lifecycle fails closed with the `dcc-mcp/adobepy#67` blocker until bounded bootstrap/load exists. A file-lock restart is separate and may be retried after the operator resolves the lock.
+- **Exit `50`, UXP load required:** the lifecycle fails closed until the adapter integrates the released bounded bootstrap/load API; its historical `dcc-mcp/adobepy#67` link is not an open upstream blocker. A file-lock restart is separate and may be retried after the operator resolves the lock.
 - **Partial state:** run `dcc-mcp-photoshop install --json --yes` to repair it. Do not delete the bridge before repair.
 - **Bootstrap failure:** inspect the bounded, secret-redacted `bootstrap-errors.json` under the Photoshop install state directory.
 
 Core `>=0.20.14,<0.21.0` owns the canonical schema and exit contract. Adapter contract tests
 validate every public lifecycle branch against that Draft 2020-12 schema; the
 adapter remains the owner of Photoshop paths, UXP enablement, receipts, and
-exact-instance runtime verification. adobepy runtime identity remains tracked in
-`dcc-mcp/adobepy#64`, and bounded Photoshop UXP bootstrap/load in `#67`; live
-verification remains fail-closed until both contracts are available. Staging,
-package, and checksum tests are not proof of a licensed Photoshop session.
+exact-instance runtime verification. The upstream runtime identity and bounded
+bootstrap contracts are available in adobepy 0.12.0; integration of bounded
+bootstrap into this adapter remains pending. Live verification still requires
+exact identity and a successful host RPC. Staging, package, and checksum tests
+are not proof of a licensed Photoshop session.
