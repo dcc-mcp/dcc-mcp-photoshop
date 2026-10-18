@@ -10,11 +10,11 @@ resolution-markers = [
 
 [[package]]
 name = "adobepy"
-version = "0.6.2"
+version = "0.12.0"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/68/8e/a16fc5c94454fd3926303e1267d6162702970c1b06c375a2aaeade6db7ed/adobepy-0.6.2.tar.gz", hash = "sha256:33a419b37600c84eaee904228e0cced4dce9834a992ef162fa40af60dbe39a99", size = 67517, upload-time = "2026-08-11T07:44:56.15Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/d3/2b/93ed02a32878d6eda6230fcef49b2c56f940c495b810094491912983a903/adobepy-0.12.0.tar.gz", hash = "sha256:c939e25c9912c8917c7cdf6df1836c0d647131e653d55fadb4a1a9e097839ccc", size = 80400, upload-time = "2026-10-18T13:01:41.063Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/43/b1c4cfd73d0119ac2375afeec990d318e50cd4292d0eee3a1017503bc986/adobepy-0.6.2-py3-none-any.whl", hash = "sha256:2e637807d8c84d7a9d740e3f83c859b5f87246713c5d11837c5178eb41036f30", size = 73611, upload-time = "2026-08-11T07:44:54.929Z" },
+    { url = "https://files.pythonhosted.org/packages/e5/38/4a70bbb622cb2be877a518dd4fb298fe1bee1b98356f095e74ce710a431b/adobepy-0.12.0-py3-none-any.whl", hash = "sha256:d4481d50dcbe16ba9a51cff865a994c2b6cb790787be8ff43214572bb3eb2539", size = 89984, upload-time = "2026-10-18T13:01:39.491Z" },
 ]
 
 [[package]]
@@ -119,7 +119,7 @@ wheels = [
 
 [[package]]
 name = "dcc-mcp-photoshop"
-version = "0.1.39"
+version = "0.1.43"
 source = { editable = "." }
 dependencies = [
     { name = "adobepy" },
@@ -155,7 +155,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
-    { name = "adobepy", specifier = "==0.6.2" },
+    { name = "adobepy", specifier = "==0.12.0" },
     { name = "build", marker = "extra == 'dev'" },
     { name = "dcc-mcp-core", specifier = ">=0.20.14,<0.21.0" },
     { name = "hatchling", marker = "extra == 'dev'" },
@@ -187,7 +187,7 @@ version = "1.3.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "typing-extensions", version = "4.13.2", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version < '3.9'" },
-    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.13'" },
+    { name = "typing-extensions", version = "4.15.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.9' and python_full_version < '3.11'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/50/79/66800aadf48771f6b62f7eb014e352e5d06856655206165d775e675a02c9/exceptiongroup-1.3.1.tar.gz", hash = "sha256:8b412432c6055b0b7d14c310000ae93352ed6754f70fa8f7c34141f91c4e3219", size = 30371, upload-time = "2025-11-21T23:01:54.787Z" }
 wheels = [
@@ -274,7 +274,7 @@ resolution-markers = [
     "python_full_version == '3.10.*'",
 ]
 dependencies = [
-    { name = "zipp", version = "3.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version >= '3.10'" },
+    { name = "zipp", version = "3.23.0", source = { registry = "https://pypi.org/simple" }, marker = "python_full_version == '3.10.*'" },
 ]
 sdist = { url = "https://files.pythonhosted.org/packages/a9/01/15bb152d77b21318514a96f43af312635eb2500c96b55398d020c93d86ea/importlib_metadata-9.0.0.tar.gz", hash = "sha256:a4f57ab599e6a2e3016d7595cfd72eb4661a5106e787a95bcc90c7105b831efc", size = 56405, upload-time = "2026-03-20T06:42:56.999Z" }
 wheels = [

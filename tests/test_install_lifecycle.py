@@ -93,7 +93,7 @@ def _bound_runtime_probes(host: Path, state_dir: Path):
                 "pid": 2424,
                 "process_start_identity": broker_start_identity,
                 "executable": str(broker_executable),
-                "version": "0.6.2",
+                "version": "0.12.0",
                 "instance_id": "adobepy-test-instance",
             },
             "capabilities": [
@@ -103,7 +103,7 @@ def _bound_runtime_probes(host: Path, state_dir: Path):
                     "capabilities": {
                         "host": "photoshop",
                         "bridgeKind": "uxp",
-                        "bridgeVersion": "0.6.2",
+                        "bridgeVersion": "0.12.0",
                         "hostVersion": "26.0",
                     },
                 }
@@ -120,7 +120,7 @@ def _bound_runtime_probes(host: Path, state_dir: Path):
                 "bridge_kind": "uxp",
                 "target": "default",
                 "host_version": "26.0",
-                "bridge_version": "0.6.2",
+                "bridge_version": "0.12.0",
                 "host_pid": 4242,
                 "process_start_identity": host_start_identity,
                 "process_executable": str(host.resolve()),
@@ -153,7 +153,7 @@ def _bound_runtime_probes(host: Path, state_dir: Path):
     return broker_probe, photoshop_probe, process_probe
 
 
-def _fake_adobepy_cli(root: Path, version: str = "0.6.2") -> Path:
+def _fake_adobepy_cli(root: Path, version: str = "0.12.0") -> Path:
     bundle = root / f"adobepy-{version}-windows-x64"
     executable = bundle / "bin" / ("adobepy.exe" if os.name == "nt" else "adobepy")
     executable.parent.mkdir(parents=True, exist_ok=True)
@@ -220,7 +220,7 @@ def _trusted_install_artifact_test_doubles(monkeypatch, request) -> None:
             return None
         return {
             "executable": str(resolved),
-            "version": "0.6.2",
+            "version": "0.12.0",
             "runtime": "test-runtime",
             "bytes": len(executable_bytes),
             "sha256": hashlib.sha256(executable_bytes).hexdigest(),
@@ -229,7 +229,7 @@ def _trusted_install_artifact_test_doubles(monkeypatch, request) -> None:
             "manifest_sha256": hashlib.sha256(manifest_bytes).hexdigest(),
             "release_asset": "test-only-adobepy.zip",
             "release_asset_sha256": "0" * 64,
-            "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.6.2",
+            "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.12.0",
             "provenance": "official_checksum_release",
         }
 
@@ -355,7 +355,7 @@ def test_install_plan_records_a_warning_for_an_opted_in_repackaged_host(tmp_path
         "probe_target_import",
         lambda *_args, **_kwargs: {
             "ok": True,
-            "modules": {"core": {"version": "0.20.36"}, "adobepy": {"version": "0.6.2"}},
+            "modules": {"core": {"version": "0.20.36"}, "adobepy": {"version": "0.12.0"}},
         },
     )
 
@@ -420,7 +420,7 @@ def test_lifecycle_credits_the_environment_opt_in_not_the_flag(tmp_path: Path, m
         "probe_target_import",
         lambda *_args, **_kwargs: {
             "ok": True,
-            "modules": {"core": {"version": "0.20.36"}, "adobepy": {"version": "0.6.2"}},
+            "modules": {"core": {"version": "0.20.36"}, "adobepy": {"version": "0.12.0"}},
         },
     )
 
@@ -587,7 +587,7 @@ def test_target_import_rejects_core_versions_outside_the_declared_specifier(monk
                     "owned": True,
                 },
                 "core": {"distribution": "dcc-mcp-core", "version": "1.0.0", "module_path": __file__, "owned": True},
-                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+                "adobepy": {"distribution": "adobepy", "version": "0.12.0", "module_path": __file__, "owned": True},
             },
             "core_schema": {
                 "id": install_verification.INSTALL_SOP_SCHEMA_ID,
@@ -798,7 +798,7 @@ def test_target_import_rejects_a_core_schema_that_drifted_from_its_measured_revi
                     "module_path": __file__,
                     "owned": True,
                 },
-                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+                "adobepy": {"distribution": "adobepy", "version": "0.12.0", "module_path": __file__, "owned": True},
             },
             "core_schema": {
                 "id": install_verification.INSTALL_SOP_SCHEMA_ID,
@@ -838,7 +838,7 @@ def test_target_import_accepts_an_unmeasured_core_release_without_a_pinned_diges
                     "module_path": __file__,
                     "owned": True,
                 },
-                "adobepy": {"distribution": "adobepy", "version": "0.6.2", "module_path": __file__, "owned": True},
+                "adobepy": {"distribution": "adobepy", "version": "0.12.0", "module_path": __file__, "owned": True},
             },
             "core_schema": {
                 "id": install_verification.INSTALL_SOP_SCHEMA_ID,
@@ -903,7 +903,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
             "pid": 2424,
             "process_start_identity": "windows-filetime:broker",
             "executable": str(broker_executable),
-            "version": "0.6.2",
+            "version": "0.12.0",
             "instance_id": "adobepy-instance-1",
         },
         "capabilities": [
@@ -913,7 +913,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
                 "capabilities": {
                     "host": "photoshop",
                     "bridgeKind": "uxp",
-                    "bridgeVersion": "0.6.2",
+                    "bridgeVersion": "0.12.0",
                     "hostVersion": "26.0",
                 },
             }
@@ -924,7 +924,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
         "bridge_kind": "uxp",
         "target": "default",
         "host_version": "26.0",
-        "bridge_version": "0.6.2",
+        "bridge_version": "0.12.0",
         "host_pid": 4242,
         "process_start_identity": "windows-filetime:12345",
         "process_executable": str(host),
@@ -954,7 +954,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
         "http://127.0.0.1:47391",
         python_executable=selected_python,
         expected_host={"executable": str(host), "version": "26.0"},
-        expected_bridge={"installer": str(broker_executable), "installer_version": "0.6.2"},
+        expected_bridge={"installer": str(broker_executable), "installer_version": "0.12.0"},
         expected_bridge_root=bridge_root,
         expected_python={"executable": selected_python, "modules": modules},
         python_probe=lambda *_: python_identity,
@@ -968,7 +968,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
         "http://127.0.0.1:47391",
         python_executable=selected_python,
         expected_host={"executable": str(host), "version": "25.0"},
-        expected_bridge={"installer": str(broker_executable), "installer_version": "0.6.2"},
+        expected_bridge={"installer": str(broker_executable), "installer_version": "0.12.0"},
         expected_bridge_root=bridge_root,
         expected_python={"executable": selected_python, "modules": modules},
         python_probe=lambda *_: python_identity,
@@ -992,7 +992,7 @@ def test_verify_binds_exact_photoshop_uxp_process_and_module_identity(tmp_path: 
         "http://127.0.0.1:47391",
         python_executable=selected_python,
         expected_host={"executable": str(host), "version": "26.0"},
-        expected_bridge={"installer": str(broker_executable), "installer_version": "0.6.2"},
+        expected_bridge={"installer": str(broker_executable), "installer_version": "0.12.0"},
         expected_bridge_root=bridge_root,
         expected_python={"executable": selected_python, "modules": modules},
         python_probe=lambda *_: python_identity,
@@ -2607,17 +2607,17 @@ def test_declared_adobepy_floor_cli_matches_the_official_checksum_release() -> N
     identity = _adobepy_cli_identity(Path(selected))
 
     assert identity is not None
-    assert identity["bytes"] == 2_974_720
-    assert identity["sha256"] == "c02f28f07705b69a4f97f9f6639f0f80d1f5292115446801fbd92423336301aa"
-    assert identity["manifest_bytes"] == 663
-    assert identity["manifest_sha256"] == "3f0cf14b44b1d4c7d98b0175152e7ea58fc3edb92bd61e84983b3ad39de6b554"
-    assert identity["release_asset_sha256"] == ("9ef9abb5e034359f12e9ce248b0030e38d34c76df343eb2713f18036068719a7")
+    assert identity["bytes"] == 4_945_920
+    assert identity["sha256"] == "5ab96c36a913bd39a30af5d77ee3af17e5e080a50d1a27823be97a4eee67bf0d"
+    assert identity["manifest_bytes"] == 815
+    assert identity["manifest_sha256"] == "9a19ef5517e570070f20d95d876dd68c5cc6f0073c04a0855e2b7f095060713a"
+    assert identity["release_asset_sha256"] == ("b7c4923b474f01447f6f05666a8bd48c0beb4e0b7409b2842e1b506d1f12b48a")
 
 
 def test_stage_bridge_rejects_adobepy_cli_replacement_before_execution(tmp_path: Path) -> None:
     from dcc_mcp_photoshop.install_io import stage_bridge
 
-    bundle = tmp_path / "adobepy-0.6.2-windows-x64"
+    bundle = tmp_path / "adobepy-0.12.0-windows-x64"
     executable = bundle / "bin" / "adobepy.exe"
     executable.parent.mkdir(parents=True)
     executable.write_bytes(b"official-cli")
@@ -2702,7 +2702,7 @@ def test_repeated_absent_uninstall_is_a_schema_valid_successful_noop(tmp_path: P
 _SYNTHETIC_PLATFORM = "test-runtime"
 
 
-def _synthetic_bundle(root: Path, version: str = "0.6.2", payload: bytes = b"official-release-bytes") -> Path:
+def _synthetic_bundle(root: Path, version: str = "0.12.0", payload: bytes = b"official-release-bytes") -> Path:
     """Build a bundle laid out exactly like an extracted official release."""
     bundle = root / f"adobepy-{version}-{_SYNTHETIC_PLATFORM}"
     # Match the real bundle layout: Windows releases ship `adobepy.exe`, POSIX ships `adobepy`.
@@ -2734,7 +2734,7 @@ def _synthetic_release_row(executable: Path, payload: bytes = b"official-release
     return {
         "asset_name": "adobepy-test-runtime.zip",
         "asset_sha256": "0" * 64,
-        "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.6.2",
+        "release_url": "https://github.com/dcc-mcp/adobepy/releases/tag/adobepy-v0.12.0",
         "cli_name": executable.name,
         "cli_bytes": len(payload),
         "cli_sha256": hashlib.sha256(payload).hexdigest(),
@@ -2743,7 +2743,7 @@ def _synthetic_release_row(executable: Path, payload: bytes = b"official-release
     }
 
 
-def _module_identity(interpreter: Path, version: str = "0.11.0") -> dict[str, Any]:
+def _module_identity(interpreter: Path, version: str = "0.13.0") -> dict[str, Any]:
     """Build the identity a wheel-only install would resolve.
 
     Mirrors production, which records the interpreter *as selected*. A POSIX venv's
@@ -2809,15 +2809,16 @@ def _target_import_probe(adobepy_version: str):
 
 
 def test_adobepy_version_floor_admits_the_pinned_runtime_and_newer() -> None:
-    assert satisfies_adobepy_floor("0.6.2") is True
-    assert satisfies_adobepy_floor("0.11.0") is True
-    assert satisfies_adobepy_floor("0.6.1") is False
+    assert satisfies_adobepy_floor("0.12.0") is True
+    assert satisfies_adobepy_floor("0.13.0") is True
+    assert satisfies_adobepy_floor("0.11.3") is False
+    assert satisfies_adobepy_floor("0.6.2") is False
     assert satisfies_adobepy_floor("0.5.2") is False
     assert satisfies_adobepy_floor("") is False
     assert satisfies_adobepy_floor("not-a-version") is False
     # The exact pin still names the official release bundle the checksum table authenticates.
-    assert satisfies_adobepy_specifier("0.6.2") is True
-    assert satisfies_adobepy_specifier("0.11.0") is False
+    assert satisfies_adobepy_specifier("0.12.0") is True
+    assert satisfies_adobepy_specifier("0.13.0") is False
 
 
 def test_missing_adobepy_cli_names_the_release_asset_and_the_wheel_entry_point(tmp_path, monkeypatch, capsys) -> None:
@@ -2845,9 +2846,9 @@ def test_missing_adobepy_cli_names_the_release_asset_and_the_wheel_entry_point(t
     # asset plus ADOBEPY_CLI there and the releases page on other platforms.
     assert "https://github.com/dcc-mcp/adobepy/releases" in reason
     assert "python -m adobe doctor" in reason
-    assert "0.6.2" in reason
+    assert "0.12.0" in reason
     if os.name == "nt" and platform.machine().lower() in {"amd64", "x86_64"}:
-        assert "adobepy-0.6.2-windows-x64.zip" in reason
+        assert "adobepy-0.12.0-windows-x64.zip" in reason
         assert "ADOBEPY_CLI" in reason
 
 
@@ -2869,7 +2870,7 @@ def test_official_cli_on_path_is_preferred_without_adobepy_cli_env(tmp_path, mon
 
     # Inject a platform row so the CLI branch is exercised everywhere: _adobepy_platform_key()
     # is None on macOS and Linux, where the real table has no rows at all.
-    monkeypatch.setattr(install_planning, "_adobepy_cli_rows", lambda: [("0.6.2", _SYNTHETIC_PLATFORM, row)])
+    monkeypatch.setattr(install_planning, "_adobepy_cli_rows", lambda: [("0.12.0", _SYNTHETIC_PLATFORM, row)])
     monkeypatch.setattr(install_planning, "_adobepy_cli_identity", recording_cli_identity)
     monkeypatch.delenv("ADOBEPY_CLI", raising=False)
     monkeypatch.setenv("PATH", str(on_path.parent))
@@ -2967,10 +2968,10 @@ def test_adobepy_cli_release_identity_rejects_substituted_bytes(tmp_path: Path) 
     executable = _synthetic_bundle(tmp_path, payload=payload)
     row = _synthetic_release_row(executable, payload)
 
-    assert _adobepy_cli_release_identity(executable, "0.6.2", _SYNTHETIC_PLATFORM, row) is not None
+    assert _adobepy_cli_release_identity(executable, "0.12.0", _SYNTHETIC_PLATFORM, row) is not None
 
     executable.write_bytes(b"tampered-release-bytes")
-    assert _adobepy_cli_release_identity(executable, "0.6.2", _SYNTHETIC_PLATFORM, row) is None
+    assert _adobepy_cli_release_identity(executable, "0.12.0", _SYNTHETIC_PLATFORM, row) is None
 
 
 def test_official_cli_is_kept_when_the_sdk_version_is_newer(tmp_path: Path, monkeypatch) -> None:
@@ -2979,7 +2980,7 @@ def test_official_cli_is_kept_when_the_sdk_version_is_newer(tmp_path: Path, monk
 
     executable = _synthetic_bundle(tmp_path)
     row = _synthetic_release_row(executable)
-    monkeypatch.setattr(install_planning, "_adobepy_cli_rows", lambda: [("0.6.2", _SYNTHETIC_PLATFORM, row)])
+    monkeypatch.setattr(install_planning, "_adobepy_cli_rows", lambda: [("0.12.0", _SYNTHETIC_PLATFORM, row)])
 
     def fail_module_identity(interpreter: Path, _version: str | None):
         raise AssertionError("an official CLI must be used, not the module fallback")
@@ -2988,11 +2989,11 @@ def test_official_cli_is_kept_when_the_sdk_version_is_newer(tmp_path: Path, monk
 
     for configured, on_path in ((executable, None), (None, str(executable))):
         identity = install_planning.resolve_adobepy_installer(
-            configured=configured, interpreter=Path(sys.executable), sdk_version="0.11.0", on_path=on_path
+            configured=configured, interpreter=Path(sys.executable), sdk_version="0.13.0", on_path=on_path
         )
         assert identity is not None
         assert identity["provenance"] == "official_checksum_release"
-        assert identity["version"] == "0.6.2"
+        assert identity["version"] == "0.12.0"
 
 
 def test_report_accepts_an_official_cli_with_a_newer_sdk(tmp_path: Path, monkeypatch) -> None:
@@ -3001,7 +3002,7 @@ def test_report_accepts_an_official_cli_with_a_newer_sdk(tmp_path: Path, monkeyp
     The acquire branch judges the installed SDK by floor, not by exact pin, so an
     official CLI stays usable after the SDK is raised. Without this test that decision
     is unprotected: reintroducing the exact pin makes the combination fail with
-    "adobepy ==0.6.2 is required" while the operator has done nothing wrong.
+    "adobepy ==0.12.0 is required" while the operator has done nothing wrong.
     """
     from dcc_mcp_photoshop import install_planning
 
@@ -3010,11 +3011,11 @@ def test_report_accepts_an_official_cli_with_a_newer_sdk(tmp_path: Path, monkeyp
     host.write_bytes(b"")
 
     executable = _synthetic_bundle(tmp_path / "official")
-    for sdk_version in ("0.6.2", "0.11.0"):
+    for sdk_version in ("0.12.0", "0.13.0"):
         monkeypatch.setattr(
             install_planning,
             "_adobepy_cli_rows",
-            lambda: [("0.6.2", _SYNTHETIC_PLATFORM, _synthetic_release_row(executable))],
+            lambda: [("0.12.0", _SYNTHETIC_PLATFORM, _synthetic_release_row(executable))],
         )
         monkeypatch.setattr(install_planning, "probe_target_import", _target_import_probe(sdk_version))
         monkeypatch.setenv("ADOBEPY_CLI", str(executable))
@@ -3034,7 +3035,7 @@ def test_report_accepts_an_official_cli_with_a_newer_sdk(tmp_path: Path, monkeyp
             report["verify"]["failure_reason"],
         )
         assert bridge["installer_provenance"] == "official_checksum_release"
-        assert bridge["installer_version"] == "0.6.2"
+        assert bridge["installer_version"] == "0.12.0"
 
 
 def test_module_identity_records_the_selected_interpreter_not_its_link_target(tmp_path: Path, monkeypatch) -> None:
@@ -3056,7 +3057,7 @@ def test_module_identity_records_the_selected_interpreter_not_its_link_target(tm
         pytest.skip("symlinks are unavailable on this runner")
 
     monkeypatch.setattr(install_planning, "adobepy_module_available", lambda _interpreter: True)
-    identity = install_planning._adobepy_module_identity(venv, "0.11.0")
+    identity = install_planning._adobepy_module_identity(venv, "0.13.0")
 
     assert identity is not None
     assert identity["executable"] == str(venv.absolute())
@@ -3124,18 +3125,18 @@ def test_unverifiable_platform_falls_through_to_the_module_surface(tmp_path: Pat
     identity = install_planning.resolve_adobepy_installer(
         configured=None,
         interpreter=Path(sys.executable),
-        sdk_version="0.11.0",
+        sdk_version="0.13.0",
         on_path=str(any_executable),
     )
 
     assert identity is not None, "an unverifiable PATH executable must not block the fallback"
     assert identity["provenance"] == "python_module_entry_point"
-    assert identity["version"] == "0.11.0"
+    assert identity["version"] == "0.13.0"
 
     # An explicit pin stays authoritative even when nothing can be verified.
     assert (
         install_planning.resolve_adobepy_installer(
-            configured=any_executable, interpreter=Path(sys.executable), sdk_version="0.11.0"
+            configured=any_executable, interpreter=Path(sys.executable), sdk_version="0.13.0"
         )
         is None
     )
