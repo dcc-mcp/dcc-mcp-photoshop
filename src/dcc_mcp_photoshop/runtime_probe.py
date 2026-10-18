@@ -6,6 +6,7 @@ import json
 import math
 import os
 import socket
+from collections.abc import Mapping
 from urllib.error import HTTPError, URLError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
@@ -70,6 +71,81 @@ def _request_json(request: Request, timeout: float):
         return None, "invalid_json"
 
 
+def _broker_identity(base: str, headers: dict, timeout: float) -> dict | None:
+    """Best-effort fetch of the broker's own authenticated identity.
+
+    ``GET /v1/broker-identity`` requires the broker token but no live host/bridge
+    session, so it works the moment the broker is listening. The result feeds
+    install verification, not liveness: a failure here leaves ``identity``
+    ``None`` and never flips ``ok``, so a pre-session watchdog keeps reporting
+    liveness while ``verify`` later fails closed with ``invalid_identity``.
+    """
+    payload, error_type = _request_json(
+        Request(f"{base}/v1/broker-identity", headers=headers, method="GET"),
+        timeout,
+    )
+    if error_type or not isinstance(payload, dict):
+        return None
+    # Map the broker wire identity (camelCase) to the adapter's snake_case shape.
+    identity = {
+        "pid": payload.get("pid"),
+        "version": payload.get("runtimeVersion"),
+        "executable": payload.get("executablePath"),
+        "process_start_identity": payload.get("processStartIdentity"),
+        "instance_id": payload.get("instanceId"),
+    }
+    if any(value is None for value in identity.values()):
+        return None
+    return identity
+
+
+def _identity_field(source: object, snake: str, camel: str) -> object | None:
+    """Read one identity field from a frozen dataclass or a wire mapping."""
+    if source is None:
+        return None
+    if hasattr(source, snake):
+        return getattr(source, snake)
+    if isinstance(source, Mapping):
+        if camel in source:
+            return source[camel]
+        if snake in source:
+            return source[snake]
+    return None
+
+
+def _runtime_identity_to_mapping(runtime_identity: object, broker_url: str) -> dict | None:
+    """Flatten an SDK ``RuntimeIdentityAttestation`` into the adapter's dict.
+
+    The adobepy SDK returns a frozen dataclass exposing ``.host``/``.bridge``
+    and ``to_wire()``; older or mocked surfaces may hand back a plain wire
+    mapping. Both are accepted, but the required host/bridge sub-identities are
+    not optional: without them the caller treats identity as absent and fails
+    closed.
+    """
+    if runtime_identity is None:
+        return None
+    host = _identity_field(runtime_identity, "host", "host")
+    bridge = _identity_field(runtime_identity, "bridge", "bridge")
+    if host is None or bridge is None:
+        return None
+    return {
+        "host": "photoshop",
+        "host_pid": _identity_field(host, "pid", "pid"),
+        "process_start_identity": _identity_field(host, "process_start_identity", "processStartIdentity"),
+        "process_executable": _identity_field(host, "executable_path", "executablePath"),
+        "host_version": _identity_field(host, "host_version", "hostVersion"),
+        "profile_id": _identity_field(host, "profile_id", "profileId"),
+        "target": _identity_field(bridge, "target", "target"),
+        "bridge_kind": _identity_field(bridge, "bridge_kind", "bridgeKind"),
+        "bridge_version": _identity_field(bridge, "bridge_version", "bridgeVersion"),
+        "instance_id": _identity_field(bridge, "instance_id", "instanceId"),
+        "plugin_root": _identity_field(bridge, "installed_plugin_root", "installedPluginRoot"),
+        "plugin_module_origin": _identity_field(bridge, "module_origin", "moduleOrigin"),
+        "connected_at_epoch_ms": _identity_field(bridge, "connected_at_epoch_ms", "connectedAtEpochMs"),
+        "broker_url": broker_url,
+    }
+
+
 def probe_broker(broker_url: str, timeout: float) -> dict:
     """Return the broker health payload or a structured failure."""
     bounded_timeout = _bounded_timeout(timeout)
@@ -116,7 +192,7 @@ def probe_broker(broker_url: str, timeout: float) -> dict:
         "protocol": "jsonrpc-2.0",
         "broker_url": base,
         "capabilities": capabilities,
-        "identity": payload.get("identity") if isinstance(payload.get("identity"), dict) else None,
+        "identity": _broker_identity(base, headers, bounded_timeout),
     }
 
 
@@ -161,7 +237,7 @@ def probe_photoshop(broker_url: str, timeout: float) -> dict:
         "version": version,
         "target": os.environ.get("ADOBEPY_TARGET", "default"),
         "broker_url": base,
-        "identity": runtime_identity if isinstance(runtime_identity, dict) else None,
+        "identity": _runtime_identity_to_mapping(runtime_identity, base),
     }
 
 

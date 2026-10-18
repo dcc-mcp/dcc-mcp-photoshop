@@ -139,17 +139,59 @@ def _process_start_identity(pid: int) -> str | None:
         finally:
             kernel32.CloseHandle(handle)
     if sys.platform == "darwin":
+        import ctypes  # noqa: PLC0415
+
+        # Mirror the broker's canonical macOS start token (ADR 0002): read
+        # pbi_start_tvsec/pbi_start_tvusec from proc_pidinfo(PROC_PIDTBSDINFO)
+        # and format as macos:{seconds}:{microseconds:06}. This is byte-identical
+        # to what the broker reports for its own process, so a PID can be matched
+        # across the broker/adapter boundary. The struct layout follows XNU
+        # <sys/proc_info.h>: 12 uint32 fields, pbi_comm[MAXCOMLEN=16],
+        # pbi_name[2*MAXCOMLEN=32], five uint32, one int32, two uint64.
+        class ProcBsdInfo(ctypes.Structure):
+            _fields_ = [
+                ("flags", ctypes.c_uint32),
+                ("status", ctypes.c_uint32),
+                ("xstatus", ctypes.c_uint32),
+                ("pid", ctypes.c_uint32),
+                ("ppid", ctypes.c_uint32),
+                ("uid", ctypes.c_uint32),
+                ("gid", ctypes.c_uint32),
+                ("ruid", ctypes.c_uint32),
+                ("rgid", ctypes.c_uint32),
+                ("svuid", ctypes.c_uint32),
+                ("svgid", ctypes.c_uint32),
+                ("reserved", ctypes.c_uint32),
+                ("command", ctypes.c_char * 16),
+                ("name", ctypes.c_char * 32),
+                ("nfiles", ctypes.c_uint32),
+                ("pgid", ctypes.c_uint32),
+                ("pjobc", ctypes.c_uint32),
+                ("controlling_tty", ctypes.c_uint32),
+                ("foreground_pgid", ctypes.c_uint32),
+                ("nice", ctypes.c_int32),
+                ("start_seconds", ctypes.c_uint64),
+                ("start_microseconds", ctypes.c_uint64),
+            ]
+
         try:
-            result = subprocess.run(
-                ["ps", "-p", str(pid), "-o", "lstart="],
-                capture_output=True,
-                text=True,
-                timeout=3,
-            )
-        except (OSError, subprocess.SubprocessError):
+            libproc = ctypes.CDLL("/usr/lib/libproc.dylib", use_errno=True)
+        except OSError:
             return None
-        value = result.stdout.strip()
-        return f"darwin-lstart:{value}" if result.returncode == 0 and value else None
+        libproc.proc_pidinfo.argtypes = [
+            ctypes.c_int,
+            ctypes.c_int,
+            ctypes.c_uint64,
+            ctypes.c_void_p,
+            ctypes.c_int,
+        ]
+        libproc.proc_pidinfo.restype = ctypes.c_int
+        info = ProcBsdInfo()
+        size = ctypes.sizeof(info)
+        read = libproc.proc_pidinfo(int(pid), 3, 0, ctypes.byref(info), size)
+        if read != size or info.start_seconds == 0:
+            return None
+        return f"macos:{info.start_seconds}:{info.start_microseconds:06}"
     try:
         stat = Path(f"/proc/{pid}/stat").read_text(encoding="utf-8")
         closing = stat.rfind(") ")
