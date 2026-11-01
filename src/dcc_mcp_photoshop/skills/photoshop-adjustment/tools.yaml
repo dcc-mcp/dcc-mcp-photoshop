@@ -66,3 +66,31 @@ tools:
     additionalProperties: false
     required:
     - name
+- name: apply_color_lookup
+  description: Apply a .cube 3D LUT as a Color Lookup adjustment layer
+  source_file: scripts/apply_color_lookup.py
+  execution: sync
+  read_only: false
+  destructive: false
+  idempotent: false
+  input_schema:
+    type: object
+    properties:
+      lut_path:
+        type: string
+        description: Absolute path to a .cube 3D LUT file (parsed and validated before any host call).
+      enabled:
+        type: boolean
+        description: Whether the adjustment layer is enabled (toggle support).
+        default: true
+      opacity:
+        type: number
+        description: Adjustment layer opacity in the range [0, 100].
+        default: 100.0
+      layer_name:
+        type: string
+        description: Name for the new Color Lookup adjustment layer.
+        default: Color Lookup
+    additionalProperties: false
+    required:
+    - lut_path
