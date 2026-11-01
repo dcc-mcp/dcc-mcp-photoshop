@@ -224,6 +224,18 @@ _UUID2 = "22222222-2222-4222-8222-222222222222"
 _SHA2 = "b" * 64
 
 
+def _wire_with_profile(profile_id: str) -> dict[str, Any]:
+    """A valid wire whose profileId carries arbitrary (possibly PII) content."""
+    w = _wire()
+    w["host"]["profileId"] = profile_id
+    return w
+
+
+def _facts_with_profile(profile_id: str) -> dict[str, Any]:
+    """Request facts matching a wire's arbitrary profileId for require_request."""
+    return _facts(host={**_facts()["host"], "profileId": profile_id})
+
+
 def _cross_instance_wire() -> dict[str, Any]:
     """Verify wire for a DIFFERENT live runtime instance than _wire().
 
@@ -300,3 +312,47 @@ class TestCrossInstanceRuntimeBinding:
         result = pb.run_bounded_bootstrap(client, request)
         assert result["status"] == pb.STATUS_IDENTITY_MISMATCH
         assert client.verify_calls == []
+
+
+class TestProfileIdPrivacy:
+    """Round-2 finding 4435462703: no unredacted profile identifier in summary."""
+
+    @pytest.mark.parametrize(
+        "pii_profile",
+        [
+            "alice.smith@corp.example.com",  # email
+            "jdoe",  # short username
+            "hallong",  # account name
+            "C:\\Users\\alice\\AppData\\profile",  # windows home path
+            "/home/alice/.config/profile",  # posix home path
+        ],
+    )
+    def test_summary_never_contains_raw_profile_id(self, pii_profile):
+        # Privacy negative regression: the SDK only bounds profileId length,
+        # not content. Whatever a broker returns as profileId must never be
+        # echoed verbatim into the redacted summary (or any value in it).
+        wire = _wire_with_profile(pii_profile)
+        client = _FakeBrokerClient(bootstrap_wire=wire, verify_wire=_wire_with_profile(pii_profile))
+        request = pb.build_bootstrap_request(_facts_with_profile(pii_profile))
+        result = pb.run_bounded_bootstrap(client, request)
+        assert result["status"] == pb.STATUS_READY
+        assert "profile_id" not in result
+        # Concatenate raw values (not repr) so backslashes are not escaped;
+        # neither the full identifier nor its last path segment may appear.
+        flat = " ".join(str(v) for v in result.values())
+        assert pii_profile not in flat
+        assert pii_profile.replace("\\", "/").split("/")[-1] not in flat
+
+    def test_normal_summary_fields_are_preserved(self):
+        # Normal regression: removing profile_id keeps all non-sensitive
+        # identity fields and the ready status intact.
+        client = _FakeBrokerClient()
+        request = pb.build_bootstrap_request(_facts())
+        result = pb.run_bounded_bootstrap(client, request)
+        assert result["status"] == pb.STATUS_READY
+        assert result["host_version"] == "26.0"
+        assert result["bridge_version"] == "0.12.0"
+        assert result["executable_sha256"] == _SHA
+        assert result["module_sha256"] == _SHA
+        assert result["continuation_path"] == "/v1/photoshop/bootstrap/verify"
+        assert "profile_id" not in result

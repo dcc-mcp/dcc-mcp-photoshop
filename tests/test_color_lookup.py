@@ -302,3 +302,44 @@ class TestParseCubeHardening:
     def test_is_identity_default_identity_unchanged(self):
         assert cl.is_identity(cl.identity_lut(2)) is True
         assert cl.is_identity(cl.parse_cube(cl.write_cube(cl.identity_lut(3)))) is True
+
+
+class TestWriteCubePrecision:
+    """Round-2 finding 4435462698: tiny domains/data must survive serialization."""
+
+    def test_tiny_domain_round_trips_without_collapse(self):
+        # Boundary regression: a valid, non-zero-width domain far below 5e-10
+        # must not be rounded to 0.000000000 by write_cube. The old ':.9f'
+        # format turned DOMAIN_MAX into zero width, so parse_cube(write_cube())
+        # raised "invalid LUT domain".
+        tiny = 1e-10
+        text = f'TITLE "tiny"\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX {tiny} {tiny} {tiny}\nLUT_3D_SIZE 2\n' + "0 0 0\n" * 8
+        lut = cl.parse_cube(text)
+        assert lut.domain_max == (tiny, tiny, tiny)
+
+        written = cl.write_cube(lut)
+        dmax_line = [ln for ln in written.splitlines() if ln.startswith("DOMAIN_MAX")][0]
+        assert "0.000000000 " not in dmax_line  # not collapsed to zero
+        assert "1e-10" in dmax_line  # preserved via scientific notation
+
+        reparsed = cl.parse_cube(written)  # must NOT raise ValueError
+        assert reparsed.domain_min == (0.0, 0.0, 0.0)
+        assert reparsed.domain_max == (tiny, tiny, tiny)
+
+    def test_tiny_data_values_round_trip_exactly(self):
+        # Normal regression for the data path: small non-zero lattice values
+        # are preserved with the same round-trip-safe representation used for
+        # the domain bounds (the finding asks to apply it to LUT data too).
+        tiny = 1e-10
+        data = tuple((tiny, 2 * tiny, 3 * tiny) for _ in range(8))
+        lut = cl.CubeLut(size=2, data=data)
+        parsed = cl.parse_cube(cl.write_cube(lut))
+        assert cl.max_abs_diff(list(data), list(parsed.data)) == 0.0
+
+    def test_normal_unit_domain_stays_clean_decimal(self):
+        # Normal regression: ordinary unit-domain values remain readable
+        # decimals; only extreme magnitudes use scientific notation.
+        written = cl.write_cube(cl.identity_lut(2))
+        dmax_line = [ln for ln in written.splitlines() if ln.startswith("DOMAIN_MAX")][0]
+        assert dmax_line == "DOMAIN_MAX 1.0 1.0 1.0"
+        assert cl.is_identity(cl.parse_cube(written)) is True

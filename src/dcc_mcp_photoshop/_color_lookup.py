@@ -130,15 +130,25 @@ def _parse_triple(parts: list[str], label: str) -> _RGBTriple:
     return (parsed[0], parsed[1], parsed[2])
 
 
+def _format_cube_float(value: float) -> str:
+    # A fixed 9-decimal format rounds any magnitude below 5e-10 to
+    # "0.000000000", which silently collapses a valid non-zero-width domain
+    # into a zero-width one on a write/parse round-trip. repr() of a float is
+    # its shortest round-trippable representation: ordinary values stay clean
+    # decimals, and tiny bounds keep scientific notation (e.g. 1e-10), which
+    # float() parses back exactly.
+    return repr(float(value))
+
+
 def write_cube(lut: CubeLut) -> str:
     """Serialize a :class:`CubeLut` back to standard ``.cube`` text."""
     lines = [
         f'TITLE "{lut.title}"',
-        "DOMAIN_MIN " + " ".join(f"{value:.9f}" for value in lut.domain_min),
-        "DOMAIN_MAX " + " ".join(f"{value:.9f}" for value in lut.domain_max),
+        "DOMAIN_MIN " + " ".join(_format_cube_float(value) for value in lut.domain_min),
+        "DOMAIN_MAX " + " ".join(_format_cube_float(value) for value in lut.domain_max),
         f"LUT_3D_SIZE {lut.size}",
     ]
-    lines.extend(" ".join(f"{value:.9f}" for value in triple) for triple in lut.data)
+    lines.extend(" ".join(_format_cube_float(value) for value in triple) for triple in lut.data)
     return "\n".join(lines) + "\n"
 
 

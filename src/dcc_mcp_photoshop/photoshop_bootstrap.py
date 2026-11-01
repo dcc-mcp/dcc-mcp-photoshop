@@ -55,11 +55,16 @@ def build_bootstrap_request(facts: Mapping[str, Any]) -> PhotoshopBootstrapReque
 
 
 def _redacted_summary(result: PhotoshopBootstrapResult) -> dict[str, Any]:
-    """Return only non-sensitive identity fields from a verified result."""
+    """Return only non-sensitive identity fields from a verified result.
+
+    ``profile_id`` is intentionally omitted: the SDK validates its length but
+    not its content, so it may carry a username, email address, or home path.
+    Returning it would leak that PII into logs/diagnostics, and the existing
+    message redactor cannot reliably scrub a bare identifier.
+    """
     return {
         "status": STATUS_READY,
         "host_version": result.host.host_version,
-        "profile_id": result.host.profile_id,
         "bridge_version": result.plugin.bridge_version,
         "executable_sha256": result.host.executable_sha256,
         "module_sha256": result.plugin.module_sha256,
