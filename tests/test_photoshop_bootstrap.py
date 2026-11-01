@@ -216,4 +216,87 @@ class TestDescribeContract:
         assert contract["verify_path"] == "/v1/photoshop/bootstrap/verify"
         assert "require_request" in contract["identity_binding"]
         assert "require_continuation" in contract["identity_binding"]
+        assert "same_runtime_instance" in contract["identity_binding"]
         assert "ADOBEPY_TOKEN" in contract["requires"]
+
+
+_UUID2 = "22222222-2222-4222-8222-222222222222"
+_SHA2 = "b" * 64
+
+
+def _cross_instance_wire() -> dict[str, Any]:
+    """Verify wire for a DIFFERENT live runtime instance than _wire().
+
+    Request-bound fields (host version, profile id, executable/module hashes,
+    bridge version, timeout) and the continuation stay identical to _wire(),
+    so both SDK ``require_request`` / ``require_continuation`` checks still pass.
+    Only the live-instance bindings differ: broker/host PIDs, start identities,
+    instance ids, and the identity fingerprint.
+    """
+    w = _wire()
+    w["identityFingerprint"] = _SHA2
+    w["broker"]["pid"] = 9999
+    w["broker"]["processStartIdentity"] = "reboot:9999"
+    w["broker"]["instanceId"] = _UUID2
+    w["host"]["pid"] = 8888
+    w["host"]["processStartIdentity"] = "reboot:8888"
+    w["plugin"]["instanceId"] = _UUID2
+    return w
+
+
+class TestCrossInstanceRuntimeBinding:
+    """Finding 4434889410: bootstrap and verify must describe ONE live instance."""
+
+    def test_matching_runtime_binding_is_ready(self):
+        # Normal counterpart: identical wires still attest a single instance.
+        client = _FakeBrokerClient(verify_wire=_wire())
+        request = pb.build_bootstrap_request(_facts())
+        result = pb.run_bounded_bootstrap(client, request)
+        assert result["status"] == pb.STATUS_READY
+        assert len(client.bootstrap_calls) == 1
+        assert len(client.verify_calls) == 1
+
+    def test_cross_instance_verify_is_rejected(self):
+        client = _FakeBrokerClient(verify_wire=_cross_instance_wire())
+        request = pb.build_bootstrap_request(_facts())
+        result = pb.run_bounded_bootstrap(client, request)
+        assert result["status"] == pb.STATUS_INSTANCE_MISMATCH
+        assert result["reason"] == "runtime_instance_changed"
+        # The handshake did run both steps; only the final attestation is refused.
+        assert len(client.bootstrap_calls) == 1
+        assert len(client.verify_calls) == 1
+
+    @pytest.mark.parametrize(
+        "mutate",
+        [
+            lambda w: w["broker"].update({"pid": 9999}),
+            lambda w: w["broker"].update({"processStartIdentity": "reboot:1001"}),
+            lambda w: w["broker"].update({"instanceId": _UUID2}),
+            lambda w: w["broker"].update({"runtimeVersion": "9.9.9"}),
+            lambda w: w["broker"].update({"executableSha256": _SHA2}),
+            lambda w: w["host"].update({"pid": 8888}),
+            lambda w: w["host"].update({"processStartIdentity": "reboot:2002"}),
+            lambda w: w["plugin"].update({"instanceId": _UUID2}),
+            lambda w: w.update({"identityFingerprint": _SHA2}),
+        ],
+    )
+    def test_each_runtime_binding_field_is_compared(self, mutate):
+        # Each single-field change to the live-instance binding is detected,
+        # even though require_request / require_continuation still pass. (Fields
+        # that are request-bound, e.g. host/module sha, are caught earlier by
+        # require_request and are covered by test_sdk_identity_checks_remain_independent.)
+        verify_wire = _wire()
+        mutate(verify_wire)
+        client = _FakeBrokerClient(verify_wire=verify_wire)
+        request = pb.build_bootstrap_request(_facts())
+        result = pb.run_bounded_bootstrap(client, request)
+        assert result["status"] == pb.STATUS_INSTANCE_MISMATCH
+
+    def test_sdk_identity_checks_remain_independent(self):
+        # A request/continuation identity mismatch is still reported as before
+        # (not shadowed by the new instance check).
+        client = _FakeBrokerClient(bootstrap_wire=_wire(host_version="99.9"))
+        request = pb.build_bootstrap_request(_facts())
+        result = pb.run_bounded_bootstrap(client, request)
+        assert result["status"] == pb.STATUS_IDENTITY_MISMATCH
+        assert client.verify_calls == []

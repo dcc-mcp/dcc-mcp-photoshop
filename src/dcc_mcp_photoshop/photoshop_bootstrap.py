@@ -37,6 +37,7 @@ from dcc_mcp_photoshop.bootstrap_diagnostics import redact_bootstrap_message
 STATUS_READY = "ready"
 STATUS_BLOCKED = "blocked"
 STATUS_IDENTITY_MISMATCH = "identity_mismatch"
+STATUS_INSTANCE_MISMATCH = "instance_mismatch"
 STATUS_INVALID_FACTS = "invalid_facts"
 
 _BOOTSTRAP_PATH = "/v1/photoshop/bootstrap"
@@ -74,6 +75,25 @@ def _failure(reason: str, message: str) -> dict[str, Any]:
     }
 
 
+def _runtime_binding(result: PhotoshopBootstrapResult) -> tuple[Any, ...]:
+    """Return the live-instance binding fields of a bootstrap/verify result.
+
+    ``require_request`` / ``require_continuation`` bind each result to the
+    request and the receipt, but neither compares the two results' runtime
+    bindings. A broker/host/plugin process can restart between the bootstrap
+    and verify calls; if the second result describes a different live instance
+    (PIDs, process-start identities, instance ids, or a different identity
+    fingerprint), returning ``ready`` would attest to the wrong runtime. These
+    fields are the exact-instance facts the SDK exposes for that comparison.
+    """
+    return (
+        result.identity_fingerprint,
+        result.broker,
+        result.host,
+        result.plugin,
+    )
+
+
 def run_bounded_bootstrap(
     client: BrokerClient,
     request: PhotoshopBootstrapRequest,
@@ -100,6 +120,17 @@ def run_bounded_bootstrap(
             "status": STATUS_IDENTITY_MISMATCH,
             "reason": "identity_binding_rejected",
             "message": redact_bootstrap_message(str(exc)),
+        }
+    # require_request / require_continuation bind each result to the request
+    # and the receipt independently, but neither compares the two results to
+    # each other. Reject a verify result that describes a different live
+    # runtime instance than bootstrap (broker/host/plugin restart between the
+    # two calls), so we never attest to the wrong runtime.
+    if _runtime_binding(bootstrap_result) != _runtime_binding(verify_result):
+        return {
+            "status": STATUS_INSTANCE_MISMATCH,
+            "reason": "runtime_instance_changed",
+            "message": "bootstrap and verification are bound to different runtime instances",
         }
     return _redacted_summary(verify_result)
 
@@ -140,7 +171,11 @@ def describe_bootstrap_contract() -> dict[str, Any]:
         "request_type": "PhotoshopBootstrapRequest",
         "bootstrap_path": _BOOTSTRAP_PATH,
         "verify_path": _VERIFY_PATH,
-        "identity_binding": ["require_request", "require_continuation"],
+        "identity_binding": [
+            "require_request",
+            "require_continuation",
+            "same_runtime_instance",
+        ],
         "requires": [
             "official adobepy Windows broker CLI",
             "ADOBEPY_TOKEN",
