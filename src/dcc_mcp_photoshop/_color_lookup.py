@@ -82,9 +82,15 @@ def parse_cube(text: str) -> CubeLut:
             raise ValueError(f"unsupported LUT directive: {keyword}")
         if len(parts) != 3:
             raise ValueError(f"malformed .cube data line: {line!r}")
+        # The .cube format requires LUT_3D_SIZE before any table data. A data
+        # line seen while size is None cannot be capacity-checked, so buffering
+        # it would let a malformed file grow the table without bound. Reject on
+        # the first such line instead.
+        if size is None:
+            raise ValueError("LUT_3D_SIZE must precede table data")
         # Stop as soon as the declared lattice is full; do not buffer an
         # unbounded number of extra data lines before the final count check.
-        if size is not None and len(data) >= size**3:
+        if len(data) >= size**3:
             raise ValueError(f"more than {size**3} data lines")
         data.append(_parse_triple(parts, "data line"))
 
