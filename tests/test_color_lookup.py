@@ -222,6 +222,38 @@ class TestParseCubeHardening:
         assert lut.size == 2
         assert len(lut.data) == 8
 
+    def test_data_before_size_rejected_unbuffered(self, monkeypatch):
+        # NACK finding: data lines appearing before LUT_3D_SIZE must be
+        # rejected on the first line, not buffered. While size is None the
+        # capacity guard is inactive, so a malformed file with arbitrarily
+        # many pre-size data lines must not grow the table without bound.
+        calls = {"n": 0}
+        original = cl._parse_triple
+
+        def counting(parts, label):
+            calls["n"] += 1
+            return original(parts, label)
+
+        monkeypatch.setattr(cl, "_parse_triple", counting)
+        n_before = 20000
+        text = "0 0 0\n" * n_before + "LUT_3D_SIZE 2\n" + "0 0 0\n" * 8
+        with pytest.raises(ValueError, match="must precede table data"):
+            cl.parse_cube(text)
+        # No pre-size data line is ever parsed, regardless of how many there
+        # are: the very first one is rejected before any buffering/parsing.
+        assert calls["n"] == 0
+
+    def test_header_directives_before_size_still_parse(self):
+        # Normal counterpart: TITLE/DOMAIN_* are header directives that
+        # legitimately precede LUT_3D_SIZE and must keep parsing; only numeric
+        # table data before the size line is rejected.
+        text = 'TITLE "precede"\nDOMAIN_MIN 0 0 0\nDOMAIN_MAX 1 1 1\nLUT_3D_SIZE 2\n' + "0 0 0\n" * 8
+        lut = cl.parse_cube(text)
+        assert lut.size == 2
+        assert lut.title == "precede"
+        assert len(lut.data) == 8
+        assert cl.is_identity(lut) is False
+
     @pytest.mark.parametrize("declaration", ["LUT_3D_SIZE 1", "LUT_3D_SIZE 257"])
     def test_size_out_of_range_rejected(self, declaration):
         with pytest.raises(ValueError, match="out of range"):
