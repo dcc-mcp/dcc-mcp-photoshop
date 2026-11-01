@@ -188,3 +188,117 @@ class TestApplyColorLookupSkill:
 
         assert result["success"] is False
         app.batch_play.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# CodeRabbit PR #154 findings — offline regressions for the narrow parse/identity
+# fixes. Each case has a negative (malformed LUT rejected) and a normal (valid
+# LUT still accepted) counterpart.
+# ---------------------------------------------------------------------------
+
+
+class TestParseCubeHardening:
+    def test_excess_data_lines_fail_fast(self, monkeypatch):
+        # Finding 4434889399: a .cube declaring size 2 must not buffer an
+        # unbounded number of data lines before the final count check.
+        calls = {"n": 0}
+        original = cl._parse_triple
+
+        def counting(parts, label):
+            calls["n"] += 1
+            return original(parts, label)
+
+        monkeypatch.setattr(cl, "_parse_triple", counting)
+        text = "LUT_3D_SIZE 2\n" + "0 0 0\n" * 20000
+        with pytest.raises(ValueError, match="more than 8 data lines"):
+            cl.parse_cube(text)
+        # Only the declared capacity (8) plus the first overflow line is parsed.
+        assert calls["n"] <= 9
+
+    def test_exact_capacity_lut_still_parses(self):
+        # Normal counterpart: a fully-populated LUT is unaffected by the guard.
+        text = "LUT_3D_SIZE 2\n" + "0 0 0\n" * 8
+        lut = cl.parse_cube(text)
+        assert lut.size == 2
+        assert len(lut.data) == 8
+
+    @pytest.mark.parametrize("declaration", ["LUT_3D_SIZE 1", "LUT_3D_SIZE 257"])
+    def test_size_out_of_range_rejected(self, declaration):
+        with pytest.raises(ValueError, match="out of range"):
+            cl.parse_cube(declaration + "\n" + "0 0 0\n" * 8)
+
+    @pytest.mark.parametrize(
+        "directive",
+        [
+            "DOMAIN_MIN nan 0 0",
+            "DOMAIN_MIN 0 nan 0",
+            "DOMAIN_MAX 1 inf 1",
+            "DOMAIN_MAX 1 1 -inf",
+        ],
+    )
+    def test_non_finite_domain_rejected(self, directive):
+        # Finding 4434889403: a nan/inf domain bound must not pass parse_cube.
+        text = f"LUT_3D_SIZE 2\n{directive}\n" + "0 0 0\n" * 8
+        with pytest.raises(ValueError, match="non-finite"):
+            cl.parse_cube(text)
+
+    @pytest.mark.parametrize(
+        "directive",
+        [
+            "DOMAIN_MIN 0 0 0 EXTRA",
+            "DOMAIN_MIN 0 0 0 0 0",
+            "DOMAIN_MAX 1 1 1 EXTRA",
+        ],
+    )
+    def test_domain_extra_field_rejected(self, directive):
+        # Finding 4434889405: extra fields on a domain directive are rejected,
+        # not silently truncated.
+        text = f"LUT_3D_SIZE 2\n{directive}\n" + "0 0 0\n" * 8
+        with pytest.raises(ValueError):
+            cl.parse_cube(text)
+
+    def test_finite_custom_domain_still_parses(self):
+        # Normal counterpart: a valid finite custom domain is accepted.
+        text = "LUT_3D_SIZE 2\nDOMAIN_MIN 0.1 0.2 0.3\nDOMAIN_MAX 0.9 0.8 0.7\n" + "0 0 0\n" * 8
+        lut = cl.parse_cube(text)
+        assert lut.domain_min == (0.1, 0.2, 0.3)
+        assert lut.domain_max == (0.9, 0.8, 0.7)
+
+    def test_is_identity_rejects_non_default_domain_mismatch(self):
+        # Finding 4434889409: default identity data with a non-unit domain is
+        # NOT an identity transform; is_identity must account for the domain.
+        lut = cl.CubeLut(
+            size=2,
+            data=cl.identity_lut(2).data,
+            domain_min=(0.25, 0.25, 0.25),
+            domain_max=(0.75, 0.75, 0.75),
+        )
+        assert cl.sample(lut, 0.25, 0.25, 0.25) == (0.0, 0.0, 0.0)
+        assert cl.is_identity(lut) is False
+
+    def test_is_identity_accepts_domain_consistent_identity(self):
+        # Normal counterpart: data equal to the domain coordinate at each
+        # lattice point is an identity transform even on a non-unit domain.
+        span = 1  # size 2
+        lo, hi = 0.25, 0.75
+        data = tuple(
+            (
+                lo + (r / span) * (hi - lo),
+                lo + (g / span) * (hi - lo),
+                lo + (b / span) * (hi - lo),
+            )
+            for b in range(2)
+            for g in range(2)
+            for r in range(2)
+        )
+        lut = cl.CubeLut(
+            size=2,
+            data=data,
+            domain_min=(lo, lo, lo),
+            domain_max=(hi, hi, hi),
+        )
+        assert cl.is_identity(lut) is True
+
+    def test_is_identity_default_identity_unchanged(self):
+        assert cl.is_identity(cl.identity_lut(2)) is True
+        assert cl.is_identity(cl.parse_cube(cl.write_cube(cl.identity_lut(3)))) is True

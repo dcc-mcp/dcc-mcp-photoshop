@@ -73,22 +73,33 @@ def parse_cube(text: str) -> CubeLut:
             if len(parts) != 2:
                 raise ValueError("LUT_3D_SIZE expects a single integer")
             size = int(parts[1])
+            # Validate the declared size immediately so the capacity guard
+            # below is always bounded to a real lattice.
+            if size < 2 or size > 256:
+                raise ValueError("LUT_3D_SIZE out of range [2, 256]")
             continue
         if keyword.startswith("LUT_"):
             raise ValueError(f"unsupported LUT directive: {keyword}")
         if len(parts) != 3:
             raise ValueError(f"malformed .cube data line: {line!r}")
+        # Stop as soon as the declared lattice is full; do not buffer an
+        # unbounded number of extra data lines before the final count check.
+        if size is not None and len(data) >= size**3:
+            raise ValueError(f"more than {size**3} data lines")
         data.append(_parse_triple(parts, "data line"))
 
     if size is None:
         raise ValueError("missing LUT_3D_SIZE")
-    if size < 2 or size > 256:
-        raise ValueError("LUT_3D_SIZE out of range [2, 256]")
     if len(data) != size**3:
         raise ValueError(f"expected {size**3} data lines, got {len(data)}")
     for triple in data:
         if any(not math.isfinite(value) for value in triple):
             raise ValueError("LUT data contains a non-finite value")
+    # A non-finite domain bound (nan/inf) passes float() and the ``hi <= lo``
+    # comparison below is False for nan, so validate finiteness explicitly
+    # before the range check. Otherwise sample() would silently pin a channel.
+    if any(not math.isfinite(value) for value in (*domain_min, *domain_max)):
+        raise ValueError("LUT domain contains a non-finite value")
     if any(hi <= lo for lo, hi in zip(domain_min, domain_max)):
         raise ValueError("invalid LUT domain")
 
@@ -103,9 +114,11 @@ def parse_cube(text: str) -> CubeLut:
 
 def _parse_triple(parts: list[str], label: str) -> _RGBTriple:
     # A directive line carries its keyword at index 0; a data line carries the
-    # three numbers at indices 0..2. Normalize both cases.
+    # three numbers at indices 0..2. Normalize both cases. A domain directive
+    # must have exactly three numeric fields after its keyword: reject extra
+    # fields instead of silently truncating them.
     if parts[0].upper() in {"DOMAIN_MIN", "DOMAIN_MAX"}:
-        number_tokens = parts[1:4]
+        number_tokens = parts[1:]
     else:
         number_tokens = parts[0:3]
     if len(number_tokens) != 3:
@@ -164,13 +177,25 @@ def warm_lut(size: int = 2, *, title: str = "warm") -> CubeLut:
 
 
 def is_identity(lut: CubeLut, *, tolerance: float = IDENTITY_TOLERANCE) -> bool:
-    """Return ``True`` when every lattice point equals its input within tolerance."""
+    """Return ``True`` when every lattice point equals its input within tolerance.
+
+    "Input" is the domain coordinate that maps to each lattice point, derived
+    from ``domain_min`` / ``domain_max``. For the default unit domain this is
+    ``grid / span``; for a non-default domain the skill must not report a LUT
+    as an identity transform when its sampled outputs do not match those
+    domain coordinates.
+    """
     span = lut.size - 1
     for b in range(lut.size):
         for g in range(lut.size):
             for r in range(lut.size):
                 index = r + lut.size * g + lut.size * lut.size * b
-                expected = (r / span, g / span, b / span)
+                grid = (r, g, b)
+                expected = tuple(
+                    lut.domain_min[channel]
+                    + (grid[channel] / span) * (lut.domain_max[channel] - lut.domain_min[channel])
+                    for channel in range(3)
+                )
                 if any(abs(lut.data[index][channel] - expected[channel]) > tolerance for channel in range(3)):
                     return False
     return True
