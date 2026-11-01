@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.1.45](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.44...v0.1.45) (2026-11-01)
+
+
+### Features
+
+* **adjustment:** add .cube 3D LUT color lookup tool ([0274905](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/0274905308021ae5bebca53bb62ec925651f63c6))
+
+
+### Bug Fixes
+
+* **lut, bootstrap:** harden .cube parsing and bind handshake to one runtime ([3af47b4](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/3af47b4bd72afe8fccea8823ba254ee18cff05de))
+* **lut, bootstrap:** preserve tiny LUT domains and omit profile PII ([04b0a2a](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/04b0a2a4836dc432564cf9abb542e4aef0c76f9a))
+* **lut:** reject .cube table data before LUT_3D_SIZE to bound parsing ([459a8ad](https://github.com/dcc-mcp/dcc-mcp-photoshop/commit/459a8ad0a15dd03c07a45a41c53c7ee817b0e241))
+
 ## [0.1.44](https://github.com/dcc-mcp/dcc-mcp-photoshop/compare/v0.1.43...v0.1.44) (2026-10-18)
 
 
