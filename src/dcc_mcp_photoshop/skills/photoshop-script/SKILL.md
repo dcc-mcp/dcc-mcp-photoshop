@@ -1,7 +1,7 @@
 ---
 name: photoshop-script
 description: Execute named Photoshop Actions
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

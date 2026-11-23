@@ -1,7 +1,7 @@
 ---
 name: photoshop-text
 description: Adobe Photoshop text layer operations — create, edit, style text layers
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

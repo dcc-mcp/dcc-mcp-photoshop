@@ -2,7 +2,7 @@
 name: photoshop-setup
 description: Adobe Photoshop MCP setup — stage and load the adobepy UXP bridge, configure clients, and verify the full server
   connection
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

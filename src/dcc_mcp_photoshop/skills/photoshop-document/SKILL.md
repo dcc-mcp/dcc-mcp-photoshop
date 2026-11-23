@@ -1,7 +1,7 @@
 ---
 name: photoshop-document
 description: Adobe Photoshop document management — open, query, list, and close documents and layers
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

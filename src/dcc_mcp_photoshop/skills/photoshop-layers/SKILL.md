@@ -2,7 +2,7 @@
 name: photoshop-layers
 description: Adobe Photoshop layer operations — create, delete, reorder, duplicate, rename, set opacity/visibility, fill,
   blend modes
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

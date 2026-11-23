@@ -1,7 +1,7 @@
 ---
 name: photoshop-image
 description: Adobe Photoshop image operations — create new documents, export, resize canvas, flatten, merge layers
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

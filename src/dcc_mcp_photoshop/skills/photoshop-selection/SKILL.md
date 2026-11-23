@@ -1,7 +1,7 @@
 ---
 name: photoshop-selection
 description: Adobe Photoshop selection operations — get, create, modify, and save selections
-license: MIT
+license: Apache-2.0
 allowed-tools:
 - Bash
 - Read

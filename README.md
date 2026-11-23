@@ -87,7 +87,7 @@ The Python MCP server communicates with Photoshop through the adobepy Rust broke
 [![Photoshop](https://img.shields.io/badge/Photoshop-2022%2B-001E36)](https://www.adobe.com/products/photoshop.html)
 [![MCP](https://img.shields.io/badge/MCP-Streamable%20HTTP-6f42c1)](https://modelcontextprotocol.io/)
 [![dcc-mcp-core](https://img.shields.io/badge/dcc--mcp--core-%3E%3D0.20.14-blue)](https://github.com/dcc-mcp/dcc-mcp-core)
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](LICENSE)
 
 ## Why Use It
 
@@ -713,4 +713,4 @@ See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+Apache-2.0 — see [LICENSE](LICENSE), [NOTICE](NOTICE), and [TRADEMARKS.md](TRADEMARKS.md).
