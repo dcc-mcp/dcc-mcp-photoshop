@@ -104,3 +104,8 @@ check-release-workflow:
 # Refresh the approved release workflow snapshot after an intentional edit
 refresh-release-snapshot:
     python scripts/ci/check_release_workflow_digest.py --update-snapshot
+
+
+# Verify the pinned VX and just toolchain.
+toolchain-ci:
+    vx just@1.58 --version
