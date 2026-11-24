@@ -29,6 +29,29 @@ PythonProbe = Callable[[str, float], Dict[str, Any]]
 ProcessProbe = Callable[[int], Dict[str, Any]]
 
 
+_WINDOWS_DEVICE_PREFIX = "\\\\?\\"
+_WINDOWS_UNC_DEVICE_PREFIX = "\\\\?\\UNC\\"
+
+
+def _canonical_device_path(value: str) -> str:
+    """Rewrite a Win32 device-namespace path into its ordinary spelling.
+
+    A runtime can report its executable with the extended-length device prefix
+    while an install receipt stores the ordinary drive-absolute spelling.
+    ``pathlib`` resolves the prefixed form to a drive-relative path on Windows,
+    so the two spellings never compare equal even though they name the same
+    file. Only the prefix is rewritten; the remaining path and every identity
+    check that consumes it are unchanged.
+    """
+    if value.startswith(_WINDOWS_UNC_DEVICE_PREFIX):
+        return "\\\\" + value[len(_WINDOWS_UNC_DEVICE_PREFIX) :]
+    if value.startswith(_WINDOWS_DEVICE_PREFIX):
+        remainder = value[len(_WINDOWS_DEVICE_PREFIX) :]
+        if len(remainder) >= 3 and remainder[0].isalpha() and remainder[1] == ":" and remainder[2] in "\\/":
+            return remainder
+    return value
+
+
 def _same_path(left: Any, right: Any) -> bool:
     try:
         left_text = os.fspath(left)
@@ -38,7 +61,9 @@ def _same_path(left: Any, right: Any) -> bool:
     if not _bounded_text(left_text, 4_096) or not _bounded_text(right_text, 4_096):
         return False
     try:
-        return os.path.normcase(str(Path(left_text).resolve())) == os.path.normcase(str(Path(right_text).resolve()))
+        left_resolved = Path(_canonical_device_path(left_text)).resolve()
+        right_resolved = Path(_canonical_device_path(right_text)).resolve()
+        return os.path.normcase(str(left_resolved)) == os.path.normcase(str(right_resolved))
     except (OSError, TypeError, ValueError):
         return False
 
