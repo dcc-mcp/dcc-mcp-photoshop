@@ -1,7 +1,7 @@
 ---
 name: photoshop-filter
 description: Adobe Photoshop filter operations — apply blur, sharpen, and other filters to layers
-license: Apache-2.0
+license: MIT
 allowed-tools:
 - Bash
 - Read

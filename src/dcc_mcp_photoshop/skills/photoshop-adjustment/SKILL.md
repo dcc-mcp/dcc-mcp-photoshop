@@ -1,7 +1,7 @@
 ---
 name: photoshop-adjustment
 description: Adobe Photoshop adjustment and batch operations — channels, color lookup LUT, and batchPlay
-license: Apache-2.0
+license: MIT
 allowed-tools:
 - Bash
 - Read
